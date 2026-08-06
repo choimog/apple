@@ -1,0 +1,248 @@
+# =============================================================================
+#  수집 대상 URL 목록
+# =============================================================================
+#
+#  【이 파일은 무엇인가요?】
+#  매일 어떤 서점의 어떤 분야를 수집할지 적어둔 목록입니다.
+#  서점이 새 분야를 만들거나 없애면 "이 파일만" 고치면 됩니다. (코드는 안 건드림)
+#
+#  【어떻게 고치나요? — 개발 지식 없이 하는 방법】
+#  1. GitHub 저장소(https://github.com/choimog/apple) 접속
+#  2. config 폴더 → sources.yaml 파일 클릭
+#  3. 오른쪽 위 연필(✏️) 아이콘 클릭
+#  4. 아래 규칙대로 고친 뒤, 맨 아래 [Commit changes] 초록 버튼 클릭
+#  → 다음 날 새벽 수집부터 자동 반영됩니다.
+#
+#  【띄어쓰기 주의 — 가장 흔한 실수】
+#  YAML은 왼쪽 여백(들여쓰기)으로 구조를 판단합니다.
+#  - 반드시 "스페이스"만 쓰세요. Tab 키는 오류가 납니다.
+#  - 기존 줄과 여백 칸 수를 똑같이 맞추세요.
+#  - 가장 안전한 방법: 기존 줄을 통째로 복사해서 붙여넣고 값만 바꾸기
+#
+#  【각 항목의 뜻】
+#    code         : 서점이 쓰는 분야 코드 (URL 안에 들어있는 숫자)
+#    name         : 화면에 보일 한글 이름 (자유롭게 지으셔도 됩니다)
+#    unified      : 통합 분야 코드. 3사 간 비교를 위한 공통 이름
+#                   (config/categories.yaml 에 정의됨. 없으면 비워두세요)
+#    url          : 수집할 주소. {page} 자리에 페이지 번호가 자동으로 들어갑니다
+#    max_items    : 이 분야에서 최대 몇 권까지 수집할지
+#    page_size    : 한 페이지에 몇 권이 나오는지 (모르면 그대로 두세요)
+#    enabled      : true=수집함 / false=수집 안 함
+#                   ※ 잠시 쉬고 싶으면 지우지 말고 false로 바꾸세요
+#
+#  【분야를 하나 빼고 싶을 때】
+#    그 줄들을 지우지 말고 enabled: true → false 로만 바꾸세요.
+#    (지우면 과거 데이터와 연결이 끊어질 수 있습니다)
+#
+# =============================================================================
+#  ⚠️ 현재 상태: 아래 목록은 "확인된 것"과 "확인 필요"가 섞여 있습니다.
+#     - ✅ 표시: 사용자가 직접 알려준 검증된 URL
+#     - ❓ 표시: Phase 1.5 정찰(recon) 실행 후 실제 코드로 채워집니다
+#     정찰 스크립트가 각 서점의 분야 코드를 자동으로 찾아서 보고합니다.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+#  전역 설정 — 모든 서점에 공통 적용
+# -----------------------------------------------------------------------------
+defaults:
+  # 요청과 요청 사이에 쉬는 시간(초). 서점 서버에 부담을 주지 않기 위한 예의입니다.
+  # 이 값을 1.0 밑으로 내리지 마세요. 차단 위험이 커집니다.
+  delay_min_sec: 1.0
+  delay_max_sec: 2.0
+
+  # 한 서점에 동시에 보낼 요청 수. 1 = 한 번에 하나씩(가장 안전)
+  concurrency: 1
+
+  # 실패했을 때 다시 시도할 횟수 (시도할수록 대기 시간이 길어짐 = 지수 백오프)
+  max_retries: 4
+
+  # 우리가 누구인지 밝히는 이름표. 서점이 문의할 수 있도록 연락처를 넣는 것이 예의입니다.
+  user_agent: "BestsellerTracker/1.0 (+https://github.com/choimog/apple)"
+
+  # 한 요청이 이 시간을 넘으면 실패로 간주 (초)
+  timeout_sec: 20
+
+  # 자가 점검: 수집 건수가 "평소 대비 이 비율" 밑이면 성공이 아니라 실패로 기록합니다.
+  # 0.5 = 평소의 절반 미만이면 실패 처리 (요구사항 3-3)
+  min_ratio_of_median: 0.5
+
+
+# -----------------------------------------------------------------------------
+#  교보문고 — 온라인 주간 베스트셀러
+# -----------------------------------------------------------------------------
+#  ✅ 아래 3개는 검증된 URL 패턴입니다.
+#  ❓ 나머지 분야 코드는 정찰 후 추가됩니다.
+#  ※ 교보 온라인은 분야당 최대 200권입니다.
+# -----------------------------------------------------------------------------
+kyobo_online:
+  store: kyobo
+  kind: online
+  categories:
+    - code: ""                      # 빈 코드 = 전체
+      name: "전체"
+      unified: "all"
+      url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic?page={page}"
+      max_items: 200
+      page_size: 20
+      enabled: true
+
+    - code: "01"
+      name: "소설"
+      unified: "fiction"
+      url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/01?page={page}"
+      max_items: 200
+      page_size: 20
+      enabled: true
+
+    - code: "03"
+      name: "시/에세이"
+      unified: "poetry_essay"
+      url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/03?page={page}"
+      max_items: 200
+      page_size: 20
+      enabled: true
+
+    # ❓ 정찰 후 나머지 분야가 여기에 자동으로 추가됩니다.
+
+
+# -----------------------------------------------------------------------------
+#  교보문고 — 오프라인 매장 베스트셀러
+# -----------------------------------------------------------------------------
+#  ✅ 아래 4개 매장은 검증된 URL 패턴입니다.
+#  ❓ 전국 나머지 매장 코드는 정찰 후 추가됩니다. (사용자 요청: 모든 매장 추적)
+#  ※ 매장×분야당 최대 50권입니다.
+#  ※ URL의 'seoul' 부분은 지역명입니다. 지방 매장은 다른 지역명이 들어갑니다.
+# -----------------------------------------------------------------------------
+kyobo_offline:
+  store: kyobo
+  kind: offline
+  # 매장별로 수집할 분야. 매장 수가 많아서 분야를 늘리면 요청 수가 급증합니다.
+  # 처음엔 '전체(00)'만 켜두고, 필요하면 아래에서 추가하세요.
+  store_categories:
+    - code: "00"
+      name: "전체"
+      unified: "all"
+      enabled: true
+    - code: "03"
+      name: "청소년"
+      unified: "teen"
+      enabled: false        # ← 필요해지면 true로 바꾸세요
+    - code: "09"
+      name: "가정·생활"
+      unified: "home_life"
+      enabled: false
+
+  branches:
+    - branch_code: "001"
+      branch_name: "광화문점"
+      region: "seoul"
+      enabled: true
+    - branch_code: "015"
+      branch_name: "강남점"
+      region: "seoul"
+      enabled: true
+    - branch_code: "029"
+      branch_name: "잠실점"
+      region: "seoul"
+      enabled: true
+    - branch_code: "049"
+      branch_name: "합정점"
+      region: "seoul"
+      enabled: true
+
+    # ❓ 정찰 후 전국 나머지 매장이 여기에 자동으로 추가됩니다.
+
+  # 매장 URL 형식. {region}/{branch}/{cat} 자리에 위 값이 들어갑니다.
+  url_template: "https://store.kyobobook.co.kr/bestseller/store/{region}/{branch}/{cat}?page={page}&per=50"
+  max_items: 50
+  page_size: 50
+
+
+# -----------------------------------------------------------------------------
+#  예스24
+# -----------------------------------------------------------------------------
+#  ✅ 아래 URL 패턴은 검증되었습니다.
+#  ❓ 전체 분야 코드는 정찰 후 추가됩니다.
+#  ※ 분야당 최대 1,000권 (사용자 설정)
+#  ※ pageSize를 24보다 크게 할 수 있는지 정찰에서 확인합니다.
+#     크게 할 수 있으면 요청 수가 크게 줄어듭니다.
+# -----------------------------------------------------------------------------
+yes24:
+  store: yes24
+  kind: online
+  page_size: 24            # 정찰에서 더 큰 값이 가능한지 확인 예정
+  categories:
+    - code: "001"
+      name: "전체"
+      unified: "all"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001&pageNumber={page}&pageSize=24"
+      max_items: 1000
+      enabled: true
+
+    - code: "001001001"
+      name: "가정살림"
+      unified: "home_life"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001001&pageNumber={page}&pageSize=24"
+      max_items: 1000
+      enabled: true
+
+    - code: "001001011"
+      name: "건강취미"
+      unified: "health_hobby"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001011&pageNumber={page}&pageSize=24"
+      max_items: 1000
+      enabled: true
+
+    - code: "001001025"
+      name: "경제경영"
+      unified: "business"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001025&pageNumber={page}&pageSize=24"
+      max_items: 1000
+      enabled: true
+
+    # ❓ 정찰 후 나머지 분야가 여기에 자동으로 추가됩니다.
+
+
+# -----------------------------------------------------------------------------
+#  알라딘
+# -----------------------------------------------------------------------------
+#  ✅ 아래 URL 패턴은 검증되었습니다.
+#  ❓ 전체 분야 코드(CID)는 정찰 후 추가됩니다.
+#  ※ 분야당 최대 1,000권 (사용자 설정)
+#  ※ 표지 이미지 주소를 여기서 가져옵니다 (우선순위 1순위)
+# -----------------------------------------------------------------------------
+aladin:
+  store: aladin
+  kind: online
+  page_size: 50            # 정찰에서 실제 값 확인 예정
+  categories:
+    - code: ""
+      name: "전체"
+      unified: "all"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "55890"
+      name: "건강/취미"
+      unified: "health_hobby"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=55890&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "170"
+      name: "경제경영"
+      unified: "business"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=170&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "2105"
+      name: "고전"
+      unified: "classics"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=2105&page={page}"
+      max_items: 1000
+      enabled: true
+
+    # ❓ 정찰 후 나머지 분야가 여기에 자동으로 추가됩니다.

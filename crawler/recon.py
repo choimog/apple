@@ -41,6 +41,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import robots as robots_parser  # noqa: E402
 from common.http import BlockedError, PoliteClient  # noqa: E402
 
 
@@ -106,12 +107,21 @@ FIELD_PROBES: dict[str, list[str]] = {
 }
 
 # 표지 이미지로 보이는 주소 패턴
+# ※ 1차 정찰에서 로고/배너를 표지로 잘못 잡았습니다. 그래서 아래 두 단계로 거릅니다.
 COVER_PATTERNS = [
-    r'https?://[^"\'\s]*(?:coverimg|cover|image|img)[^"\'\s]*\.(?:jpg|jpeg|png|gif|webp)',
-    r'https?://image\.aladin\.co\.kr/[^"\'\s]+',
-    r'https?://[^"\'\s]*yes24[^"\'\s]*\.(?:jpg|jpeg|png|gif)',
-    r'https?://[^"\'\s]*kyobobook[^"\'\s]*\.(?:jpg|jpeg|png|gif)',
+    # 알라딘: /product/.../cover... 또는 coversum
+    r'https?://image\.aladin\.co\.kr/[^"\'\s]*(?:product|cover)[^"\'\s]*\.(?:jpg|jpeg|png|gif)',
+    # 예스24: /goods/<상품번호>/ 형태
+    r'https?://image\.yes24\.com/goods/[^"\'\s]+\.(?:jpg|jpeg|png|gif)',
+    # 교보: 상품 이미지 경로
+    r'https?://contents\.kyobobook\.co\.kr/[^"\'\s]*(?:pdt|sih)[^"\'\s]*\.(?:jpg|jpeg|png|gif)',
 ]
+
+# 이 단어가 주소에 들어 있으면 표지가 아니라 로고/배너/아이콘입니다
+NOT_A_COVER = (
+    "logo", "banner", "icon", "favicon", "header", "footer",
+    "gnb", "sysimage", "common", "btn", "bg_", "sprite", "blank",
+)
 
 
 def probe_fields(html: str) -> dict[str, bool]:
@@ -123,11 +133,17 @@ def probe_fields(html: str) -> dict[str, bool]:
 
 
 def find_cover_urls(html: str, limit: int = 5) -> list[str]:
-    """HTML 안에서 표지 이미지로 보이는 주소를 찾습니다."""
+    """
+    HTML 안에서 '실제 책 표지' 주소를 찾습니다.
+    로고·배너·아이콘은 걸러냅니다. (1차 정찰에서 로고를 표지로 오인한 버그 수정)
+    """
     urls: list[str] = []
     for pattern in COVER_PATTERNS:
         for m in re.finditer(pattern, html, re.IGNORECASE):
             u = m.group(0)
+            low = u.lower()
+            if any(bad in low for bad in NOT_A_COVER):
+                continue
             if u not in urls:
                 urls.append(u)
             if len(urls) >= limit:
@@ -153,6 +169,49 @@ def looks_js_rendered(html: str) -> tuple[bool, str]:
     return False, f"정적 HTML에 한글 {hangul_count}자 포함 — 파싱 가능해 보임"
 
 
+def deep_structure_probe(html: str) -> list[str]:
+    """
+    목록 데이터가 정말 HTML 안에 들어 있는지 구조를 직접 확인합니다.
+    (1차 정찰에서 교보만 '항목 0개'로 나와 판단이 애매했던 부분)
+    """
+    notes: list[str] = []
+
+    # 실제 책 제목처럼 보이는 링크의 개수
+    for label, pat in [
+        ("상품 링크(detail/goods)", r'href="[^"]*(?:detail|goods|Product)[^"]*"'),
+        ("li 태그", r"<li[\s>]"),
+        ("이미지 alt 속성", r'alt="[^"]{4,}"'),
+        ("data-* 속성", r"data-[a-z-]+="),
+    ]:
+        n = len(re.findall(pat, html, re.IGNORECASE))
+        notes.append(f"{label}: {n}개")
+
+    # 페이지 안에 JSON 덩어리가 있는지 (있으면 그걸 파싱하는 게 더 안전)
+    for label, pat in [
+        ("__NEXT_DATA__", r"__NEXT_DATA__"),
+        ("window.__NUXT__", r"__NUXT__"),
+        ("application/ld+json", r'type="application/ld\+json"'),
+    ]:
+        if re.search(pat, html):
+            notes.append(f"✔ {label} 발견 — JSON 파싱 가능")
+
+    # 흔한 목록 컨테이너 class 이름을 실제로 찾아봅니다
+    classes = re.findall(r'class="([^"]{3,60})"', html)
+    from collections import Counter
+
+    common = Counter(
+        c.strip() for c in classes
+        if any(k in c.lower() for k in ("prod", "item", "book", "list", "rank"))
+    ).most_common(8)
+    if common:
+        notes.append("자주 나오는 목록 관련 class: " +
+                     ", ".join(f"`{c}`×{n}" for c, n in common))
+    else:
+        notes.append("⚠️ 목록 관련 class 이름을 찾지 못함 — JS 렌더링 의심")
+
+    return notes
+
+
 def count_list_items(html: str) -> int:
     """목록에 항목이 몇 개쯤 있는지 대략 셉니다 (순위 숫자 패턴 기준)."""
     # 흔한 순위 표기들
@@ -173,7 +232,14 @@ def check_robots(client: PoliteClient, target: Target, report: list[str]) -> Non
     url = urljoin(target.origin, "/robots.txt")
     report.append(f"### robots.txt — {target.name}\n")
     try:
-        resp = client.get(url, allow_status=(404,))
+        # robots.txt 안에는 'robot' 이라는 단어가 당연히 들어 있으므로
+        # 차단 문구 검사를 꺼야 합니다. (1차 정찰에서 알라딘을 못 읽은 원인)
+        resp = client.get(
+            url,
+            allow_status=(404,),
+            check_block_markers=False,
+            min_body_len=1,
+        )
     except Exception as exc:
         report.append(f"- ❌ 읽기 실패: `{type(exc).__name__}: {exc}`\n")
         return
@@ -185,33 +251,54 @@ def check_robots(client: PoliteClient, target: Target, report: list[str]) -> Non
     text = resp.text
     (RAW_DIR / f"{target.key}_robots.txt").write_text(text, encoding="utf-8")
     report.append(f"- 상태: HTTP {resp.status_code}, {len(text)}자")
-    report.append(f"- 원본 저장: `raw/{target.key}_robots.txt`\n")
+    report.append(f"- 원본 저장: `raw/{target.key}_robots.txt` (전문)\n")
 
-    # 우리가 수집할 경로가 Disallow 에 걸리는지 확인
-    target_path = urlparse(target.sample_url).path
-    disallows = re.findall(r"(?im)^\s*Disallow:\s*(\S*)\s*$", text)
-    hits = [d for d in disallows if d and d != "/" and target_path.startswith(d)]
+    rules = robots_parser.parse(text)
+    group = rules.group_for(USER_AGENT)
 
-    report.append("```")
-    report.append(text[:1500].strip())
-    if len(text) > 1500:
-        report.append(f"... (총 {len(text)}자, 이하 생략)")
-    report.append("```\n")
-
-    if any(d == "/" for d in disallows):
-        report.append(
-            "- 🚨 **`Disallow: /` 발견 — 전체 경로 수집 금지입니다.** "
-            "사용자 보고 후 판단이 필요합니다. 임의로 우회하지 않습니다.\n"
-        )
-    elif hits:
-        report.append(
-            f"- 🚨 **우리가 수집하려는 경로 `{target_path}` 가 금지 목록에 있습니다: "
-            f"{hits}** — 사용자 보고 후 판단 필요.\n"
-        )
+    # 우리에게 적용되는 그룹만 보여줍니다 (파일 전체를 쏟아내지 않음)
+    if group is None:
+        report.append("- 우리에게 적용되는 규칙 그룹이 없습니다 → 전체 허용\n")
     else:
         report.append(
-            f"- ✅ 수집 대상 경로 `{target_path}` 는 금지 목록에 없습니다.\n"
+            f"- 우리 User-Agent 에 적용되는 그룹: **`User-Agent: "
+            f"{', '.join(group.agents)}`**"
         )
+        report.append(f"  - 그룹 내 Allow {len(group.allows)}개 / "
+                      f"Disallow {len(group.disallows)}개")
+        report.append("")
+        report.append("```")
+        for a in group.allows:
+            report.append(f"Allow: {a}")
+        for d in group.disallows:
+            report.append(f"Disallow: {d}")
+        report.append("```\n")
+
+    report.append(f"- 파일 전체 그룹 수: {len(rules.groups)}개 "
+                  f"(다른 그룹은 우리와 무관하므로 무시)\n")
+
+    # 실제로 수집할 모든 URL 을 하나씩 판정합니다
+    check_urls = [("대표 목록", target.sample_url)] + list(target.extra_urls.items())
+    report.append("| 수집 대상 경로 | 판정 | 근거 |")
+    report.append("|---|---|---|")
+    blocked_any = False
+    for label, u in check_urls:
+        allowed, why = rules.is_allowed(u, USER_AGENT)
+        if not allowed:
+            blocked_any = True
+        path = urlparse(u).path
+        report.append(
+            f"| {label} `{path}` | {'✅ 허용' if allowed else '🚫 **금지**'} | {why} |"
+        )
+    report.append("")
+
+    if blocked_any:
+        report.append(
+            "- 🚨 **금지된 경로가 있습니다. 임의로 우회하지 않습니다.** "
+            "사용자에게 보고 후 판단이 필요합니다.\n"
+        )
+    else:
+        report.append("- ✅ 수집 예정 경로는 모두 허용 범위 안입니다.\n")
 
 
 def check_listing(
@@ -250,6 +337,9 @@ def check_listing(
 
     n_items = count_list_items(html)
     report.append(f"- 목록 항목 추정 개수: 약 {n_items}개")
+    report.append("- 구조 상세 확인:")
+    for note in deep_structure_probe(html):
+        report.append(f"  - {note}")
 
     fields = probe_fields(html)
     report.append("\n| 필드 | 목록에 있음? |")

@@ -121,12 +121,27 @@ class PoliteClient:
                 time.sleep(wait - elapsed)
         self._last_request_at = time.monotonic()
 
-    def get(self, url: str, *, allow_status: tuple[int, ...] = ()) -> httpx.Response:
+    def get(
+        self,
+        url: str,
+        *,
+        allow_status: tuple[int, ...] = (),
+        check_block_markers: bool = True,
+        min_body_len: int = 500,
+    ) -> httpx.Response:
         """
         한 페이지를 가져옵니다.
 
         allow_status: 이 상태 코드는 차단으로 보지 않고 그대로 돌려줍니다.
                       (예: robots.txt 가 404인 건 정상 상황)
+
+        check_block_markers: 본문에서 차단 문구를 찾을지 여부.
+                      ※ robots.txt 를 받을 때는 반드시 False 로 주세요.
+                        robots.txt 안에는 'robot' 이라는 단어가 당연히 들어 있어서
+                        차단 페이지로 오인합니다. (실제로 겪은 버그)
+
+        min_body_len: 본문이 이 길이 미만이면 빈 응답으로 간주.
+                      robots.txt 는 짧을 수 있으므로 작게 주세요.
 
         실패 시 지수 백오프로 재시도하고, 그래도 안 되면 예외를 던집니다.
         조용히 빈 데이터를 돌려주는 일은 절대 없습니다.
@@ -175,14 +190,15 @@ class PoliteClient:
 
             # 200이지만 캡차/차단 페이지일 수 있음
             body = resp.text
-            marker = self._find_block_marker(body)
-            if marker:
-                self.stats.block_suspected = True
-                self.stats.block_reason = f"차단 문구 발견: {marker!r}"
-                raise BlockedError(f"차단 페이지로 보임 ({marker!r}): {url}")
+            if check_block_markers:
+                marker = self._find_block_marker(body)
+                if marker:
+                    self.stats.block_suspected = True
+                    self.stats.block_reason = f"차단 문구 발견: {marker!r}"
+                    raise BlockedError(f"차단 페이지로 보임 ({marker!r}): {url}")
 
-            if len(body.strip()) < 500:
-                # 정상 목록 페이지가 500자 미만일 수는 없습니다
+            if len(body.strip()) < min_body_len:
+                # 정상 목록 페이지가 이보다 짧을 수는 없습니다
                 self.stats.block_suspected = True
                 self.stats.block_reason = f"응답 본문이 너무 짧음 ({len(body)}자)"
                 raise BlockedError(f"빈 응답으로 보임 ({len(body)}자): {url}")

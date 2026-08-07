@@ -295,8 +295,26 @@ def main() -> int:
     scores_by_pair = {(m["store_book_a"], m["store_book_b"]): m["decision"]
                       for m in match_rows}
 
+    # 한 건씩 저장하면 도서 6,000종에 요청이 1만 건 넘게 나갑니다.
+    # (실제로 그렇게 만들었다가 10분이 넘어 취소했습니다)
+    # 그래서 먼저 전부 계산해 두고, 마지막에 묶어서 한 번에 보냅니다.
     keep_book_ids: set[int] = set()
-    created = updated = 0
+    to_insert: list[dict] = []          # 새로 만들 도서 마스터
+    to_insert_members: list[list] = []  # 그 도서에 속할 서점 도서들
+    to_update: list[dict] = []          # 이미 있는 도서 마스터 갱신
+    to_link: list[dict] = []            # 서점 도서 ↔ 도서 마스터 연결
+
+    def mark_links(book_id: int, members: list[dict]) -> None:
+        for m in members:
+            if m.get("book_id") == book_id:
+                continue      # 이미 올바르게 연결돼 있으면 건드리지 않습니다
+            to_link.append({
+                "id": m["id"],
+                "store_id": m["store_id"],
+                "store_book_key": m.get("store_book_key"),
+                "raw_title": m["raw_title"],
+                "book_id": book_id,
+            })
 
     for cluster in clusters.values():
         members = [by_id[i] for i in cluster]
@@ -330,20 +348,29 @@ def main() -> int:
         existing = sorted(m["book_id"] for m in members if m.get("book_id"))
         if existing:
             book_id = existing[0]
-            db.update_book(client, book_id, rep)
-            updated += 1
+            keep_book_ids.add(book_id)
+            to_update.append({"id": book_id, **rep})
+            mark_links(book_id, members)
         else:
-            book_id = db.insert_book(client, rep)
-            created += 1
+            to_insert.append(rep)
+            to_insert_members.append(members)
 
+    # ---- 여기서부터 실제로 보냅니다 (묶어서) ----
+    print(f"  · 새 도서 마스터 {len(to_insert):,}종 만드는 중...")
+    new_ids = db.insert_books(client, to_insert)
+    for book_id, members in zip(new_ids, to_insert_members):
         keep_book_ids.add(book_id)
-        need_link = [m["id"] for m in members if m.get("book_id") != book_id]
-        if need_link:
-            db.link_store_books(client, book_id, need_link)
+        mark_links(book_id, members)
+
+    print(f"  · 기존 도서 마스터 {len(to_update):,}종 갱신하는 중...")
+    db.update_books(client, to_update)
+
+    print(f"  · 서점 도서 {len(to_link):,}건 연결하는 중...")
+    db.link_store_books_bulk(client, to_link)
 
     orphans = db.delete_orphan_books(client, keep_book_ids)
 
-    print(f"  ✅ 도서 마스터: 새로 {created:,}종 · 갱신 {updated:,}종 · "
+    print(f"  ✅ 도서 마스터: 새로 {len(new_ids):,}종 · 갱신 {len(to_update):,}종 · "
           f"빈 껍데기 정리 {orphans:,}종")
     print(f"  ✅ 매칭 근거 {len(match_rows):,}건 저장")
     print(f"\n완료 ({round(time.monotonic() - started, 1)}초)")

@@ -1,0 +1,35 @@
+# =============================================================================
+#  교보 — 허용된 다른 입구가 있는지 확인 (수동 실행 전용)
+# =============================================================================
+#  교보 베스트셀러 데이터는 robots.txt 가 금지한 /api/gw 에서 나옵니다.
+#  포기하기 전에, robots.txt 상 '허용된' 다른 입구가 있는지 확인합니다.
+#
+#  ※ 모든 요청 전에 robots.txt 를 먼저 확인하고, 금지면 요청하지 않습니다.
+#  ※ 상세 페이지 진입 없음.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/probe-kyobo-alt.yml
+# =============================================================================
+
+name: 교보 대체 입구 확인
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: 허용 경로 탐색
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 확인 실행
+        run: python crawler/probe_kyobo_alt.py

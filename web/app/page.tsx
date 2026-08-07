@@ -9,6 +9,7 @@ import {
   getPreviousDate,
   getRankings,
   getSnapshotDates,
+  isWeekly,
 } from "@/lib/queries";
 
 // 매일 한 번 새 데이터가 들어오므로, 10분마다 다시 읽습니다.
@@ -17,7 +18,7 @@ export const revalidate = 600;
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ cat?: string; date?: string }>;
+  searchParams: Promise<{ cat?: string; date?: string; period?: string }>;
 }) {
   if (configError) return <SetupNotice message={configError} />;
 
@@ -40,9 +41,22 @@ export default async function Home({
     );
   }
 
-  const categoryId = Number(params.cat) || categories[0].id;
+  // ---- 기간 고르기: 일간(어제 하루) / 주간(최근 7일) ----
+  // 두 목록은 분야 이름이 똑같아서(둘 다 '전체') 한 줄에 섞어 놓으면
+  // 어느 쪽을 보고 있는지 알 수 없습니다. 그래서 먼저 기간부터 고릅니다.
+  const period = params.period === "weekly" ? "weekly" : "daily";
+  const inPeriod = categories.filter((c) =>
+    period === "weekly" ? isWeekly(c) : !isWeekly(c)
+  );
+  // 아직 그 기간 데이터를 한 번도 안 모았으면 전체를 보여줍니다 (빈 화면 방지)
+  const shown = inPeriod.length ? inPeriod : categories;
+
+  const categoryId = Number(params.cat) || shown[0].id;
   const date = params.date && dates.includes(params.date) ? params.date : dates[0];
-  const category = categories.find((c) => c.id === categoryId) ?? categories[0];
+  const category =
+    shown.find((c) => c.id === categoryId) ??
+    categories.find((c) => c.id === categoryId) ??
+    shown[0];
 
   let rows, prevDate;
   try {
@@ -56,14 +70,40 @@ export default async function Home({
 
   return (
     <div className="space-y-5">
-      {/* ---------- 분야 고르기 ---------- */}
+      {/* ---------- 기간 고르기 ---------- */}
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">분야</h2>
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">집계 기간</h2>
         <div className="flex flex-wrap gap-1.5">
-          {categories.map((c) => (
+          {[
+            { key: "daily", label: "일간", help: "어제 하루 판매 순위" },
+            { key: "weekly", label: "주간", help: "최근 7일 누적 판매 순위" },
+          ].map((p) => (
+            <Link
+              key={p.key}
+              href={`/?period=${p.key}&date=${date}`}
+              title={p.help}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                p.key === period
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+              }`}
+            >
+              {p.label}
+            </Link>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {period === "weekly"
+            ? "주간 = 서점이 발표하는 최근 7일 누적 순위. 하루 출렁임이 걸러집니다."
+            : "일간 = 어제 하루 판매 순위. 신간 반응이 가장 빨리 보입니다."}
+        </p>
+
+        <h2 className="mb-2 mt-4 text-sm font-semibold text-slate-700">분야</h2>
+        <div className="flex flex-wrap gap-1.5">
+          {shown.map((c) => (
             <Link
               key={c.id}
-              href={`/?cat=${c.id}&date=${date}`}
+              href={`/?cat=${c.id}&date=${date}&period=${period}`}
               className={`rounded-full border px-3 py-1 text-xs ${
                 c.id === category.id
                   ? "border-slate-900 bg-slate-900 text-white"
@@ -81,7 +121,7 @@ export default async function Home({
           {dates.slice(0, 14).map((d) => (
             <Link
               key={d}
-              href={`/?cat=${category.id}&date=${d}`}
+              href={`/?cat=${category.id}&date=${d}&period=${period}`}
               className={`rounded border px-2 py-1 text-xs ${
                 d === date
                   ? "border-slate-900 bg-slate-900 text-white"
@@ -112,6 +152,10 @@ export default async function Home({
               </span>
               {category.branch_name && `${category.branch_name} · `}
               {category.name}
+              {/* 일간과 주간은 분야 이름이 같습니다. 반드시 구분해 보여줍니다. */}
+              <span className="ml-2 rounded border border-slate-300 px-1.5 py-0.5 text-xs font-normal text-slate-600">
+                {isWeekly(category) ? "주간 · 최근 7일" : "일간 · 어제 하루"}
+              </span>
             </h1>
             <p className="mt-1 text-xs text-slate-500">
               {date} 기준 · {rows.length}권
@@ -122,7 +166,7 @@ export default async function Home({
             rows={rows}
             filename={`${STORE_NAME[category.store_id]}_${
               category.branch_name || category.name
-            }_${date}`}
+            }_${isWeekly(category) ? "주간" : "일간"}_${date}`}
           />
         </div>
 

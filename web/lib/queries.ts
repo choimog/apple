@@ -12,10 +12,21 @@ export type Category = {
   id: number;
   store_id: number;
   name: string;
+  /** 'online'=온라인 일간 | 'offline'=매장 일간 | 'weekly'=최근 7일 주간 */
   kind: string;
   branch_name: string;
   code: string;
 };
+
+/**
+ * 이 분야가 '최근 7일 누적(주간)' 인지.
+ *
+ * 일간과 주간은 분야 이름이 똑같아서(둘 다 '전체'), 표시로 구분하지 않으면
+ * 화면에서 어느 쪽을 보고 있는지 알 수 없습니다.
+ */
+export function isWeekly(c: { kind: string }): boolean {
+  return c.kind === "weekly";
+}
 
 export type RankingRow = {
   rank: number;

@@ -15,9 +15,14 @@ name: 설정 점검
 on:
   push:
     paths:
+      # ⚠️ 수집에 영향을 주는 파일은 전부 넣어야 합니다.
+      #    browser.py 를 빼먹었다가, 재시도 기능을 넣고도 점검이
+      #    자동으로 안 돌아 직접 눌러야 했습니다. (2026-08-07)
       - "config/sources.yaml"
       - "config/selectors.yaml"
       - "crawler/check_sources.py"
+      - "crawler/common/**"
+      - "crawler/stores/**"
       - ".github/workflows/check-sources.yml"
   workflow_dispatch:
     inputs:

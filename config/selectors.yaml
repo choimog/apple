@@ -90,3 +90,65 @@ aladin:
 
   # 자가 점검: 한 페이지에서 이 개수보다 적게 나오면 이상 신호로 봅니다.
   min_items_per_page: 40
+
+
+# -----------------------------------------------------------------------------
+#  예스24
+# -----------------------------------------------------------------------------
+#  실제 확인된 구조 (2026-08-07 탐침):
+#    <div class="itemUnit">
+#      <em class="ico rank">1</em>                        ← 순위
+#      <span class="rank_info rank_even">                 ← 등락(rank_up/down/even)
+#        <em class="txt rank"></em>위 상승                  ← 등락 폭
+#      <img class="lazy" data-original=".../goods/192474512/L">  ← 표지(지연 로딩)
+#      <div class="item_info">
+#        <a class="gd_name" href="/product/goods/192474512">세네카, 오늘을…</a>  ← 제목
+#        <span class="authPub info_auth">
+#          <a>루키우스 안나이우스 세네카</a> 저/<a>하와이 대저택</a> 편역          ← 저자
+#        <span class="authPub info_pub"><a>논픽션</a></span>                  ← 출판사
+#        <span class="authPub info_date">2026년 07월</span>                   ← 출간월
+#        <dl class="info_present"><dd><a>[이달의 책 8월] …</a></dd></dl>       ← 이벤트
+#        <span class="saleNum"> 판매지수 302,604 </span>                       ← 판매지수
+#        <div class="info_tag"><span class="tag"><a>#불멸의고전</a></span>…    ← 해시태그
+# -----------------------------------------------------------------------------
+yes24:
+  book_box: "div.itemUnit"
+
+  # 상품번호는 제목 링크 주소(/product/goods/192474512)에서 숫자만 뽑습니다
+  store_book_key_from_href: "a.gd_name"
+  store_book_key_pattern: '/goods/(\d+)'
+
+  title: "a.gd_name"
+
+  # 표지는 지연 로딩(lazy loading)이라 src 가 아니라 data-original 에 들어 있습니다.
+  # src 에는 "이미지 없음" 그림이 들어 있으니 쓰면 안 됩니다.
+  cover: "img.lazy"
+  cover_attr: "data-original"
+
+  # 저자 영역 전체. 안에 여러 명이 "이름 역할/이름 역할" 형태로 들어 있습니다.
+  author_box: "span.info_auth"
+  author_links: "span.info_auth a"
+
+  publisher_link: "span.info_pub a"
+  pub_date: "span.info_date"
+  pub_date_pattern: '(\d{4})\s*년\s*(\d{1,2})\s*월'
+
+  sales_point: "span.saleNum"
+
+  # 해시태그 (예스24만 제공)
+  hashtags: "div.info_tag span.tag a"
+
+  # 이벤트/구매혜택
+  event: "dl.info_present dd a"
+
+  # 순위
+  rank_text: "em.ico.rank"
+
+  # 등락 — 예스24가 직접 알려줍니다. 우리 계산값과 교차 검증에 쓸 수 있습니다.
+  rank_info: "span.rank_info"
+  rank_change_amount: "em.txt.rank"
+
+  # 이 서점 목록에도 ISBN13 은 없습니다. (2026-08-07 확인)
+  isbn13: null
+
+  min_items_per_page: 20

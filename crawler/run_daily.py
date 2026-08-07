@@ -36,13 +36,14 @@ from common import db  # noqa: E402
 from common import normalize as norm  # noqa: E402
 from common.http import BlockedError, PoliteClient  # noqa: E402
 from common.robots import parse as parse_robots  # noqa: E402
-from stores import aladin  # noqa: E402
+from stores import aladin, yes24  # noqa: E402
 
 # 한국시간 (서머타임 없음)
 KST = timezone(timedelta(hours=9))
 
 PARSERS = {
     "aladin": aladin,
+    "yes24": yes24,
 }
 
 
@@ -157,11 +158,11 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
             "store_book_id": sb_id,
             "sales_point": r.sales_point,
         })
-        if r.events:
+        if r.events or r.hashtags:
             meta_rows.append({
                 "store_book_id": sb_id,
                 "snapshot_date": snapshot_date.isoformat(),
-                "hashtags": [],
+                "hashtags": r.hashtags,
                 "events": r.events,
             })
 

@@ -91,8 +91,9 @@ class PoliteBrowser:
         self,
         delay_min: float = 1.5,
         delay_max: float = 2.5,
-        timeout_ms: int = 45_000,
+        timeout_ms: int = 30_000,
         wait_for: str | None = None,
+        max_retries: int = 3,
     ) -> None:
         # 간격은 최소 1초 밑으로 내려가지 않게 강제합니다
         self.delay_min = max(1.0, delay_min)
@@ -100,7 +101,9 @@ class PoliteBrowser:
         self.timeout_ms = timeout_ms
         self.wait_for = wait_for
         self._last_at: float | None = None
+        self.max_retries = max(1, max_retries)
         self.pages_fetched = 0
+        self.retried_pages = 0
         self.blocked_requests = 0
         self.stats = _Stats(self)
         self.user_agent = OUR_TOKEN
@@ -157,25 +160,56 @@ class PoliteBrowser:
             time.sleep(remaining)
 
     def get(self, url: str, **_ignored) -> _Response:
-        """페이지 하나를 열고, 그려진 뒤의 HTML 을 돌려줍니다."""
-        self._wait_turn()
-        self._page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
+        """
+        페이지 하나를 열고, 그려진 뒤의 HTML 을 돌려줍니다.
 
-        if self.wait_for:
-            # 도서가 화면에 나타날 때까지 기다립니다.
-            # 안 나타나면 예외가 나고, 호출한 쪽에서 실패로 기록합니다.
-            # (요구사항: 조용히 빈 데이터를 저장하지 않는다)
-            self._page.wait_for_selector(self.wait_for, timeout=self.timeout_ms)
+        【다시 시도하는 이유 — 2026-08-07 실측】
+        같은 페이지가 보통 3초면 그려지는데, 가끔 시간 초과가 납니다.
+        122개를 점검했을 때 3개가 그랬고, 매번 다른 항목이었습니다.
+        = 그 분야가 잘못된 게 아니라 일시적인 현상입니다.
+        그래서 한 번 실패했다고 포기하지 않고 몇 번 더 시도합니다.
 
-        html = self._page.content()
-        self._last_at = time.monotonic()
-        self.pages_fetched += 1
-        return _Response(html, url)
+        끝까지 안 되면 예외를 냅니다. 조용히 빈 데이터를 돌려주지 않습니다.
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(1, self.max_retries + 1):
+            self._wait_turn()
+            try:
+                self._page.goto(url, wait_until="domcontentloaded",
+                                timeout=self.timeout_ms)
+                if self.wait_for:
+                    # 도서가 화면에 나타날 때까지 기다립니다.
+                    self._page.wait_for_selector(
+                        self.wait_for, timeout=self.timeout_ms
+                    )
+                html = self._page.content()
+                self._last_at = time.monotonic()
+                self.pages_fetched += 1
+                if attempt > 1:
+                    self.retried_pages += 1
+                    print(f"      (다시 시도 {attempt}번째에 성공)")
+                return _Response(html, url)
+
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                self._last_at = time.monotonic()
+                if attempt < self.max_retries:
+                    wait = 3 * attempt   # 3초, 6초… 점점 길게 쉽니다
+                    print(f"      ⏳ {type(exc).__name__} — "
+                          f"{wait}초 쉬고 다시 시도 ({attempt}/{self.max_retries})")
+                    time.sleep(wait)
+
+        raise RuntimeError(
+            f"{self.max_retries}번 시도했지만 화면이 안 그려졌습니다: "
+            f"{type(last_error).__name__}"
+        ) from last_error
 
     def stats_json(self) -> dict:
         return {
             "mode": "headless_browser",
             "pages_fetched": self.pages_fetched,
+            "retried_pages": self.retried_pages,
             "blocked_ad_requests": self.blocked_requests,
             "images": "브라우저 설정으로 끔",
             "user_agent": self.user_agent,

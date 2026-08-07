@@ -31,7 +31,7 @@ def sep(t: str) -> None:
 
 def main() -> int:
     with PoliteBrowser(wait_for="a[href*='/detail/S']") as b:
-        html = b.get(URL)
+        html = b.get(URL).text
         print(f"✅ 화면이 그려졌습니다. HTML {len(html):,}자")
         print(f"   광고·이미지 요청 차단: {b.blocked_requests}건")
         print(f"   UA: {b.user_agent}")

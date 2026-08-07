@@ -39,18 +39,53 @@ BLOCK_HOSTS = (
     "daumcdn.net", "pstatic.net",
 )
 
-# 표지 이미지도 받을 필요가 없습니다. 주소만 읽으면 되기 때문입니다.
-# (요구사항: 표지 이미지는 저장하지 않고 주소만 보관)
-BLOCK_TYPES = ("image", "media", "font")
+# 동영상·글꼴은 아예 안 받습니다. 도서 정보와 무관합니다.
+BLOCK_TYPES = ("media", "font")
+
+# 이미지는 '안 받되, 받은 척' 합니다.
+#
+# 【왜 이렇게 하나요? — 2026-08-07 실제로 겪은 문제】
+# 처음에는 이미지 요청을 그냥 막았습니다(abort). 그랬더니 교보 화면이
+# "이미지를 못 받았네" 하고 표지 주소를 '등록된 이미지 없음' 자리표시자로
+# 바꿔버렸습니다. 표지 주소 안에 ISBN 이 들어 있는데, 그게 통째로 날아갑니다.
+#
+#   막기 전 : .../sih/fit-in/300x0/pdt/9791199489561.jpg   ← ISBN 있음
+#   막은 후 : .../img_prod_thumb_no_register_prd_svg.svg   ← ISBN 없음
+#
+# 그래서 '성공했다'고 응답만 주고 실제 그림 데이터는 받지 않습니다.
+# 결과: 표지 주소(=ISBN)는 그대로 남고, 교보 서버에서 받는 양은 거의 0.
+TINY_GIF = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000"
+    "010001000002024401003b"
+)
+
+
+class _Response:
+    """PoliteClient(보통 방식) 와 똑같이 생긴 응답. 수집 코드를 공유하기 위함입니다."""
+
+    def __init__(self, text: str, url: str) -> None:
+        self.text = text
+        self.url = url
+        self.status_code = 200
+
+
+class _Stats:
+    """PoliteClient 의 stats 와 똑같은 모양을 흉내 냅니다."""
+
+    def __init__(self, owner: "PoliteBrowser") -> None:
+        self._owner = owner
+
+    def to_json(self) -> dict:
+        return self._owner.stats_json()
 
 
 class PoliteBrowser:
     """
     한 번에 한 페이지씩, 간격을 두고 여는 브라우저.
 
-    쓰는 법:
+    보통 방식(PoliteClient)과 사용법이 같습니다:
         with PoliteBrowser() as b:
-            html = b.get("https://...")
+            html = b.get("https://...").text
     """
 
     def __init__(
@@ -68,6 +103,9 @@ class PoliteBrowser:
         self._last_at: float | None = None
         self.pages_fetched = 0
         self.blocked_requests = 0
+        self.stubbed_images = 0
+        self.stats = _Stats(self)
+        self.user_agent = OUR_TOKEN
 
     def __enter__(self) -> "PoliteBrowser":
         from playwright.sync_api import sync_playwright
@@ -101,12 +139,20 @@ class PoliteBrowser:
             self._pw.stop()
 
     def _route(self, route, request) -> None:
-        """광고·추적·이미지 요청을 걸러냅니다."""
+        """광고·추적 요청은 막고, 이미지는 '받은 척' 만 합니다."""
         url = request.url
         if request.resource_type in BLOCK_TYPES or any(h in url for h in BLOCK_HOSTS):
             self.blocked_requests += 1
             route.abort()
             return
+
+        if request.resource_type == "image":
+            # 실제 그림은 안 받지만 '성공' 이라고 답해 줍니다.
+            # (막아버리면 화면이 표지 주소를 자리표시자로 갈아치웁니다)
+            self.stubbed_images += 1
+            route.fulfill(status=200, content_type="image/gif", body=TINY_GIF)
+            return
+
         route.continue_()
 
     def _wait_turn(self) -> None:
@@ -118,7 +164,7 @@ class PoliteBrowser:
         if remaining > 0:
             time.sleep(remaining)
 
-    def get(self, url: str) -> str:
+    def get(self, url: str, **_ignored) -> _Response:
         """페이지 하나를 열고, 그려진 뒤의 HTML 을 돌려줍니다."""
         self._wait_turn()
         self._page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
@@ -132,12 +178,13 @@ class PoliteBrowser:
         html = self._page.content()
         self._last_at = time.monotonic()
         self.pages_fetched += 1
-        return html
+        return _Response(html, url)
 
     def stats_json(self) -> dict:
         return {
             "mode": "headless_browser",
             "pages_fetched": self.pages_fetched,
             "blocked_ad_requests": self.blocked_requests,
+            "stubbed_images": self.stubbed_images,
             "user_agent": self.user_agent,
         }

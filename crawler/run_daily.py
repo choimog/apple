@@ -36,7 +36,7 @@ from common import db  # noqa: E402
 from common import normalize as norm  # noqa: E402
 from common.http import BlockedError, PoliteClient  # noqa: E402
 from common.robots import parse as parse_robots  # noqa: E402
-from stores import aladin, yes24  # noqa: E402
+from stores import aladin, kyobo, yes24  # noqa: E402
 
 # 한국시간 (서머타임 없음)
 KST = timezone(timedelta(hours=9))
@@ -44,7 +44,40 @@ KST = timezone(timedelta(hours=9))
 PARSERS = {
     "aladin": aladin,
     "yes24": yes24,
+    "kyobo": kyobo,
 }
+
+# 이 서점만 '화면 없는 브라우저' 로 읽습니다.
+#   교보 HTML 은 빈 껍데기여서 자바스크립트가 실행돼야 도서가 채워집니다.
+#   느리고 무거우므로 꼭 필요한 서점에만 씁니다. (2026-08-07 대표 승인)
+BROWSER_STORES = {"kyobo"}
+
+
+def robots_allows(origin_url: str, target_url: str, ua: str, store_code: str) -> bool:
+    """
+    수집 전에 robots.txt 를 다시 확인합니다. (규칙이 언제든 바뀔 수 있으므로)
+    금지면 False 를 돌려주고, 임의로 우회하지 않습니다.
+    확인 자체가 실패하면 수집은 계속합니다(확인 실패 = 금지 아님).
+    """
+    try:
+        with PoliteClient(user_agent=ua, delay_min=1.0, delay_max=1.5) as c:
+            r = c.get(f"{origin_url}/robots.txt", allow_status=(403, 404),
+                      check_block_markers=False, min_body_len=1)
+        if r.status_code != 200:
+            print(f"\n✅ {store_code}: robots.txt 없음(HTTP {r.status_code}) → 제한 없음")
+            return True
+
+        rules = parse_robots(r.text)
+        allowed, why = rules.is_allowed(target_url, ua)
+        if not allowed:
+            print(f"\n🚫 {store_code}: robots.txt 가 수집을 금지합니다 — {why}")
+            print("   수집을 중단합니다. 임의로 우회하지 않습니다.")
+            return False
+        print(f"\n✅ {store_code} robots.txt 확인: {why}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n⚠️ {store_code} robots.txt 확인 실패(수집은 계속): {exc}")
+        return True
 
 
 def kst_today():
@@ -258,32 +291,36 @@ def main() -> int:
         origin = store_tasks[0].url_template.split("/", 3)[:3]
         origin_url = "/".join(origin)
 
-        with PoliteClient(
-            user_agent=ua,
-            delay_min=defaults.get("delay_min_sec", 1.0),
-            delay_max=defaults.get("delay_max_sec", 2.0),
-            max_retries=defaults.get("max_retries", 4),
-            timeout=defaults.get("timeout_sec", 20),
-            referer=origin_url,
-        ) as http:
+        # ---- robots.txt 재확인 (수집 방식과 무관하게 항상 보통 요청으로) ----
+        if not robots_allows(origin_url, store_tasks[0].url_for(1), ua, store_code):
+            for t in store_tasks:
+                results.append((t.label(), "blocked_by_robots", 0))
+            continue
 
-            # robots.txt 재확인
-            try:
-                r = http.get(f"{origin_url}/robots.txt", allow_status=(404,),
-                             check_block_markers=False, min_body_len=1)
-                if r.status_code == 200:
-                    rules = parse_robots(r.text)
-                    allowed, why = rules.is_allowed(store_tasks[0].url_for(1), ua)
-                    if not allowed:
-                        print(f"\n🚫 {store_code}: robots.txt 가 수집을 금지합니다 — {why}")
-                        print("   수집을 중단합니다. 임의로 우회하지 않습니다.")
-                        for t in store_tasks:
-                            results.append((t.label(), "blocked_by_robots", 0))
-                        continue
-                    print(f"\n✅ {store_code} robots.txt 확인: {why}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"\n⚠️ {store_code} robots.txt 확인 실패(수집은 계속): {exc}")
+        # ---- 이 서점을 어떤 방식으로 읽을지 ----
+        #  교보만 '화면 없는 브라우저'. 나머지는 보통 요청.
+        #  (교보는 HTML 이 빈 껍데기라 자바스크립트를 실행해야 도서가 채워집니다)
+        if store_code in BROWSER_STORES:
+            from common.browser import PoliteBrowser  # 필요할 때만 불러옵니다
 
+            print(f"\n🌐 {store_code}: 화면 없는 브라우저로 읽습니다 "
+                  f"(이 서점만 해당. 다른 서점보다 느립니다)")
+            fetcher = PoliteBrowser(
+                delay_min=defaults.get("delay_min_sec", 1.5),
+                delay_max=defaults.get("delay_max_sec", 2.5),
+                wait_for=selectors.get("wait_for"),
+            )
+        else:
+            fetcher = PoliteClient(
+                user_agent=ua,
+                delay_min=defaults.get("delay_min_sec", 1.0),
+                delay_max=defaults.get("delay_max_sec", 2.0),
+                max_retries=defaults.get("max_retries", 4),
+                timeout=defaults.get("timeout_sec", 20),
+                referer=origin_url,
+            )
+
+        with fetcher as http:
             for task in store_tasks:
                 try:
                     status, n = process_task(

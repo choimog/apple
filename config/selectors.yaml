@@ -152,3 +152,68 @@ yes24:
   isbn13: null
 
   min_items_per_page: 20
+
+
+# =============================================================================
+#  교보문고 (kyobo)
+# =============================================================================
+#  ⚠️ 이 서점만 '화면 없는 브라우저' 로 읽습니다.
+#     교보 페이지는 HTML 이 빈 껍데기이고, 자바스크립트가 실행돼야 도서가 채워집니다.
+#     (2026-08-07 확인: animate-shimmer 250개, 상품 링크 0개)
+#
+#  실제 도서 칸 생김새 (2026-08-07 화면이 그려진 뒤 확인, 페이지당 20권):
+#
+#    <li class="mt-9 flex min-h-[170px] ...">                     ← 도서 한 칸
+#      <div class="block min-w-[22px]">                           ← 순위 자리
+#         1위는 그림(SVG) 안에 "교보문고 Best 1", 2위부터는 글자 "2"
+#      <a class="prod_link relative block ..." href=".../detail/S000220308313">
+#         <img alt="세네카, ..." src="https://contents.kyobobook.co.kr/
+#                                     sih/fit-in/300x0/pdt/9791199489561.jpg">
+#                                                    └─ 파일 이름이 ISBN13 !
+#      <div class="flex flex-wrap gap-1 text-[0px]">              ← 배지들
+#         <span>MD의 선택</span><span>이벤트</span><span>사은품</span>
+#      <a class="prod_link line-clamp-2 font-medium ...">세네카, 오늘을...</a>  ← 제목
+#      <div class="line-clamp-2 flex overflow-hidden ...">        ← 저자·출판사·날짜
+#         세네카<span> · </span>논픽션<span> · </span><span class="date">2026.07.01</span>
+#
+#  ※ 교보는 판매지수를 제공하지 않습니다. 그 칸은 비워 둡니다(추정 금지).
+# =============================================================================
+kyobo:
+  # 브라우저가 이 요소를 볼 때까지 기다립니다. 안 나타나면 실패로 처리합니다.
+  wait_for: "a[href*='/detail/S']"
+
+  # 도서 한 칸. <li> 중에서 상품 링크를 품은 것만 고릅니다.
+  book_box: "li"
+  book_box_requires: "a[href*='/detail/S']"
+
+  # 서점 내부 상품번호: 링크 주소의 S000220308313 부분
+  store_book_key_from_href: "a[href*='/detail/S']"
+  store_book_key_pattern: "/detail/(S\\d+)"
+
+  # 제목 (필수)
+  title: "a.prod_link.line-clamp-2"
+
+  # 저자 · 출판사 · 출간일 이 한 줄에 가운뎃점으로 붙어 있습니다
+  info_line: "div.line-clamp-2.flex.overflow-hidden"
+  info_separator: "·"
+  pub_date_node: "span.date"
+  pub_date_pattern: "(\\d{4})[.\\-/]\\s*(\\d{1,2})"
+
+  # 표지: 주소 안에 ISBN13 이 들어 있습니다 (3사 중 교보만!)
+  cover_url_pattern: "contents\\.kyobobook\\.co\\.kr/sih/"
+  isbn13_from_cover: "/pdt/(\\d{13})\\."
+
+  # 순위 자리. 1위는 그림 설명(<desc>)에, 2위부터는 글자로 들어 있습니다.
+  rank_box_class: "min-w-[22px]"
+  rank_badge_pattern: "교보문고 Best (\\d+)"
+
+  # 배지 (MD의 선택 / 이벤트 / 사은품 / 소득공제 …)
+  event: "div.flex.flex-wrap.gap-1 > span"
+
+  # 교보는 판매지수를 제공하지 않습니다. 추정하지 않고 비워 둡니다.
+  sales_point: null
+
+  # 해시태그도 제공하지 않습니다.
+  hashtags: null
+
+  min_items_per_page: 15

@@ -69,6 +69,13 @@ jobs:
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
+      - name: 브라우저(크로미움) 설치
+        # 교보문고만 '화면 없는 브라우저' 로 읽습니다.
+        # (교보 HTML 은 빈 껍데기여서 자바스크립트 실행이 필요합니다)
+        # 다른 서점만 돌릴 때는 설치를 건너뛰어 시간을 아낍니다.
+        if: ${{ inputs.store == '' || contains(inputs.store, 'kyobo') }}
+        run: python -m playwright install --with-deps chromium
+
       - name: 수집 실행
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

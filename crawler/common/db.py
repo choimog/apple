@@ -164,8 +164,10 @@ def fetch_all_store_books(client: Client) -> list[dict]:
     매칭에 필요한 열만 store_books 전체에서 읽어옵니다.
     (Supabase 는 한 번에 1,000행까지만 주므로 나눠서 받습니다)
     """
-    cols = ("id,store_id,raw_title,raw_author,raw_publisher,norm_title,"
-            "norm_author,norm_publisher,pub_ym,isbn13,cover_url,"
+    # ※ store_book_key 를 빠뜨리면 나중에 연결할 때 그 칸이 비어서 저장이 실패합니다.
+    #   (2026-08-07 실제로 겪음: null value in column "store_book_key")
+    cols = ("id,store_id,store_book_key,raw_title,raw_author,raw_publisher,"
+            "norm_title,norm_author,norm_publisher,pub_ym,isbn13,cover_url,"
             "edition_tags,set_volumes,book_id")
     out: list[dict] = []
     step = 1000

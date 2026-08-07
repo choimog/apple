@@ -308,10 +308,17 @@ def main() -> int:
         for m in members:
             if m.get("book_id") == book_id:
                 continue      # 이미 올바르게 연결돼 있으면 건드리지 않습니다
+            # 비어 있으면 안 되는 칸(store_id / store_book_key / raw_title)을
+            # 함께 보내야 합니다. 하나라도 빠지면 저장이 통째로 실패합니다.
+            if not m.get("store_book_key"):
+                raise RuntimeError(
+                    f"서점 상품번호가 비어 있습니다 (store_books.id={m['id']}). "
+                    f"DB 에서 읽어올 때 store_book_key 를 빠뜨렸는지 확인하세요."
+                )
             to_link.append({
                 "id": m["id"],
                 "store_id": m["store_id"],
-                "store_book_key": m.get("store_book_key"),
+                "store_book_key": m["store_book_key"],
                 "raw_title": m["raw_title"],
                 "book_id": book_id,
             })

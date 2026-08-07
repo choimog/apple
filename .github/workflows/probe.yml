@@ -1,0 +1,45 @@
+# =============================================================================
+#  정밀 탐침 (probe) — 수동 실행 전용
+# =============================================================================
+#
+#  【무엇을 하나요?】
+#  1. Supabase 연결과 표(테이블) 생성이 제대로 됐는지 확인합니다.
+#  2. 알라딘 목록의 내부 구조를 뜯어서 보여줍니다.
+#     → 이걸 보고 크롤러의 선택자(값 뽑는 규칙)를 정확히 작성합니다.
+#
+#  ※ 서점에는 요청 1건만 보냅니다. 상세 페이지 진입 없음.
+#  ※ 비밀키는 로그에 절대 출력하지 않습니다 (GitHub가 자동으로 ***로 가림).
+#
+#  실행: [Actions] 탭 → [정밀 탐침 (probe)] → [Run workflow]
+#  직접 링크: https://github.com/choimog/apple/actions/workflows/probe.yml
+# =============================================================================
+
+name: 정밀 탐침 (probe)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Supabase 확인 + 알라딘 구조 덤프
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 탐침 실행
+        env:
+          # GitHub Secrets 에서 값을 가져옵니다. 코드에는 값이 없습니다.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/probe.py

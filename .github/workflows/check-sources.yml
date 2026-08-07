@@ -30,7 +30,7 @@ jobs:
   check:
     name: 주소 확인
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4

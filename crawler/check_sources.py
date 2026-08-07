@@ -24,10 +24,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import config as cfg  # noqa: E402
 from common import normalize as norm  # noqa: E402
 from common.http import PoliteClient  # noqa: E402
+from common.robots import parse as parse_robots  # noqa: E402
 from stores import aladin, kyobo, yes24  # noqa: E402
 
 PARSERS = {"aladin": aladin, "yes24": yes24, "kyobo": kyobo}
 BROWSER_STORES = {"kyobo"}
+
+
+def check_robots(url: str, ua: str) -> tuple[bool, str]:
+    """
+    이 주소를 수집해도 되는지 robots.txt 로 확인합니다.
+
+    ※ 수집 주소를 바꿨으면 반드시 다시 확인해야 합니다.
+      예전에 허용됐다고 새 경로도 허용이라는 보장이 없습니다.
+    """
+    parts = url.split("/", 3)
+    origin = "/".join(parts[:3])
+    try:
+        with PoliteClient(user_agent=ua, delay_min=1.0, delay_max=1.5) as c:
+            r = c.get(f"{origin}/robots.txt", allow_status=(403, 404),
+                      check_block_markers=False, min_body_len=1)
+        if r.status_code != 200:
+            return True, f"robots.txt 없음(HTTP {r.status_code}) → 제한 없음"
+        return parse_robots(r.text).is_allowed(url, ua)
+    except Exception as exc:  # noqa: BLE001
+        return True, f"확인 실패(수집은 계속): {type(exc).__name__}"
 
 
 def main() -> int:
@@ -54,6 +75,13 @@ def main() -> int:
     for store_code, store_tasks in by_store.items():
         selectors = selectors_all[store_code]
         print(f"\n▶ {store_code} ({len(store_tasks)}개)")
+
+        # ---- robots.txt 부터. 금지면 이 서점은 아예 건너뜁니다 ----
+        allowed, why = check_robots(store_tasks[0].url_for(1), ua)
+        print(f"  robots.txt: {'✅ 허용' if allowed else '🚫 금지'} — {why}")
+        if not allowed:
+            bad.append(f"{store_code} 전체 (robots.txt 금지: {why})")
+            continue
 
         if store_code in BROWSER_STORES:
             from common.browser import PoliteBrowser

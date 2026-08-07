@@ -1,0 +1,334 @@
+"""
+=============================================================================
+ 같은 책 묶기(매칭) — 실행 파일
+=============================================================================
+
+ 세 서점이 따로 가지고 있는 도서를 "이건 같은 책" 으로 묶어서
+ 하나의 도서 마스터(books)로 만듭니다.
+
+ 【왜 필요한가요?】
+ 서점마다 같은 책을 다르게 적어 놓기 때문에, 묶지 않으면
+ "이 책이 3사에서 각각 몇 위인지" 를 한 화면에서 볼 수 없습니다.
+
+ 【규칙】
+ - 사람이 내린 결정이 최우선 (자동 로직이 절대 못 뒤집음)
+ - 규칙 설명: docs/matching-rules.md
+ - 숫자 설정:  config/matching.yaml
+
+ 【실행】
+ GitHub → Actions → [도서 매칭] → Run workflow
+   dry_run : true 로 두면 DB 에 저장하지 않고 결과만 보여줍니다
+=============================================================================
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from common import config as cfg  # noqa: E402
+from common import db  # noqa: E402
+from common.match import Candidate, compare, compare_with_isbn  # noqa: E402
+
+# 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
+#   알라딘 → 예스24 → 교보
+STORE_PRIORITY = {3: 0, 2: 1, 1: 2}
+STORE_CODE = {1: "kyobo", 2: "yes24", 3: "aladin"}
+
+
+# -----------------------------------------------------------------------------
+#  같은 무리 찾기 (Union-Find)
+# -----------------------------------------------------------------------------
+class Groups:
+    """
+    '이것과 저것은 같은 책' 을 계속 이어붙여서 무리를 만드는 도구입니다.
+    A=B, B=C 를 알려주면 A·B·C 를 한 무리로 만들어 줍니다.
+    """
+
+    def __init__(self) -> None:
+        self.parent: dict[int, int] = {}
+
+    def find(self, x: int) -> int:
+        self.parent.setdefault(x, x)
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.parent[max(ra, rb)] = min(ra, rb)
+
+    def clusters(self) -> dict[int, list[int]]:
+        out: dict[int, list[int]] = defaultdict(list)
+        for x in self.parent:
+            out[self.find(x)].append(x)
+        return out
+
+
+# -----------------------------------------------------------------------------
+#  비교 후보 좁히기 (블로킹)
+# -----------------------------------------------------------------------------
+def build_blocks(cands: list[Candidate], mcfg: dict) -> list[list[Candidate]]:
+    """
+    8,000권을 전부 비교하면 3천만 번이 넘습니다.
+    그래서 '핵심 제목 앞 N글자가 같은 책들' 끼리만 묶어서 비교합니다.
+    저자가 같은 책들도 한 번 더 묶습니다 (제목이 다르게 적힌 경우 대비).
+    """
+    b = mcfg["blocking"]
+    n = b["title_prefix_len"]
+    limit = b["max_group_size"]
+
+    by_key: dict[str, list[Candidate]] = defaultdict(list)
+    for c in cands:
+        if c.norm_title:
+            by_key[f"t:{c.norm_title[:n]}"].append(c)
+        if b.get("also_block_by_author") and c.norm_author:
+            by_key[f"a:{c.norm_author}"].append(c)
+
+    blocks = []
+    skipped = 0
+    for key, group in by_key.items():
+        if len(group) < 2:
+            continue
+        if len(group) > limit:
+            skipped += 1
+            print(f"  ⚠️ 너무 큰 묶음이라 건너뜀: {key} ({len(group)}권)")
+            continue
+        blocks.append(group)
+    if skipped:
+        print(f"  ⚠️ 건너뛴 묶음 {skipped}개 — config/matching.yaml 의 "
+              f"blocking.max_group_size 를 늘리면 포함됩니다.")
+    return blocks
+
+
+# -----------------------------------------------------------------------------
+#  대표 정보 고르기
+# -----------------------------------------------------------------------------
+def pick_representative(rows: list[dict]) -> dict:
+    """
+    한 무리(같은 책)에서 화면에 보여줄 대표 정보를 고릅니다.
+
+    기준: 알라딘 → 예스24 → 교보 순으로 우선.
+          우선순위가 높은 서점에 값이 없으면 다음 서점 값으로 채웁니다.
+    """
+    ordered = sorted(rows, key=lambda r: STORE_PRIORITY.get(r["store_id"], 9))
+
+    def pick(field: str):
+        for r in ordered:
+            if r.get(field):
+                return r[field]
+        return None
+
+    cover_row = next((r for r in ordered if r.get("cover_url")), None)
+
+    return {
+        "title": pick("raw_title"),
+        "author": pick("raw_author"),
+        "publisher": pick("raw_publisher"),
+        "pub_ym": pick("pub_ym"),
+        "isbn13": pick("isbn13"),   # 현재는 교보만 제공 (표지 주소에서 추출)
+        "cover_url": cover_row["cover_url"] if cover_row else None,
+        "cover_source": STORE_CODE.get(cover_row["store_id"]) if cover_row else None,
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true", help="DB에 저장하지 않고 확인만")
+    args = ap.parse_args()
+    dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() == "true"
+
+    started = time.monotonic()
+    mcfg = cfg.load("matching.yaml")
+
+    print("=" * 66)
+    print("  같은 책 묶기(매칭) 시작")
+    print(f"  모드: {'확인만 (저장 안 함)' if dry_run else '실제 저장'}")
+    print(f"  기준점: {mcfg['thresholds']['auto_high']}점 이상 자동병합 / "
+          f"{mcfg['thresholds']['auto_low']}점 이상 검토대기")
+    print("=" * 66)
+
+    client = db.connect()
+
+    rows = db.fetch_all_store_books(client)
+    print(f"\n서점별 도서 {len(rows):,}권을 읽었습니다.")
+    if not rows:
+        print("묶을 도서가 없습니다. 먼저 수집을 실행하세요.")
+        return 1
+
+    by_id = {r["id"]: r for r in rows}
+    cands = [
+        Candidate(
+            id=r["id"],
+            store_id=r["store_id"],
+            norm_title=r.get("norm_title") or "",
+            norm_author=r.get("norm_author"),
+            norm_publisher=r.get("norm_publisher"),
+            pub_ym=r.get("pub_ym"),
+            isbn13=r.get("isbn13"),
+            edition_tags=r.get("edition_tags") or [],
+            set_volumes=r.get("set_volumes"),
+        )
+        for r in rows
+    ]
+
+    manual = db.fetch_manual_decisions(client)
+    if manual:
+        print(f"사람이 직접 내린 결정 {len(manual)}건을 우선 적용합니다.")
+
+    # ---- 후보 좁히기 ----
+    print("\n▶ 비교 후보 좁히는 중...")
+    blocks = build_blocks(cands, mcfg)
+    total_pairs = sum(len(g) * (len(g) - 1) // 2 for g in blocks)
+    print(f"  묶음 {len(blocks):,}개 · 비교할 짝 최대 {total_pairs:,}쌍")
+
+    # ---- 비교 ----
+    print("\n▶ 비교 중...")
+    groups = Groups()
+    for c in cands:
+        groups.find(c.id)      # 혼자인 책도 무리에 등록
+
+    match_rows: list[dict] = []
+    seen_pairs: set[tuple[int, int]] = set()
+    counts = {"auto_high": 0, "auto_low": 0, "rejected": 0, "by_isbn": 0}
+
+    for group in blocks:
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                a, b = group[i], group[j]
+                lo, hi = (a.id, b.id) if a.id < b.id else (b.id, a.id)
+                if (lo, hi) in seen_pairs:
+                    continue
+                seen_pairs.add((lo, hi))
+
+                # 사람이 내린 결정이 최우선
+                decided = manual.get((lo, hi))
+                if decided == "manual_merge":
+                    groups.union(lo, hi)
+                    continue
+                if decided == "manual_split":
+                    continue
+
+                # ISBN 이 양쪽에 다 있으면 그것으로 확정
+                result = compare_with_isbn(a, b, mcfg)
+                if result is not None:
+                    if result.is_same_book:
+                        counts["by_isbn"] += 1
+                else:
+                    result = compare(a, b, mcfg)
+
+                if result.decision == "rejected":
+                    counts["rejected"] += 1
+                    continue
+
+                counts[result.decision] += 1
+                groups.union(lo, hi)
+                match_rows.append({
+                    "store_book_a": lo,
+                    "store_book_b": hi,
+                    "score": result.score,
+                    "reasons": result.reasons,
+                    "decision": result.decision,
+                })
+
+    print(f"  자동병합 {counts['auto_high']:,}쌍 "
+          f"(그중 ISBN 확정 {counts['by_isbn']:,}쌍) · "
+          f"검토대기 {counts['auto_low']:,}쌍 · 거부 {counts['rejected']:,}쌍")
+
+    # ---- 무리 만들기 ----
+    clusters = groups.clusters()
+    multi = {k: v for k, v in clusters.items() if len(v) > 1}
+    print(f"\n▶ 결과: 도서 {len(clusters):,}종 "
+          f"(그중 2개 서점 이상에서 발견된 책 {len(multi):,}종)")
+
+    # 사람이 "아님" 이라고 한 짝이 다른 책을 거쳐 한 무리가 된 경우 경고
+    warned = 0
+    for (lo, hi), d in manual.items():
+        if d == "manual_split" and groups.find(lo) == groups.find(hi):
+            warned += 1
+    if warned:
+        print(f"  ⚠️ 사람이 '아님' 이라고 한 짝 {warned}건이 다른 책을 거쳐 "
+              f"한 무리가 됐습니다. 검토 화면에서 확인이 필요합니다.")
+
+    # ---- 예시 보여주기 ----
+    print("\n  ── 묶인 예시 (최대 5건) ──")
+    for cluster in list(multi.values())[:5]:
+        rep = pick_representative([by_id[i] for i in cluster])
+        print(f"   • {rep['title']}  /  {rep['author']}  /  {rep['publisher']}")
+        for i in cluster:
+            r = by_id[i]
+            print(f"       [{STORE_CODE.get(r['store_id'], '?'):<6}] {r['raw_title']}")
+
+    if dry_run:
+        print(f"\n[확인 모드] 저장하지 않았습니다. "
+              f"({round(time.monotonic() - started, 1)}초)")
+        return 0
+
+    # ---- 저장 ----
+    print("\n▶ 저장 중...")
+    db.save_matches(client, match_rows)
+
+    scores_by_pair = {(m["store_book_a"], m["store_book_b"]): m["decision"]
+                      for m in match_rows}
+
+    keep_book_ids: set[int] = set()
+    created = updated = 0
+
+    for cluster in clusters.values():
+        members = [by_id[i] for i in cluster]
+        rep = pick_representative(members)
+
+        # 이 무리의 신뢰도
+        if len(cluster) == 1:
+            confidence = "single"
+        else:
+            pair_decisions = [
+                scores_by_pair.get((min(x, y), max(x, y)))
+                for x in cluster for y in cluster if x < y
+            ]
+            manual_here = any(
+                manual.get((min(x, y), max(x, y))) == "manual_merge"
+                for x in cluster for y in cluster if x < y
+            )
+            if manual_here:
+                confidence = "manual"
+            elif "auto_low" in pair_decisions:
+                confidence = "low"
+            else:
+                confidence = "high"
+        rep["match_confidence"] = confidence
+
+        # 이미 만들어진 도서 마스터가 있으면 그걸 재사용 (주소가 안 바뀌도록)
+        existing = sorted(m["book_id"] for m in members if m.get("book_id"))
+        if existing:
+            book_id = existing[0]
+            db.update_book(client, book_id, rep)
+            updated += 1
+        else:
+            book_id = db.insert_book(client, rep)
+            created += 1
+
+        keep_book_ids.add(book_id)
+        need_link = [m["id"] for m in members if m.get("book_id") != book_id]
+        if need_link:
+            db.link_store_books(client, book_id, need_link)
+
+    orphans = db.delete_orphan_books(client, keep_book_ids)
+
+    print(f"  ✅ 도서 마스터: 새로 {created:,}종 · 갱신 {updated:,}종 · "
+          f"빈 껍데기 정리 {orphans:,}종")
+    print(f"  ✅ 매칭 근거 {len(match_rows):,}건 저장")
+    print(f"\n완료 ({round(time.monotonic() - started, 1)}초)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -156,6 +156,96 @@ def write_log(client: Client, row: dict[str, Any]) -> None:
         print(f"  ⚠️ 로그 기록 실패(수집에는 영향 없음): {exc}")
 
 
+# -----------------------------------------------------------------------------
+#  매칭(같은 책 묶기)에 쓰는 조회/저장
+# -----------------------------------------------------------------------------
+def fetch_all_store_books(client: Client) -> list[dict]:
+    """
+    매칭에 필요한 열만 store_books 전체에서 읽어옵니다.
+    (Supabase 는 한 번에 1,000행까지만 주므로 나눠서 받습니다)
+    """
+    cols = ("id,store_id,raw_title,raw_author,raw_publisher,norm_title,"
+            "norm_author,norm_publisher,pub_ym,isbn13,cover_url,"
+            "edition_tags,set_volumes,book_id")
+    out: list[dict] = []
+    step = 1000
+    start = 0
+    while True:
+        res = (
+            client.table("store_books")
+            .select(cols)
+            .order("id")
+            .range(start, start + step - 1)
+            .execute()
+        )
+        rows = res.data or []
+        out.extend(rows)
+        if len(rows) < step:
+            break
+        start += step
+    return out
+
+
+def fetch_manual_decisions(client: Client) -> dict[tuple[int, int], str]:
+    """
+    사람이 직접 내린 결정만 읽어옵니다.
+    이 결정은 자동 로직이 절대 뒤집지 못합니다.
+    돌려주는 값: {(작은id, 큰id): 'manual_merge' | 'manual_split'}
+    """
+    res = (
+        client.table("book_matches")
+        .select("store_book_a,store_book_b,decision")
+        .in_("decision", ["manual_merge", "manual_split"])
+        .execute()
+    )
+    return {
+        (r["store_book_a"], r["store_book_b"]): r["decision"]
+        for r in (res.data or [])
+    }
+
+
+def save_matches(client: Client, rows: list[dict]) -> None:
+    """매칭 근거를 저장합니다. 사람이 내린 결정은 건드리지 않습니다."""
+    if not rows:
+        return
+    for chunk in _chunks(rows, 300):
+        client.table("book_matches").upsert(
+            chunk, on_conflict="store_book_a,store_book_b"
+        ).execute()
+
+
+def insert_book(client: Client, row: dict) -> int:
+    res = client.table("books").insert(row).execute()
+    if not res.data:
+        raise DBError(f"도서 마스터 생성 실패: {row.get('title')}")
+    return res.data[0]["id"]
+
+
+def update_book(client: Client, book_id: int, row: dict) -> None:
+    client.table("books").update(row).eq("id", book_id).execute()
+
+
+def link_store_books(client: Client, book_id: int, store_book_ids: list[int]) -> None:
+    """이 책들이 같은 도서(book_id)라고 표시합니다."""
+    for chunk in _chunks(store_book_ids, 200):
+        client.table("store_books").update({"book_id": book_id}).in_(
+            "id", chunk
+        ).execute()
+
+
+def delete_orphan_books(client: Client, keep_ids: set[int]) -> int:
+    """
+    아무 서점 도서와도 연결되지 않은 도서 마스터를 지웁니다.
+    (매칭을 다시 계산하면 예전에 만들어진 빈 껍데기가 남을 수 있습니다)
+    """
+    res = client.table("books").select("id").execute()
+    all_ids = {r["id"] for r in (res.data or [])}
+    orphans = sorted(all_ids - keep_ids)
+    for chunk in _chunks(orphans, 200):
+        client.table("books").delete().in_("id", chunk).execute()
+    return len(orphans)
+
+
 def median_recent_count(
     client: Client, category_id: int, snapshot_date: date, days: int = 7
 ) -> int | None:

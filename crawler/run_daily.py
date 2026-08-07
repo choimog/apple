@@ -51,9 +51,18 @@ def kst_today():
     return datetime.now(KST).date()
 
 
-def build_store_book_row(row, store_id: int) -> dict:
-    """파서 결과를 store_books 표 형식으로 변환 (정규화 포함)."""
-    t = norm.normalize_title(row.raw_title)
+def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
+    """파서 결과를 store_books 표 형식으로 변환 (정규화 포함).
+
+    words 는 config/matching.yaml 에서 읽은 단어 목록입니다.
+    (에디션 단어 / 역할어 / 출판사 표기) — 없으면 코드의 기본값을 씁니다.
+    """
+    words = words or {}
+    t = norm.normalize_title(
+        row.raw_title,
+        words.get("edition_words"),
+        words.get("edition_canonical"),
+    )
     return {
         "store_id": store_id,
         "store_book_key": row.store_book_key,
@@ -63,8 +72,10 @@ def build_store_book_row(row, store_id: int) -> dict:
         "raw_pub_date": row.raw_pub_date,
         "norm_title": t["core"],
         "norm_subtitle": t["subtitle"],
-        "norm_author": norm.normalize_author(row.raw_author),
-        "norm_publisher": norm.normalize_publisher(row.raw_publisher),
+        "norm_author": norm.normalize_author(row.raw_author, words.get("role_words")),
+        "norm_publisher": norm.normalize_publisher(
+            row.raw_publisher, words.get("publisher_words")
+        ),
         "pub_ym": row.pub_ym,
         "isbn13": row.isbn13,
         "cover_url": row.cover_url,
@@ -74,8 +85,10 @@ def build_store_book_row(row, store_id: int) -> dict:
     }
 
 
-def crawl_category(client_http: PoliteClient, task, parser, selectors) -> list:
+def crawl_category(client_http: PoliteClient, task, parser, selectors,
+                   role_priority: list[str] | None = None) -> list:
     """카테고리 하나를 페이지 단위로 수집합니다."""
+    role_priority = role_priority or norm.DEFAULT_ROLE_PRIORITY
     all_rows = []
     seen_keys: set[str] = set()
 
@@ -86,7 +99,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors) -> list:
         rows = parser.parse_page(
             resp.text,
             selectors,
-            role_priority=norm.DEFAULT_ROLE_PRIORITY,
+            role_priority=role_priority,
             page=page,
             page_size=task.page_size,
         )
@@ -109,7 +122,8 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors) -> list:
 
 
 def process_task(client, client_http, task, parser, selectors, snapshot_date,
-                 run_id: str, dry_run: bool) -> tuple[str, int]:
+                 run_id: str, dry_run: bool, words: dict | None = None
+                 ) -> tuple[str, int]:
     """
     카테고리 하나를 수집 → 저장 → 로그까지.
     돌려주는 값: (상태, 수집건수)
@@ -118,7 +132,8 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
     print(f"\n▶ {task.label()} (최대 {task.max_items}권, {task.total_pages}페이지)")
 
     category_id = db.sync_category(client, task)
-    rows = crawl_category(client_http, task, parser, selectors)
+    role_priority = (words or {}).get("role_priority") or norm.DEFAULT_ROLE_PRIORITY
+    rows = crawl_category(client_http, task, parser, selectors, role_priority)
     collected = len(rows)
 
     # ---- 자가 점검: 평소의 절반 미만이면 실패로 기록 (요구사항 3-3) ----
@@ -142,7 +157,7 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
         return "success", collected
 
     # ---- 저장 ----
-    sb_rows = [build_store_book_row(r, task.store_id) for r in rows]
+    sb_rows = [build_store_book_row(r, task.store_id, words) for r in rows]
     key_to_id = db.upsert_store_books(client, task.store_id, sb_rows)
 
     ranking_rows = []
@@ -208,6 +223,14 @@ def main() -> int:
     selectors_all = cfg.load("selectors.yaml")
     defaults = sources.get("defaults", {})
 
+    # 표기 통일에 쓰는 단어 목록 (에디션/역할어/출판사 표기)
+    # 없거나 읽기 실패하면 코드의 기본값으로 계속 진행합니다.
+    try:
+        words = cfg.load("matching.yaml")
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ config/matching.yaml 을 못 읽어 기본 단어 목록을 씁니다: {exc}")
+        words = {}
+
     tasks = cfg.build_tasks(sources, only_store=only_store)
     # 파서가 아직 없는 서점은 건너뜁니다 (Phase 3 에서 추가)
     ready = [t for t in tasks if t.store_code in PARSERS]
@@ -265,7 +288,7 @@ def main() -> int:
                 try:
                     status, n = process_task(
                         client, http, task, parser, selectors,
-                        snapshot_date, run_id, dry_run,
+                        snapshot_date, run_id, dry_run, words,
                     )
                     results.append((task.label(), status, n))
                 except BlockedError as exc:

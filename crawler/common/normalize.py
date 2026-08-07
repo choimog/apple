@@ -78,9 +78,34 @@ def split_subtitle(title: str) -> tuple[str, str | None]:
     return title.strip(), None
 
 
-def extract_editions(text: str, edition_words: list[str]) -> list[str]:
-    """제목/괄호 안에서 에디션 표기를 찾아냅니다."""
-    found = [w for w in edition_words if w in text]
+# 같은 뜻인데 다르게 적히는 판형 표기를 하나로 모읍니다.
+# (이게 없으면 교보 '양장' 과 알라딘 '양장본' 이 다른 책으로 판정됩니다)
+DEFAULT_EDITION_CANONICAL = {
+    "양장": "양장본",
+    "리커버판": "리커버",
+}
+
+
+def extract_editions(
+    text: str,
+    edition_words: list[str],
+    canonical: dict[str, str] | None = None,
+) -> list[str]:
+    """
+    제목/괄호 안에서 판형·에디션 표기를 찾아냅니다.
+
+    긴 단어부터 찾아서 지워 나갑니다.
+    그래야 '양장본' 을 찾은 뒤 그 안의 '양장' 을 또 찾는 일이 없습니다.
+    """
+    canonical = DEFAULT_EDITION_CANONICAL if canonical is None else canonical
+
+    found: list[str] = []
+    remaining = text
+    for w in sorted(set(edition_words), key=len, reverse=True):
+        if w in remaining:
+            found.append(canonical.get(w, w))
+            remaining = remaining.replace(w, " ")
+
     # "전7권", "전 7 권" 같은 세트 표기
     if re.search(r"전\s*\d+\s*권", text):
         found.append("전권세트")
@@ -96,7 +121,9 @@ def extract_set_volumes(text: str) -> int | None:
 
 
 def normalize_title(
-    raw: str, edition_words: list[str] | None = None
+    raw: str,
+    edition_words: list[str] | None = None,
+    edition_canonical: dict[str, str] | None = None,
 ) -> dict:
     """
     제목을 비교용으로 정리합니다.
@@ -108,14 +135,16 @@ def normalize_title(
       set_volumes : '전7권'의 7 (세트가 아니면 None)
     """
     edition_words = edition_words or DEFAULT_EDITION_WORDS
+    canonical = (DEFAULT_EDITION_CANONICAL if edition_canonical is None
+                 else edition_canonical)
     text = _nfkc(raw or "").strip()
 
-    editions = extract_editions(text, edition_words)
+    editions = extract_editions(text, edition_words, canonical)
     set_volumes = extract_set_volumes(text)
 
     without_brackets, bracket_inner = split_brackets(text)
     for chunk in bracket_inner:
-        editions.extend(extract_editions(chunk, edition_words))
+        editions.extend(extract_editions(chunk, edition_words, canonical))
 
     core, subtitle = split_subtitle(without_brackets)
 

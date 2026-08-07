@@ -1,0 +1,57 @@
+# =============================================================================
+#  웹 사이트 확인
+# =============================================================================
+#  사이트 코드를 고칠 때마다 자동으로 두 가지를 확인합니다.
+#
+#    1. 빌드가 되는가        (문법 오류·타입 오류 잡기)
+#    2. 조회문이 실제로 되는가 (배포하고 나서 빈 화면 보는 일 방지)
+#
+#  ※ 2번은 실제 데이터베이스에 붙습니다. 읽기만 합니다.
+#  ※ 관리자 열쇠는 이 작업 안에서만 쓰이고, 배포되는 사이트에는 들어가지 않습니다.
+# =============================================================================
+
+name: 웹 사이트 확인
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-check.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: 빌드 + 조회문 확인
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 필요한 도구 설치
+        run: npm ci --no-audit --no-fund
+
+      - name: 조회문이 실제 데이터베이스에서 되는지 확인
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/check-queries.mjs
+
+      - name: 빌드
+        # 빌드할 때는 가짜 주소를 씁니다. 실제 값은 Vercel 에 등록돼 있습니다.
+        # (관리자 열쇠가 사이트 코드에 섞여 들어가지 않도록)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-check.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-check
+        run: npx next build
+
+      - name: 보안 취약점 확인
+        run: npm audit --omit=dev

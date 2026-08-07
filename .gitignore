@@ -23,3 +23,7 @@ out/
 # 운영체제가 만드는 잡파일
 .DS_Store
 Thumbs.db
+
+# Next.js 빌드 결과
+web/.next/
+web/node_modules/

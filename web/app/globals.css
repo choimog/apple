@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 표지 이미지가 안 뜰 때를 위한 회색 자리표시자 */
+.cover-fallback {
+  background: repeating-linear-gradient(
+    45deg,
+    #f1f5f9,
+    #f1f5f9 6px,
+    #e2e8f0 6px,
+    #e2e8f0 12px
+  );
+}

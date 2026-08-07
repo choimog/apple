@@ -37,3 +37,7 @@ jobs:
         env:
           PROBE_STORE: ${{ inputs.store }}
         run: python crawler/probe_store.py
+
+      - name: 교보 데이터 위치 정밀 탐침
+        if: contains(inputs.store, 'kyobo')
+        run: python crawler/probe_kyobo_data.py

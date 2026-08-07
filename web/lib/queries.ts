@@ -194,3 +194,37 @@ export async function getRecentCrawlStatus(limit = 12) {
     .limit(limit);
   return data ?? [];
 }
+
+/**
+ * 보관소로 옮겨진 날짜 범위.
+ *
+ * 【왜 필요한가요?】
+ * 오래된 순위 기록은 Supabase 용량 때문에 Cloudflare R2 로 옮깁니다.
+ * 그러면 사이트 날짜 목록에서 사라지는데, 그냥 사라지면
+ * "수집이 안 된 날" 과 구분이 안 됩니다.
+ * 그래서 "이 기간은 보관소에 있습니다" 라고 정직하게 표시합니다.
+ */
+export async function getArchivedRange(): Promise<{
+  from: string;
+  to: string;
+  days: number;
+  rows: number;
+} | null> {
+  const { data, error } = await supabase
+    .from("archives")
+    .select("snapshot_date,row_count")
+    .eq("table_name", "rankings")
+    .eq("deleted_from_db", true)
+    .order("snapshot_date");
+
+  // archives 표가 아직 없으면(설정 전) 조용히 넘어갑니다
+  if (error || !data?.length) return null;
+
+  const dates = data.map((r) => r.snapshot_date as string);
+  return {
+    from: dates[0],
+    to: dates[dates.length - 1],
+    days: new Set(dates).size,
+    rows: data.reduce((a, r) => a + ((r.row_count as number) ?? 0), 0),
+  };
+}

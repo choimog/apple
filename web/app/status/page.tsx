@@ -1,5 +1,9 @@
 import { configError, STORE_NAME } from "@/lib/supabase";
-import { getRecentCrawlStatus, getSnapshotDates } from "@/lib/queries";
+import {
+  getArchivedRange,
+  getRecentCrawlStatus,
+  getSnapshotDates,
+} from "@/lib/queries";
 import DataError from "@/components/DataError";
 
 // 수집 상태는 자주 바뀌므로 1분마다 다시 읽습니다.
@@ -14,11 +18,12 @@ export default async function StatusPage() {
     );
   }
 
-  let logs, dates;
+  let logs, dates, archived;
   try {
-    [logs, dates] = await Promise.all([
+    [logs, dates, archived] = await Promise.all([
       getRecentCrawlStatus(40),
       getSnapshotDates(14),
+      getArchivedRange(),
     ]);
   } catch (e) {
     return <DataError detail={String(e)} />;
@@ -48,6 +53,23 @@ export default async function StatusPage() {
             <span className="text-sm text-slate-500">아직 수집된 날짜가 없습니다.</span>
           )}
         </div>
+
+        {/* 보관소로 옮긴 기간을 정직하게 알려줍니다.
+            그냥 사라지면 '수집이 안 된 날' 과 구분이 안 됩니다. */}
+        {archived && (
+          <div className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-900">📦 보관소로 옮겨진 기간</p>
+            <p className="mt-1">
+              <strong>{archived.from}</strong> ~ <strong>{archived.to}</strong>{" "}
+              ({archived.days}일 · {archived.rows.toLocaleString()}건)
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              데이터는 지워지지 않았습니다. Supabase 용량을 위해 Cloudflare R2 로
+              옮겨 두었고, 파일로 내려받을 수 있습니다.
+              (docs/archive-setup.md 참고)
+            </p>
+          </div>
+        )}
 
         {/* 접속은 됐는데 아무것도 못 읽은 경우 = 읽기 권한 문제일 가능성이 높습니다 */}
         {dates.length === 0 && logs.length === 0 && (

@@ -6,3 +6,4 @@ selectolax==0.3.27     # HTML에서 값을 뽑아내는 도구 (빠르고 가벼
 PyYAML==6.0.2          # config/*.yaml 설정 파일을 읽는 도구
 supabase==2.11.0       # 데이터베이스에 저장하는 도구
 playwright==1.49.1     # 화면 없는 브라우저 (교보문고 전용. 다른 서점은 안 씀)
+boto3==1.35.99         # 보관소(Cloudflare R2)에 파일을 올리는 도구

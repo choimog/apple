@@ -1,0 +1,40 @@
+# =============================================================================
+#  교보 — 브라우저가 부르는 주소 관찰 (수동 실행 전용)
+# =============================================================================
+#  교보 목록 페이지 HTML 에는 도서 데이터가 없습니다.
+#  브라우저를 띄웠을 때 어떤 주소로 데이터를 받아오는지,
+#  그 주소가 robots.txt 상 허용인지 확인합니다.
+#
+#  ※ 목록 페이지 1장만 엽니다. 상세 페이지 진입 없음.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/probe-kyobo-network.yml
+# =============================================================================
+
+name: 교보 네트워크 관찰
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: 브라우저 네트워크 덤프
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: |
+          pip install --no-cache-dir -r crawler/requirements.txt
+          pip install --no-cache-dir playwright==1.49.1
+
+      - name: 브라우저(크로미움) 설치
+        run: python -m playwright install --with-deps chromium
+
+      - name: 관찰 실행
+        run: python crawler/probe_kyobo_network.py

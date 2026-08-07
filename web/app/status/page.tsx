@@ -48,6 +48,23 @@ export default async function StatusPage() {
             <span className="text-sm text-slate-500">아직 수집된 날짜가 없습니다.</span>
           )}
         </div>
+
+        {/* 접속은 됐는데 아무것도 못 읽은 경우 = 읽기 권한 문제일 가능성이 높습니다 */}
+        {dates.length === 0 && logs.length === 0 && (
+          <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+            <p className="font-semibold text-amber-900">
+              🔑 데이터베이스 읽기 권한 문제일 수 있습니다
+            </p>
+            <p className="mt-1">
+              접속은 됐는데 기록을 하나도 못 읽었습니다. Supabase → SQL Editor 에서
+              저장소의 <code className="rounded bg-amber-100 px-1">db/rls.sql</code> 을
+              한 번 실행해 주세요. (읽기만 열고 쓰기·삭제는 막는 설정입니다)
+            </p>
+          </div>
+        )}
+
+        <div className="hidden">
+        </div>
       </section>
 
       {failed.length > 0 && (

@@ -45,6 +45,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/check-queries.mjs
 
+      - name: 사이트와 같은 열쇠(공개용)로 읽히는지 확인
+        # 관리자 열쇠로만 확인하면 보안 잠금(RLS) 문제를 못 잡습니다.
+        # 실제로 2026-08-07 에 조회문은 다 통과했는데 배포한 사이트는
+        # "데이터가 없습니다" 로 떴습니다. 그래서 같은 열쇠로 한 번 더 봅니다.
+        # SUPABASE_ANON_KEY 가 없으면 건너뜁니다.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: node scripts/check-anon.mjs
+
       - name: 빌드
         # 빌드할 때는 가짜 주소를 씁니다. 실제 값은 Vercel 에 등록돼 있습니다.
         # (관리자 열쇠가 사이트 코드에 섞여 들어가지 않도록)

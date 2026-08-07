@@ -31,7 +31,14 @@ export default async function Home({
     return <DataError detail={String(e)} />;
   }
 
-  if (!categories.length || !dates.length) return <EmptyNotice />;
+  if (!categories.length || !dates.length) {
+    return (
+      <EmptyNotice
+        categoryCount={categories.length}
+        dateCount={dates.length}
+      />
+    );
+  }
 
   const categoryId = Number(params.cat) || categories[0].id;
   const date = params.date && dates.includes(params.date) ? params.date : dates[0];
@@ -192,14 +199,76 @@ function SetupNotice({ message }: { message: string }) {
   );
 }
 
-function EmptyNotice() {
+/**
+ * 데이터가 안 보일 때의 안내.
+ *
+ * 【왜 이렇게 자세히 보여주나요?】
+ * 그냥 "데이터가 없습니다" 라고만 하면 원인이 두 가지로 갈리는데 구분이 안 됩니다.
+ *   (가) 진짜로 아직 한 번도 수집을 안 한 경우
+ *   (나) 데이터는 있는데 사이트가 읽을 권한이 없는 경우 ← 훨씬 흔합니다
+ * 그래서 무엇이 0인지 그대로 보여주고, 어느 쪽인지 판단할 수 있게 합니다.
+ */
+function EmptyNotice({
+  categoryCount,
+  dateCount,
+}: {
+  categoryCount: number;
+  dateCount: number;
+}) {
+  // 분야까지 0이면 표를 아예 못 읽는 것 = 권한 문제일 가능성이 높습니다.
+  const looksLikePermission = categoryCount === 0;
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6">
-      <h1 className="text-base font-bold">아직 수집된 데이터가 없습니다</h1>
-      <p className="mt-2 text-sm text-slate-600">
-        GitHub → Actions → [매일 수집 (daily crawl)] → Run workflow 를 한 번 실행하면
-        데이터가 채워집니다. 매일 아침 6시에는 자동으로 실행됩니다.
-      </p>
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-6">
+      <h1 className="text-base font-bold text-amber-900">
+        보여줄 데이터를 못 찾았습니다
+      </h1>
+
+      <div className="mt-3 rounded border border-amber-200 bg-white px-3 py-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-slate-600">읽어온 분야 수</span>
+          <span className="font-mono font-medium">{categoryCount}개</span>
+        </div>
+        <div className="mt-1 flex justify-between">
+          <span className="text-slate-600">읽어온 수집 날짜 수</span>
+          <span className="font-mono font-medium">{dateCount}개</span>
+        </div>
+      </div>
+
+      {looksLikePermission ? (
+        <>
+          <p className="mt-4 text-sm font-semibold text-amber-900">
+            🔑 데이터베이스 읽기 권한 문제일 가능성이 높습니다
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            접속은 됐는데 표를 하나도 못 읽었습니다. 아래를 한 번만 하시면 됩니다.
+          </p>
+          <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-amber-800">
+            <li>
+              Supabase 대시보드 → 왼쪽 <strong>SQL Editor</strong> → New query
+            </li>
+            <li>
+              저장소의 <code className="rounded bg-amber-100 px-1">db/rls.sql</code>{" "}
+              파일 전체를 복사해서 붙여넣고 <strong>Run</strong>
+            </li>
+            <li>이 화면을 새로고침 (최대 10분)</li>
+          </ol>
+          <p className="mt-2 text-xs text-amber-700">
+            ※ 이 작업은 읽기만 열고 쓰기·삭제는 막습니다. 보안상 꼭 필요한 설정입니다.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-sm font-semibold text-amber-900">
+            📥 아직 수집이 안 된 것 같습니다
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            GitHub → Actions → <strong>매일 수집 (daily crawl)</strong> →{" "}
+            <strong>Run workflow</strong> 를 한 번 실행하세요.
+            매일 아침 6시에는 자동으로 실행됩니다.
+          </p>
+        </>
+      )}
     </div>
   );
 }

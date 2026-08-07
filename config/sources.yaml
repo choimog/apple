@@ -954,15 +954,23 @@ aladin:
 #  주소가 daily 와 다릅니다. daily 는 분야를 숫자(01, 03…)로,
 #  weekly 는 영어 단어(novel, essay…)로 씁니다. 서점이 그렇게 만들어 뒀습니다.
 #
-#  ⚠️ per=200 이 주간 화면에서도 먹히는지는 '설정 점검' 으로 확인해야 합니다.
-#     대표님이 보신 화면은 전체 50개·나머지 20개였습니다.
-#     점검 결과 한 페이지에 200권이 안 나오면 page_size 를 실제 값으로 고칩니다.
-#     (page_size 가 실제와 다르면 '조용히 적게' 모으게 되므로 중요합니다)
+#  【한 페이지에 몇 권인지 — 2026-08-07 설정 점검 실측】
+#    전체    : per=200 이 먹힙니다 → 200권. page_size 200.
+#    분야별  : per 을 넣어도 무시하고 20권만 줍니다 → page_size 20.
+#
+#  ※ page_size 를 실제와 다르게 적으면 안 됩니다.
+#    처음에 분야별도 200 으로 적어 뒀는데, 그대로 뒀다면 2페이지부터
+#    순위를 201위·202위… 로 잘못 매기고 5페이지에서 멈춰
+#    "조용히 100권만" 모으게 될 뻔했습니다. 실측값으로 고쳤습니다.
+#
+#  ※ 분야별이 정말 20위까지만 있는지, 2페이지가 더 있는지는 아직 모릅니다.
+#    수집 코드가 "새 도서가 없으면 그 자리에서 멈추게" 돼 있어서,
+#    max_items 를 1000 으로 둬도 실제 있는 만큼만 받고 끝냅니다.
 # -----------------------------------------------------------------------------
 kyobo_weekly:
   store: kyobo
   kind: weekly
-  page_size: 200
+  page_size: 20
   categories:
     - code: ""
       name: "전체"
@@ -975,209 +983,209 @@ kyobo_weekly:
     - code: "novel"
       name: "소설"
       unified: "fiction"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/novel?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/novel?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "essay"
       name: "에세이"
       unified: "essay"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/essay?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/essay?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "korean-novel"
       name: "한국소설"
       unified: "korean_fiction"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/korean-novel?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/korean-novel?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "foreign-novel"
       name: "외국소설"
       unified: "foreign_fiction"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/foreign-novel?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/foreign-novel?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "poem"
       name: "시"
       unified: "poetry"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/poem?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/poem?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "children"
       name: "아동"
       unified: "children"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/children?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/children?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "household"
       name: "가정생활"
       unified: "home_life"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/household?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/household?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "humanities"
       name: "인문"
       unified: "humanities"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/humanities?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/humanities?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "society"
       name: "정치사회"
       unified: "society"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/society?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/society?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "economics"
       name: "경제경영"
       unified: "business"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/economics?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/economics?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "health"
       name: "건강"
       unified: "health"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/health?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/health?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "science"
       name: "과학"
       unified: "science"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/science?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/science?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "languages"
       name: "외국어"
       unified: "language"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/languages?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/languages?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "art"
       name: "예술"
       unified: "art"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/art?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/art?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "hobby"
       name: "취미/스포츠"
       unified: "hobby"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/hobby?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/hobby?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "toeic-toefl"
       name: "TOEIC/TOEFL"
       unified: "toeic_toefl"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/toeic-toefl?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/toeic-toefl?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "kids"
       name: "유아"
       unified: "infant"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/kids?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/kids?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "religion"
       name: "종교"
       unified: "religion"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/religion?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/religion?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "child-comics"
       name: "아동만화"
       unified: "child_comics"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/child-comics?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/child-comics?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "cook"
       name: "요리"
       unified: "cooking"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/cook?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/cook?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "history"
       name: "역사/문화"
       unified: "history"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/history?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/history?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "self-help"
       name: "자기계발"
       unified: "self_help"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/self-help?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/self-help?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "travel"
       name: "여행"
       unified: "travel"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/travel?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/travel?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "tech"
       name: "기술/컴퓨터"
       unified: "it"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/tech?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/tech?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "comics"
       name: "만화"
       unified: "comics"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/comics?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/comics?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
     - code: "teens-ya"
       name: "청소년"
       unified: "teen"
-      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/teens-ya?page={page}&per=200"
+      url: "https://store.kyobobook.co.kr/bestseller/total/weekly/teens-ya?page={page}"
       max_items: 1000
-      page_size: 200
+      page_size: 20
       enabled: true
 
 
@@ -1400,11 +1408,13 @@ yes24_weekly:
 #
 #  ※ 대표님이 주신 종합 주소는 .../wbest.aspx?BranchType=1&start=we 였습니다.
 #    그 주소에는 페이지 번호를 붙일 자리가 없어서, 나머지 30개와 같은 형식인
-#    BestType=Bestseller&CID=0 으로 적었습니다. 같은 목록인지는
-#    '설정 점검' 에서 1위 도서를 보고 확인합니다.
+#    BestType=Bestseller&CID=0 으로 적었습니다.
+#    2026-08-07 점검에서 일간과 주간의 1위가 서로 다르게 나온 분야가
+#    여럿이었습니다(사회과학·만화·요리·어린이 등). 즉 같은 페이지를 두 번
+#    받아오는 게 아니라 실제로 다른 목록입니다.
 #
-#  ※ 전집/중고전집(17195) 은 일간에서는 0권이라 꺼 뒀지만,
-#    주간에는 목록이 있을 수 있어 켜 두고 점검 결과로 판단합니다.
+#  ※ 전집/중고전집(17195) 은 일간에서는 0권이라 꺼 뒀는데,
+#    주간에는 50권이 나왔습니다(2026-08-07 실측). 그래서 주간만 켭니다.
 # -----------------------------------------------------------------------------
 aladin_weekly:
   store: aladin

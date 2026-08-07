@@ -155,11 +155,14 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
 
 
 def process_task(client, client_http, task, parser, selectors, snapshot_date,
-                 run_id: str, dry_run: bool, words: dict | None = None
-                 ) -> tuple[str, int]:
+                 run_id: str, dry_run: bool, words: dict | None = None,
+                 fingerprints: dict | None = None) -> tuple[str, int]:
     """
     카테고리 하나를 수집 → 저장 → 로그까지.
     돌려주는 값: (상태, 수집건수)
+
+    fingerprints 에는 "이 카테고리에서 어떤 책들이 나왔는지" 를 적어 둡니다.
+    나중에 서로 다른 카테고리인데 결과가 똑같은 경우를 잡아내기 위해서입니다.
     """
     started = time.monotonic()
     print(f"\n▶ {task.label()} (최대 {task.max_items}권, {task.total_pages}페이지)")
@@ -168,6 +171,9 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
     role_priority = (words or {}).get("role_priority") or norm.DEFAULT_ROLE_PRIORITY
     rows = crawl_category(client_http, task, parser, selectors, role_priority)
     collected = len(rows)
+
+    if fingerprints is not None:
+        fingerprints[task.label()] = frozenset(r.store_book_key for r in rows)
 
     # ---- 자가 점검: 평소의 절반 미만이면 실패로 기록 (요구사항 3-3) ----
     baseline = db.median_recent_count(client, category_id, snapshot_date)
@@ -281,6 +287,9 @@ def main() -> int:
     ua = defaults.get("user_agent", "BestsellerTracker/1.0")
 
     results: list[tuple[str, str, int]] = []
+    # 카테고리별로 "어떤 책들이 나왔는지" 를 기록해 둡니다.
+    # 서로 다른 카테고리인데 결과가 똑같으면 주소가 잘못됐다는 신호입니다.
+    fingerprints: dict[str, frozenset] = {}
     by_store: dict[str, list] = {}
     for t in ready:
         by_store.setdefault(t.store_code, []).append(t)
@@ -325,7 +334,7 @@ def main() -> int:
                 try:
                     status, n = process_task(
                         client, http, task, parser, selectors,
-                        snapshot_date, run_id, dry_run, words,
+                        snapshot_date, run_id, dry_run, words, fingerprints,
                     )
                     results.append((task.label(), status, n))
                 except BlockedError as exc:
@@ -362,6 +371,24 @@ def main() -> int:
         icon = "✅" if status == "success" else "❌"
         print(f"  {icon} {label:<34} {status:<20} {n}권")
     print(f"\n  성공 {ok}/{len(results)} 카테고리 · 총 {total_items}권")
+
+    # ---- 자가 점검: 서로 다른 카테고리인데 결과가 완전히 같은 경우 ----
+    #
+    # 【왜 확인하나요?】
+    # 예를 들어 '광화문점' 과 '강남점' 이 완전히 같은 목록을 돌려준다면,
+    # 주소에 매장 번호가 제대로 안 들어갔다는 뜻입니다.
+    # 이걸 못 잡으면 "매장별 순위" 라면서 실은 같은 데이터를 보여주게 됩니다.
+    same: dict[frozenset, list[str]] = {}
+    for label, keys in fingerprints.items():
+        if keys:
+            same.setdefault(keys, []).append(label)
+    twins = [labels for labels in same.values() if len(labels) > 1]
+    if twins:
+        print("\n  ⚠️ 서로 다른 카테고리인데 수집 결과가 완전히 같습니다:")
+        for labels in twins:
+            print(f"     • {' = '.join(labels)}")
+        print("     → config/sources.yaml 의 주소(특히 매장 코드)를 확인하세요.")
+        print("     → 실제로 두 매장의 순위가 같을 수도 있으니 확인 후 판단하세요.")
 
     # 전부 실패했을 때만 실행 자체를 실패로 표시 (부분 실패는 허용)
     if ok == 0:

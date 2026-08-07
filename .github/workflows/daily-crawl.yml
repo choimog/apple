@@ -60,7 +60,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
+          # ⚠️ cache: pip 를 쓰지 마세요.
+          #    아래 설치를 --no-cache-dir 로 하기 때문에 저장할 캐시가 없고,
+          #    그러면 작업 마지막의 캐시 저장 단계가 실패해서
+          #    "수집은 성공했는데 실행은 실패"로 표시됩니다.
+          #    (설치가 5초라 캐시 이득도 없습니다)
 
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt

@@ -171,33 +171,33 @@ kyobo_offline:
 yes24:
   store: yes24
   kind: online
-  page_size: 24            # 정찰에서 더 큰 값이 가능한지 확인 예정
+  page_size: 120           # 정찰에서 120 동작 확인 (2026-08-07). 요청 수 1/5로 감소
   categories:
     - code: "001"
       name: "전체"
       unified: "all"
-      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001&pageNumber={page}&pageSize=24"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001&pageNumber={page}&pageSize=120"
       max_items: 1000
       enabled: true
 
     - code: "001001001"
       name: "가정살림"
       unified: "home_life"
-      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001001&pageNumber={page}&pageSize=24"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001001&pageNumber={page}&pageSize=120"
       max_items: 1000
       enabled: true
 
     - code: "001001011"
       name: "건강취미"
       unified: "health_hobby"
-      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001011&pageNumber={page}&pageSize=24"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001011&pageNumber={page}&pageSize=120"
       max_items: 1000
       enabled: true
 
     - code: "001001025"
       name: "경제경영"
       unified: "business"
-      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001025&pageNumber={page}&pageSize=24"
+      url: "https://www.yes24.com/product/category/bestseller?categoryNumber=001001025&pageNumber={page}&pageSize=120"
       max_items: 1000
       enabled: true
 

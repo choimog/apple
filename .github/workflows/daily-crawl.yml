@@ -1,0 +1,74 @@
+# =============================================================================
+#  매일 자동 수집
+# =============================================================================
+#
+#  【언제 실행되나요?】
+#  매일 한국시간 오전 6시.
+#  cron 은 세계표준시(UTC) 기준이라 "21:00 UTC" 로 적습니다.
+#    한국시간 = UTC + 9시간 (서머타임 없음)
+#    06:00 KST = 21:00 UTC (전날)
+#
+#  ⚠️ GitHub 무료 스케줄러는 사용량이 몰리면 5~30분 늦게 시작될 수 있습니다.
+#     "6시 정각"이 아니라 "6시~6시 30분 사이"로 이해해 주세요.
+#
+#  【수동으로 지금 돌리고 싶을 때】
+#  https://github.com/choimog/apple/actions/workflows/daily-crawl.yml
+#  → 오른쪽 [Run workflow] 버튼
+#     store   : 특정 서점만 돌리기 (비워두면 전체)
+#     dry_run : true 로 하면 저장하지 않고 확인만
+#
+#  【실패했을 때】
+#  - 등록된 이메일로 GitHub 이 자동 알림을 보냅니다
+#  - 위 주소에서 빨간 ❌ 실행을 눌러 로그를 보세요
+#  - Supabase 의 crawl_logs 표에도 실패 사유가 남습니다
+# =============================================================================
+
+name: 매일 수집 (daily crawl)
+
+on:
+  schedule:
+    # 매일 21:00 UTC = 다음날 06:00 한국시간
+    - cron: "0 21 * * *"
+
+  workflow_dispatch:
+    inputs:
+      store:
+        description: "특정 서점만 (aladin / yes24 / kyobo). 비우면 전체"
+        required: false
+        default: ""
+      dry_run:
+        description: "저장하지 않고 확인만 하려면 true"
+        required: false
+        default: "false"
+
+# 동시에 두 번 돌지 않게 합니다 (중복 수집 방지)
+concurrency:
+  group: daily-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    name: 베스트셀러 수집
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 수집 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_STORE: ${{ inputs.store }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python crawler/run_daily.py

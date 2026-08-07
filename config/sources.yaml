@@ -879,12 +879,16 @@ aladin:
       max_items: 1000
       enabled: true
 
+    # ⚠️ 2026-08-07 설정 점검에서 이 분야만 도서가 0권이었습니다.
+    #    (일간 베스트셀러에는 이 분야 목록이 없는 것으로 보입니다)
+    #    켜두면 매일 실패로 기록되므로 꺼 둡니다.
+    #    나중에 알라딘이 목록을 만들면 enabled: true 로 바꾸세요.
     - code: "17195"
       name: "전집/중고전집"
       unified: "collection"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=17195&page={page}"
       max_items: 1000
-      enabled: true
+      enabled: false
 
     - code: "2913"
       name: "잡지"

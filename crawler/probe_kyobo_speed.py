@@ -27,7 +27,13 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common.browser import BLOCK_HOSTS, OUR_TOKEN, TINY_GIF  # noqa: E402
+from common.browser import BLOCK_HOSTS, OUR_TOKEN  # noqa: E402
+
+# A 방식(예전 방식)을 재현하기 위한 1x1 GIF. 지금은 browser.py 에서 안 씁니다.
+TINY_GIF = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000"
+    "010001000002024401003b"
+)
 
 URLS = [
     ("온라인 전체", "https://store.kyobobook.co.kr/bestseller/online/daily/domestic?page=1&per=200"),

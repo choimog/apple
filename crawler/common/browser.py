@@ -39,25 +39,24 @@ BLOCK_HOSTS = (
     "daumcdn.net", "pstatic.net",
 )
 
-# 동영상·글꼴은 아예 안 받습니다. 도서 정보와 무관합니다.
-BLOCK_TYPES = ("media", "font")
-
-# 이미지는 '안 받되, 받은 척' 합니다.
+# 이미지는 브라우저 설정으로 아예 끕니다 (--blink-settings=imagesEnabled=false).
 #
-# 【왜 이렇게 하나요? — 2026-08-07 실제로 겪은 문제】
-# 처음에는 이미지 요청을 그냥 막았습니다(abort). 그랬더니 교보 화면이
-# "이미지를 못 받았네" 하고 표지 주소를 '등록된 이미지 없음' 자리표시자로
-# 바꿔버렸습니다. 표지 주소 안에 ISBN 이 들어 있는데, 그게 통째로 날아갑니다.
+# 【왜 이렇게 하나요? — 2026-08-07 실측】
+# 처음에는 모든 요청을 가로채서(route) 이미지에 가짜 응답을 돌려줬습니다.
+# 그런데 per=200 으로 한 페이지에 200권이 담기자, 이미지 요청 200건이
+# 전부 파이썬 함수를 거치면서 페이지 한 장이 60초를 넘겨 실패했습니다.
+# (설정 점검에서 교보 29개가 '45초 초과' 로 실패)
 #
-#   막기 전 : .../sih/fit-in/300x0/pdt/9791199489561.jpg   ← ISBN 있음
-#   막은 후 : .../img_prod_thumb_no_register_prd_svg.svg   ← ISBN 없음
+# 같은 페이지를 세 방식으로 재본 결과:
+#     A) 전부 가로채기 + 가짜 응답 :  6.2초 / 3.8초 / 60.5초 실패
+#     B) 가로채기 없음             :  5.2초 / 3.3초 / 3.3초
+#     C) 이미지를 브라우저에서 끄기   :  4.1초 / 2.9초 / 3.0초  ← 채택
+# 세 방식 모두 도서 200권·표지ISBN 200개를 얻었습니다.
 #
-# 그래서 '성공했다'고 응답만 주고 실제 그림 데이터는 받지 않습니다.
-# 결과: 표지 주소(=ISBN)는 그대로 남고, 교보 서버에서 받는 양은 거의 0.
-TINY_GIF = bytes.fromhex(
-    "47494638396101000100800000000000ffffff21f90401000000002c00000000"
-    "010001000002024401003b"
-)
+# C 가 가장 빠르고, 이미지를 아예 안 받으므로 서점 대역폭도 안 씁니다.
+# 그리고 중요한 점: 이미지를 '끄면' 표지 주소가 그대로 남습니다.
+# (예전에 route.abort() 로 막았을 때는 교보 화면이 표지 주소를
+#  '등록된 이미지 없음' 자리표시자로 바꿔버려 ISBN 을 잃었습니다)
 
 
 class _Response:
@@ -103,7 +102,6 @@ class PoliteBrowser:
         self._last_at: float | None = None
         self.pages_fetched = 0
         self.blocked_requests = 0
-        self.stubbed_images = 0
         self.stats = _Stats(self)
         self.user_agent = OUR_TOKEN
 
@@ -111,9 +109,12 @@ class PoliteBrowser:
         from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(
-            args=["--disable-dev-shm-usage", "--disable-gpu"]
-        )
+        self._browser = self._pw.chromium.launch(args=[
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            # 이미지를 아예 받지 않습니다. 위 주석의 실측 근거를 보세요.
+            "--blink-settings=imagesEnabled=false",
+        ])
 
         # 기본 크롬 표기를 읽어와 그 뒤에 우리 표시를 붙입니다.
         probe_ctx = self._browser.new_context()
@@ -126,7 +127,10 @@ class PoliteBrowser:
             user_agent=self.user_agent,
             viewport={"width": 1440, "height": 2400},
         )
-        self._ctx.route("**/*", self._route)
+        # 광고·추적만 막습니다. 요청 수가 적어(페이지당 5~6건) 병목이 안 됩니다.
+        # ※ 여기서 "**/*" 로 전부 가로채면 안 됩니다. 그게 60초 실패의 원인이었습니다.
+        for host in BLOCK_HOSTS:
+            self._ctx.route(f"**://*{host}/**", self._block)
         self._page = self._ctx.new_page()
         return self
 
@@ -138,22 +142,10 @@ class PoliteBrowser:
         finally:
             self._pw.stop()
 
-    def _route(self, route, request) -> None:
-        """광고·추적 요청은 막고, 이미지는 '받은 척' 만 합니다."""
-        url = request.url
-        if request.resource_type in BLOCK_TYPES or any(h in url for h in BLOCK_HOSTS):
-            self.blocked_requests += 1
-            route.abort()
-            return
-
-        if request.resource_type == "image":
-            # 실제 그림은 안 받지만 '성공' 이라고 답해 줍니다.
-            # (막아버리면 화면이 표지 주소를 자리표시자로 갈아치웁니다)
-            self.stubbed_images += 1
-            route.fulfill(status=200, content_type="image/gif", body=TINY_GIF)
-            return
-
-        route.continue_()
+    def _block(self, route, request) -> None:
+        """광고·추적 요청을 막습니다. (이미지는 브라우저 설정으로 이미 꺼져 있습니다)"""
+        self.blocked_requests += 1
+        route.abort()
 
     def _wait_turn(self) -> None:
         """앞 요청과의 간격을 지킵니다."""
@@ -185,6 +177,6 @@ class PoliteBrowser:
             "mode": "headless_browser",
             "pages_fetched": self.pages_fetched,
             "blocked_ad_requests": self.blocked_requests,
-            "stubbed_images": self.stubbed_images,
+            "images": "브라우저 설정으로 끔",
             "user_agent": self.user_agent,
         }

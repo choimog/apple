@@ -73,7 +73,8 @@ defaults:
 # -----------------------------------------------------------------------------
 #  ✅ 아래 3개는 검증된 URL 패턴입니다.
 #  ❓ 나머지 분야 코드는 정찰 후 추가됩니다.
-#  ※ 교보 온라인은 분야당 최대 200권입니다.
+#  ✅ 2026-08-07 정찰: 50페이지(=1,000권)까지 도서가 나옵니다.
+#     그전까지 200권으로 잡혀 있었는데 근거 없는 값이었습니다.
 # -----------------------------------------------------------------------------
 kyobo_online:
   store: kyobo
@@ -83,7 +84,7 @@ kyobo_online:
       name: "전체"
       unified: "all"
       url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic?page={page}"
-      max_items: 200
+      max_items: 1000
       page_size: 20
       enabled: true
 
@@ -91,7 +92,7 @@ kyobo_online:
       name: "소설"
       unified: "fiction"
       url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/01?page={page}"
-      max_items: 200
+      max_items: 1000
       page_size: 20
       enabled: true
 
@@ -99,11 +100,12 @@ kyobo_online:
       name: "시/에세이"
       unified: "poetry_essay"
       url: "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/03?page={page}"
-      max_items: 200
+      max_items: 1000
       page_size: 20
       enabled: true
 
-    # ❓ 정찰 후 나머지 분야가 여기에 자동으로 추가됩니다.
+    # ✅ 2026-08-07 정찰로 확인한 전체 분야입니다 (28개).
+    #    빼고 싶은 분야는 지우지 말고 enabled: false 로만 바꾸세요.
 
 
 # -----------------------------------------------------------------------------
@@ -138,20 +140,95 @@ kyobo_offline:
       branch_name: "광화문점"
       region: "seoul"
       enabled: true
+
+    - branch_code: "003"
+      branch_name: "매장 003"
+      region: "seoul"
+      enabled: true
+
     - branch_code: "015"
       branch_name: "강남점"
       region: "seoul"
       enabled: true
+
+    - branch_code: "023"
+      branch_name: "매장 023"
+      region: "seoul"
+      enabled: true
+
     - branch_code: "029"
       branch_name: "잠실점"
       region: "seoul"
       enabled: true
+
+    - branch_code: "033"
+      branch_name: "매장 033"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "036"
+      branch_name: "매장 036"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "041"
+      branch_name: "매장 041"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "046"
+      branch_name: "매장 046"
+      region: "seoul"
+      enabled: true
+
     - branch_code: "049"
       branch_name: "합정점"
       region: "seoul"
       enabled: true
 
-    # ❓ 정찰 후 전국 나머지 매장이 여기에 자동으로 추가됩니다.
+    - branch_code: "056"
+      branch_name: "매장 056"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "058"
+      branch_name: "매장 058"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "068"
+      branch_name: "매장 068"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "072"
+      branch_name: "매장 072"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "074"
+      branch_name: "매장 074"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "090"
+      branch_name: "매장 090"
+      region: "seoul"
+      enabled: true
+
+    - branch_code: "059"
+      branch_name: "매장 059"
+      region: "suburb"
+      enabled: true
+
+    - branch_code: "070"
+      branch_name: "매장 070"
+      region: "metro"
+      enabled: true
+
+    # ✅ 2026-08-07 정찰로 확인한 18곳입니다.
+    #    이름을 못 얻은 매장은 '매장 003' 처럼 코드로 적어 두었습니다.
+    #    실제 이름을 아시면 branch_name 만 고치면 됩니다 (수집에는 영향 없음).
 
   # 매장 URL 형식. {region}/{branch}/{cat} 자리에 위 값이 들어갑니다.
   url_template: "https://store.kyobobook.co.kr/bestseller/store/{region}/{branch}/{cat}?page={page}&per=50"
@@ -224,10 +301,10 @@ aladin:
       max_items: 1000
       enabled: true
 
-    - code: "55890"
-      name: "건강/취미"
-      unified: "health_hobby"
-      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=55890&page={page}"
+    - code: "1"
+      name: "소설"
+      unified: "fiction"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1&page={page}"
       max_items: 1000
       enabled: true
 
@@ -238,10 +315,178 @@ aladin:
       max_items: 1000
       enabled: true
 
+    - code: "336"
+      name: "자기계발"
+      unified: "self_help"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=336&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "656"
+      name: "인문학"
+      unified: "humanities"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=656&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "798"
+      name: "역사"
+      unified: "history"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=798&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "987"
+      name: "예술/대중문화"
+      unified: "art"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=987&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1108"
+      name: "어린이"
+      unified: "children"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1108&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1137"
+      name: "청소년"
+      unified: "teen"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1137&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1196"
+      name: "여행"
+      unified: "travel"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1196&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1230"
+      name: "요리/살림"
+      unified: "cooking"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1230&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1237"
+      name: "종교/역학"
+      unified: "religion"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1237&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1322"
+      name: "외국어"
+      unified: "language"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1322&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "1383"
+      name: "수험서/자격증"
+      unified: "exam"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=1383&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "2030"
+      name: "좋은부모"
+      unified: "parenting"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=2030&page={page}"
+      max_items: 1000
+      enabled: true
+
     - code: "2105"
       name: "고전"
       unified: "classics"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=2105&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "2551"
+      name: "만화/라이트노벨"
+      unified: "comics"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=2551&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "2913"
+      name: "잡지"
+      unified: "magazine"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=2913&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "4395"
+      name: "달력/기타"
+      unified: "etc"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=4395&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "8257"
+      name: "대학교재/전문서적"
+      unified: "textbook"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=8257&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "13789"
+      name: "유아"
+      unified: "infant"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=13789&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "17195"
+      name: "전집/중고전집"
+      unified: "collection"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=17195&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "50246"
+      name: "초등학교참고서"
+      unified: "elem_ref"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=50246&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "55889"
+      name: "에세이"
+      unified: "essay"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=55889&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "55890"
+      name: "건강/취미"
+      unified: "health_hobby"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=55890&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "76000"
+      name: "중학교참고서"
+      unified: "mid_ref"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=76000&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "76001"
+      name: "고등학교참고서"
+      unified: "high_ref"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=76001&page={page}"
+      max_items: 1000
+      enabled: true
+
+    - code: "112011"
+      name: "장르소설"
+      unified: "genre_fiction"
+      url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller&CID=112011&page={page}"
       max_items: 1000
       enabled: true
 

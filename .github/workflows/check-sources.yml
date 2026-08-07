@@ -1,0 +1,50 @@
+# =============================================================================
+#  설정 점검 — 수집 주소가 전부 살아 있는지 확인
+# =============================================================================
+#  config/sources.yaml 을 고치면 자동으로 돌아갑니다.
+#  분야·매장의 첫 페이지만 열어서 도서가 나오는지 봅니다.
+#
+#  이게 없으면 주소 오타를 매일 새벽 수집이 실패하고 나서야 알게 됩니다.
+#
+#  손으로 돌리기:
+#  https://github.com/choimog/apple/actions/workflows/check-sources.yml
+# =============================================================================
+
+name: 설정 점검
+
+on:
+  push:
+    paths:
+      - "config/sources.yaml"
+      - "config/selectors.yaml"
+      - "crawler/check_sources.py"
+      - ".github/workflows/check-sources.yml"
+  workflow_dispatch:
+    inputs:
+      store:
+        description: "특정 서점만 (aladin / yes24 / kyobo). 비우면 전체"
+        required: false
+        default: ""
+
+jobs:
+  check:
+    name: 주소 확인
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 브라우저(크로미움) 설치
+        if: ${{ inputs.store == '' || contains(inputs.store, 'kyobo') }}
+        run: python -m playwright install --with-deps chromium
+
+      - name: 점검 실행
+        run: python crawler/check_sources.py "${{ inputs.store }}"

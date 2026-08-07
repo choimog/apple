@@ -1,0 +1,35 @@
+# =============================================================================
+#  교보 — 도서 칸 HTML 전체 뜨기 (수동 실행 전용)
+# =============================================================================
+#  선택자를 추측하지 않기 위해, 화면이 그려진 뒤의 도서 칸을 통째로 봅니다.
+#  ※ 목록 페이지 1장만 엽니다. 상세 페이지 진입 없음.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/probe-kyobo-card.yml
+# =============================================================================
+
+name: 교보 도서칸 구조 덤프
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: 도서 칸 HTML
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 브라우저(크로미움) 설치
+        run: python -m playwright install --with-deps chromium
+
+      - name: 덤프 실행
+        run: python crawler/probe_kyobo_card.py

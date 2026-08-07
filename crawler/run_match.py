@@ -249,6 +249,22 @@ def main() -> int:
     print(f"\n▶ 결과: 도서 {len(clusters):,}종 "
           f"(그중 2개 서점 이상에서 발견된 책 {len(multi):,}종)")
 
+    # 한 무리에 같은 서점 상품이 2개 이상 들어간 경우를 셉니다.
+    #
+    # 【왜 이런 일이 생기나요?】
+    # "같은 서점끼리는 안 묶는다" 는 규칙이 있지만, 다른 서점을 다리 삼아
+    # 간접적으로 이어질 수 있습니다.
+    #   알라딘A ─ 예스24X ─ 알라딘B  →  A 와 B 가 한 무리
+    # 실제로는 다른 판형인 경우가 많습니다. 자동으로 갈라내면 오히려
+    # 맞는 것까지 깨질 수 있으므로, '검토 필요' 로 표시만 합니다.
+    dup_store = [
+        c for c in multi.values()
+        if len({by_id[i]["store_id"] for i in c}) < len(c)
+    ]
+    if dup_store:
+        print(f"  ⚠️ 같은 서점 상품이 2개 이상 섞인 무리 {len(dup_store):,}종 "
+              f"→ '검토 필요' 로 표시합니다 (다른 판형일 가능성).")
+
     # 사람이 "아님" 이라고 한 짝이 다른 책을 거쳐 한 무리가 된 경우 경고
     warned = 0
     for (lo, hi), d in manual.items():
@@ -298,9 +314,13 @@ def main() -> int:
                 manual.get((min(x, y), max(x, y))) == "manual_merge"
                 for x in cluster for y in cluster if x < y
             )
+            # 같은 서점 상품이 2개 이상 섞였으면 다른 판형일 수 있으므로 검토 대상
+            same_store_mixed = (
+                len({m["store_id"] for m in members}) < len(members)
+            )
             if manual_here:
                 confidence = "manual"
-            elif "auto_low" in pair_decisions:
+            elif same_store_mixed or "auto_low" in pair_decisions:
                 confidence = "low"
             else:
                 confidence = "high"

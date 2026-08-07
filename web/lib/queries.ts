@@ -4,9 +4,17 @@
  * 【중요한 원칙】
  * 값이 없으면 없는 대로 보여줍니다. 지어내지 않습니다.
  * 수집이 실패한 날은 그 날짜가 아예 안 나옵니다 (가짜로 채우지 않음).
+ *
+ * 【데이터베이스는 한 번에 1,000행까지만 돌려줍니다】
+ * 그 이상이 필요하면 반드시 나눠서 읽어야 합니다.
+ * 이걸 놓쳐서 "5,186건 중 158건만 처리" 하는 버그가 실제로 났었습니다.
+ * 아래 selectAll() 이 그 처리를 대신합니다.
  */
 
 import { supabase } from "./supabase";
+
+/** 집계 기간. DB 의 categories.kind 값과 맞춥니다. */
+export type Period = "daily" | "weekly";
 
 export type Category = {
   id: number;
@@ -15,7 +23,30 @@ export type Category = {
   /** 'online'=온라인 일간 | 'offline'=매장 일간 | 'weekly'=최근 7일 주간 */
   kind: string;
   branch_name: string;
+  branch_code: string;
   code: string;
+  unified_code: string | null;
+};
+
+export type StoreBook = {
+  id: number;
+  store_id: number;
+  raw_title: string;
+  raw_author: string | null;
+  raw_publisher: string | null;
+  pub_ym: string | null;
+  cover_url: string | null;
+  isbn13: string | null;
+  book_id: number | null;
+};
+
+export type RankingRow = {
+  rank: number;
+  sales_point: number | null;
+  store_book: StoreBook;
+  /** 어제 대비 등락. 어제 데이터가 없으면 null (지어내지 않음) */
+  change: number | null;
+  isNew: boolean;
 };
 
 /**
@@ -28,29 +59,44 @@ export function isWeekly(c: { kind: string }): boolean {
   return c.kind === "weekly";
 }
 
-export type RankingRow = {
-  rank: number;
-  sales_point: number | null;
-  store_book: {
-    id: number;
-    store_id: number;
-    raw_title: string;
-    raw_author: string | null;
-    raw_publisher: string | null;
-    pub_ym: string | null;
-    cover_url: string | null;
-    isbn13: string | null;
-    book_id: number | null;
-  };
-  /** 어제 대비 등락. 어제 데이터가 없으면 null (지어내지 않음) */
-  change: number | null;
-  isNew: boolean;
+export function periodOf(c: { kind: string }): Period {
+  return c.kind === "weekly" ? "weekly" : "daily";
+}
+
+export const PERIOD_LABEL: Record<Period, string> = {
+  daily: "일간",
+  weekly: "주간",
 };
+
+export const PERIOD_HELP: Record<Period, string> = {
+  daily: "어제 하루 판매 순위",
+  weekly: "최근 7일 누적 판매 순위",
+};
+
+/**
+ * 1,000행 제한을 넘겨 전부 읽어옵니다.
+ * maxRows 를 넘으면 거기서 멈춥니다 (화면이 감당 못 할 양을 막는 안전장치).
+ */
+async function selectAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+  maxRows = 20000
+): Promise<T[]> {
+  const step = 1000;
+  const out: T[] = [];
+  for (let start = 0; start < maxRows; start += step) {
+    const { data, error } = await build(start, start + step - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < step) break;
+  }
+  return out;
+}
 
 /**
  * 수집된 날짜 목록 (최신순). 수집이 실패한 날은 여기 없습니다.
  *
- * ※ 순위표는 하루에 수천 행씩 쌓입니다. 그런데 데이터베이스는 한 번에
+ * ※ 순위표는 하루에 수만 행씩 쌓입니다. 그런데 데이터베이스는 한 번에
  *   1,000행까지만 돌려주므로, 그냥 읽으면 "최근 하루치" 밖에 못 봅니다.
  *   그래서 필요한 날짜 개수가 모일 때까지 나눠서 읽습니다.
  */
@@ -59,8 +105,8 @@ export async function getSnapshotDates(limit = 60): Promise<string[]> {
   const step = 1000;
   let start = 0;
 
-  // 안전장치: 아무리 많아도 20번(=2만 행)까지만 읽습니다
-  for (let page = 0; page < 20 && seen.size < limit; page += 1) {
+  // 안전장치: 아무리 많아도 40번(=4만 행)까지만 읽습니다
+  for (let page = 0; page < 40 && seen.size < limit; page += 1) {
     const { data, error } = await supabase
       .from("rankings")
       .select("snapshot_date")
@@ -80,7 +126,7 @@ export async function getSnapshotDates(limit = 60): Promise<string[]> {
 export async function getCategories(): Promise<Category[]> {
   const { data, error } = await supabase
     .from("categories")
-    .select("id,store_id,name,kind,branch_name,code")
+    .select("id,store_id,name,kind,branch_name,branch_code,code,unified_code")
     .eq("enabled", true)
     .order("store_id")
     .order("kind")
@@ -90,20 +136,54 @@ export async function getCategories(): Promise<Category[]> {
   return (data ?? []) as Category[];
 }
 
-const RANKING_COLUMNS = `
-  rank,
-  sales_point,
-  store_book:store_books!inner (
+// ---------------------------------------------------------------------------
+//  분야 목록을 '고를 수 있는 모양' 으로 정리
+// ---------------------------------------------------------------------------
+
+export type StoreTree = {
+  storeId: number;
+  /** 온라인 분야 (일간) */
+  daily: Category[];
+  /** 온라인 분야 (주간) */
+  weekly: Category[];
+  /** 교보 매장별 (매장 이름 순) */
+  branches: Category[];
+};
+
+/**
+ * 서점 → 기간 → 분야 의 3단계로 고를 수 있게 분류합니다.
+ *
+ * 예전에는 208개를 한 줄에 전부 늘어놓아서 원하는 분야를 찾을 수 없었습니다.
+ */
+export function buildStoreTree(cats: Category[]): StoreTree[] {
+  const ids = [...new Set(cats.map((c) => c.store_id))].sort((a, b) => a - b);
+  return ids.map((storeId) => {
+    const mine = cats.filter((c) => c.store_id === storeId);
+    return {
+      storeId,
+      daily: mine.filter((c) => c.kind === "online"),
+      weekly: mine.filter((c) => c.kind === "weekly"),
+      branches: mine
+        .filter((c) => c.kind === "offline")
+        .sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ko")),
+    };
+  });
+}
+
+/** 순위 한 줄에 딸려오는 도서 정보 (rankings → store_books 이어붙이기) */
+const STORE_BOOK_JOIN = `store_book:store_books!inner (
     id, store_id, raw_title, raw_author, raw_publisher,
     pub_ym, cover_url, isbn13, book_id
-  )
-`;
+  )`;
+
+const RANKING_COLUMNS = `rank, sales_point, ${STORE_BOOK_JOIN}`;
 
 /** 특정 날짜·분야의 순위표. 어제와 비교해 등락도 함께 계산합니다. */
 export async function getRankings(
   categoryId: number,
   date: string,
-  limit = 100
+  limit = 50,
+  offset = 0
 ): Promise<RankingRow[]> {
   const { data, error } = await supabase
     .from("rankings")
@@ -111,7 +191,7 @@ export async function getRankings(
     .eq("category_id", categoryId)
     .eq("snapshot_date", date)
     .order("rank")
-    .limit(limit);
+    .range(offset, offset + limit - 1);
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as Omit<RankingRow, "change" | "isNew">[];
@@ -120,14 +200,17 @@ export async function getRankings(
   const prevDate = await getPreviousDate(categoryId, date);
   const prevRank = new Map<number, number>();
   if (prevDate) {
-    const { data: prev } = await supabase
-      .from("rankings")
-      .select("rank, store_book_id")
-      .eq("category_id", categoryId)
-      .eq("snapshot_date", prevDate);
-    for (const p of prev ?? []) {
-      prevRank.set(p.store_book_id as number, p.rank as number);
-    }
+    const prev = await selectAll<{ store_book_id: number; rank: number }>(
+      (from, to) =>
+        supabase
+          .from("rankings")
+          .select("rank, store_book_id")
+          .eq("category_id", categoryId)
+          .eq("snapshot_date", prevDate)
+          .range(from, to),
+      5000
+    );
+    for (const p of prev) prevRank.set(p.store_book_id, p.rank);
   }
 
   return rows.map((r) => {
@@ -139,6 +222,20 @@ export async function getRankings(
       isNew: !!prevDate && before === undefined,
     };
   });
+}
+
+/** 이 분야에 그날 몇 권이 있는지 (더보기 버튼을 보일지 판단용) */
+export async function countRankings(
+  categoryId: number,
+  date: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("rankings")
+    .select("rank", { count: "exact", head: true })
+    .eq("category_id", categoryId)
+    .eq("snapshot_date", date);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /** 이 분야에서 주어진 날짜 '바로 앞' 수집일을 찾습니다. */
@@ -155,6 +252,172 @@ export async function getPreviousDate(
     .limit(1);
   return (data?.[0]?.snapshot_date as string) ?? null;
 }
+
+// ---------------------------------------------------------------------------
+//  종합 베스트셀러 — 3사 순위의 평균
+// ---------------------------------------------------------------------------
+
+export type CombinedRow = {
+  bookId: number;
+  title: string;
+  author: string | null;
+  publisher: string | null;
+  coverUrl: string | null;
+  /** 서점별 순위. 그 서점 목록에 없으면 키가 없습니다 (0 으로 채우지 않음) */
+  ranks: Record<number, number>;
+  /** 서점별 판매지수. 교보는 제공하지 않아 항상 없습니다 */
+  sales: Record<number, number>;
+  /** 등장한 서점 수 */
+  storeCount: number;
+  /** 등장한 서점들의 순위 평균. 없는 서점은 계산에서 뺍니다 */
+  avgRank: number;
+};
+
+// ⚠️ 판매지수는 서점끼리 평균 내지 않습니다.
+//    예스24 '판매지수' 와 알라딘 '세일즈포인트' 는 계산식이 다른 별개의 값이라
+//    더해서 나누면 아무 뜻도 없는 숫자가 나옵니다.
+//    그래서 서점별로 따로 보여줍니다. (교보는 아예 제공하지 않습니다)
+
+/**
+ * 종합 베스트셀러를 계산합니다.
+ *
+ * 【계산 방법 — 화면에도 그대로 적어 둡니다】
+ * 1. 고른 기간·분야에 해당하는 3사 목록을 각각 가져옵니다.
+ * 2. 같은 책으로 묶인 것(book_id)끼리 모읍니다.
+ * 3. 한 서점 안에서 여러 분야에 올라 있으면 '가장 높은 순위' 를 그 서점 값으로 씁니다.
+ * 4. 등장한 서점들의 순위를 평균 냅니다.
+ *
+ * 【지어내지 않는 부분】
+ * 어떤 서점 목록에 없는 책은 그 서점 칸을 '없음' 으로 둡니다.
+ * "1001위" 같은 가짜 숫자를 넣어 평균을 내리지 않습니다.
+ * 대신 '몇 개 서점에 올랐는지' 를 같이 보여주고, 기본적으로
+ * 2개 이상 서점에 오른 책만 종합 순위에 넣습니다.
+ *
+ * 【아직 안 묶인 책】
+ * book_id 가 없는 책(= 아직 같은 책 묶기가 안 된 책)은 제외합니다.
+ * 묶이지 않은 채로 넣으면 같은 책이 3번 따로 등장해 순위가 망가집니다.
+ */
+export async function getCombinedBest(
+  date: string,
+  period: Period,
+  unifiedCode: string,
+  opts: { minStores?: number; depth?: number; limit?: number } = {}
+): Promise<{ rows: CombinedRow[]; depth: number; usedCategories: Category[] }> {
+  const minStores = opts.minStores ?? 2;
+  // 각 서점에서 몇 위까지 볼지. 너무 깊게 보면 화면이 느려집니다.
+  const depth = opts.depth ?? 300;
+  const limit = opts.limit ?? 100;
+
+  const cats = (await getCategories()).filter(
+    (c) =>
+      c.unified_code === unifiedCode &&
+      periodOf(c) === period &&
+      c.kind !== "offline" // 매장별은 온라인 순위와 성격이 달라 섞지 않습니다
+  );
+  if (!cats.length) return { rows: [], depth, usedCategories: [] };
+
+  const rankRows = await selectAll<{
+    rank: number;
+    sales_point: number | null;
+    category_id: number;
+    store_book: StoreBook;
+  }>(
+    (from, to) =>
+      supabase
+        .from("rankings")
+        // ⚠️ RANKING_COLUMNS 를 그대로 붙이면 rank·sales_point 가 두 번 들어갑니다.
+        //    필요한 열만 명시적으로 적습니다.
+        .select(`rank, sales_point, category_id, ${STORE_BOOK_JOIN}`)
+        .in(
+          "category_id",
+          cats.map((c) => c.id)
+        )
+        .eq("snapshot_date", date)
+        .lte("rank", depth)
+        .order("rank")
+        .range(from, to),
+    6000
+  );
+
+  const catStore = new Map(cats.map((c) => [c.id, c.store_id]));
+  type Acc = Omit<CombinedRow, "storeCount" | "avgRank" | "avgSales">;
+  const acc = new Map<number, Acc>();
+
+  for (const r of rankRows) {
+    const bookId = r.store_book?.book_id;
+    if (!bookId) continue; // 아직 안 묶인 책은 제외 (같은 책이 3번 세어지는 것 방지)
+    const storeId = catStore.get(r.category_id) ?? r.store_book.store_id;
+
+    let cur = acc.get(bookId);
+    if (!cur) {
+      cur = {
+        bookId,
+        title: r.store_book.raw_title,
+        author: r.store_book.raw_author,
+        publisher: r.store_book.raw_publisher,
+        coverUrl: r.store_book.cover_url,
+        ranks: {},
+        sales: {},
+      };
+      acc.set(bookId, cur);
+    }
+    // 같은 서점에서 더 높은(작은) 순위를 만나면 그걸로 바꿉니다
+    if (cur.ranks[storeId] === undefined || r.rank < cur.ranks[storeId]) {
+      cur.ranks[storeId] = r.rank;
+      if (r.sales_point != null) cur.sales[storeId] = r.sales_point;
+    }
+    // 표지는 알라딘(3) → 예스24(2) → 교보(1) 순으로 더 나은 것이 있으면 교체
+    if (!cur.coverUrl && r.store_book.cover_url) cur.coverUrl = r.store_book.cover_url;
+  }
+
+  const rows: CombinedRow[] = [];
+  for (const a of acc.values()) {
+    const rankList = Object.values(a.ranks);
+    if (rankList.length < minStores) continue;
+    rows.push({
+      ...a,
+      storeCount: rankList.length,
+      avgRank: rankList.reduce((x, y) => x + y, 0) / rankList.length,
+    });
+  }
+
+  rows.sort((x, y) => x.avgRank - y.avgRank || y.storeCount - x.storeCount);
+  return { rows: rows.slice(0, limit), depth, usedCategories: cats };
+}
+
+/** 종합 순위에서 고를 수 있는 통합 분야 목록 (3사에 모두 있는 것 우선) */
+export function unifiedOptions(
+  cats: Category[],
+  period: Period
+): { code: string; label: string; storeCount: number }[] {
+  const map = new Map<string, { names: string[]; stores: Set<number> }>();
+  for (const c of cats) {
+    if (!c.unified_code || c.kind === "offline") continue;
+    if (periodOf(c) !== period) continue;
+    const e = map.get(c.unified_code) ?? { names: [], stores: new Set<number>() };
+    e.names.push(c.name);
+    e.stores.add(c.store_id);
+    map.set(c.unified_code, e);
+  }
+  return [...map.entries()]
+    .filter(([, e]) => e.stores.size >= 2) // 최소 2개 서점에 있어야 비교가 됩니다
+    .map(([code, e]) => ({
+      code,
+      // 가장 짧은 이름을 대표로 씁니다 ('경제 경영' vs '경제/경영' → 짧은 쪽)
+      label: e.names.sort((a, b) => a.length - b.length)[0],
+      storeCount: e.stores.size,
+    }))
+    .sort(
+      (a, b) =>
+        b.storeCount - a.storeCount ||
+        (a.code === "all" ? -1 : b.code === "all" ? 1 : 0) ||
+        a.label.localeCompare(b.label, "ko")
+    );
+}
+
+// ---------------------------------------------------------------------------
+//  검색 / 도서 상세
+// ---------------------------------------------------------------------------
 
 /** 제목·저자·출판사로 찾기 */
 export async function searchBooks(q: string, limit = 60) {
@@ -174,26 +437,124 @@ export async function searchBooks(q: string, limit = 60) {
   return data ?? [];
 }
 
-/** 한 권의 3사 순위 이력 */
-export async function getBookHistory(bookId: number) {
-  const { data: sbs } = await supabase
+export type HistoryPoint = {
+  date: string;
+  storeId: number;
+  period: Period;
+  rank: number;
+  sales: number | null;
+};
+
+export type CurrentPlacement = {
+  storeId: number;
+  period: Period;
+  categoryName: string;
+  branchName: string;
+  rank: number;
+  sales: number | null;
+};
+
+/**
+ * 한 권에 대해 화면에 필요한 모든 것.
+ *
+ * - stores    : 서점별 표기(제목·저자가 서점마다 조금씩 다릅니다)
+ * - history   : 날짜별 추이. 그래프용. 일간/주간을 나눠서 담습니다.
+ * - placements: 오늘 이 책이 올라 있는 모든 분야 (일간·주간·매장 포함)
+ */
+export async function getBookDetail(bookId: number): Promise<{
+  stores: StoreBook[];
+  history: HistoryPoint[];
+  placements: CurrentPlacement[];
+  latestDate: string | null;
+}> {
+  const { data: sbs, error } = await supabase
     .from("store_books")
     .select(
-      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13"
+      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13,book_id"
     )
     .eq("book_id", bookId);
+  if (error) throw error;
 
-  const ids = (sbs ?? []).map((s) => s.id as number);
-  if (!ids.length) return { stores: [], history: [] };
+  const stores = (sbs ?? []) as StoreBook[];
+  const ids = stores.map((s) => s.id);
+  if (!ids.length) {
+    return { stores: [], history: [], placements: [], latestDate: null };
+  }
 
-  const { data: hist } = await supabase
-    .from("rankings")
-    .select("snapshot_date,rank,sales_point,store_book_id,category_id")
-    .in("store_book_id", ids)
-    .order("snapshot_date", { ascending: true })
-    .limit(2000);
+  const [cats, raw] = await Promise.all([
+    getCategories(),
+    selectAll<{
+      snapshot_date: string;
+      rank: number;
+      sales_point: number | null;
+      store_book_id: number;
+      category_id: number;
+    }>(
+      (from, to) =>
+        supabase
+          .from("rankings")
+          .select("snapshot_date,rank,sales_point,store_book_id,category_id")
+          .in("store_book_id", ids)
+          .order("snapshot_date", { ascending: true })
+          .range(from, to),
+      12000
+    ),
+  ]);
 
-  return { stores: sbs ?? [], history: hist ?? [] };
+  const catById = new Map(cats.map((c) => [c.id, c]));
+  const storeOf = new Map(stores.map((s) => [s.id, s.store_id]));
+
+  // ---- 추이: (날짜, 서점, 기간) 마다 '가장 높은 순위' 하나만 씁니다 ----
+  // 한 책이 하루에 '전체'·'소설'·'한국소설' 세 곳에 오를 수 있는데,
+  // 그래프에 세 줄을 겹쳐 그리면 읽을 수 없습니다.
+  const best = new Map<string, HistoryPoint>();
+  const placements: CurrentPlacement[] = [];
+  let latestDate: string | null = null;
+
+  for (const r of raw) {
+    const cat = catById.get(r.category_id);
+    const storeId = storeOf.get(r.store_book_id);
+    if (!cat || storeId === undefined) continue;
+    if (!latestDate || r.snapshot_date > latestDate) latestDate = r.snapshot_date;
+
+    // 매장별은 추이 그래프에 넣지 않습니다 (온라인 순위와 성격이 다릅니다)
+    if (cat.kind === "offline") continue;
+
+    const period = periodOf(cat);
+    const key = `${r.snapshot_date}|${storeId}|${period}`;
+    const cur = best.get(key);
+    if (!cur || r.rank < cur.rank) {
+      best.set(key, {
+        date: r.snapshot_date,
+        storeId,
+        period,
+        rank: r.rank,
+        sales: r.sales_point,
+      });
+    }
+  }
+
+  // ---- 오늘 올라 있는 분야 목록 ----
+  for (const r of raw) {
+    if (r.snapshot_date !== latestDate) continue;
+    const cat = catById.get(r.category_id);
+    const storeId = storeOf.get(r.store_book_id);
+    if (!cat || storeId === undefined) continue;
+    placements.push({
+      storeId,
+      period: periodOf(cat),
+      categoryName: cat.name,
+      branchName: cat.branch_name,
+      rank: r.rank,
+      sales: r.sales_point,
+    });
+  }
+  placements.sort(
+    (a, b) => a.storeId - b.storeId || a.rank - b.rank
+  );
+
+  const history = [...best.values()].sort((a, b) => a.date.localeCompare(b.date));
+  return { stores, history, placements, latestDate };
 }
 
 /** 최근 수집이 잘 됐는지 (화면 상단에 정직하게 표시하기 위함) */

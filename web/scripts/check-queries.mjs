@@ -164,6 +164,102 @@ await step("표지 주소 보유율", async () => {
   return `${withCover}/${total} (${pct}%)`;
 });
 
+// ---- 8. 분야 목록에 통합 분야 코드가 들어 있는지 ----
+//     종합 순위는 이 값으로 3사를 짝지어 묶습니다. 없으면 종합 화면이 빕니다.
+let unifiedForCombined = null;
+await step("통합 분야 코드 (종합 순위의 짝짓기 기준)", async () => {
+  const { data, error } = await db
+    .from("categories")
+    .select("id,store_id,name,kind,branch_name,branch_code,code,unified_code")
+    .eq("enabled", true);
+  if (error) throw new Error(error.message);
+
+  const byUnified = new Map();
+  for (const c of data ?? []) {
+    if (!c.unified_code || c.kind === "offline") continue;
+    const k = `${c.unified_code}|${c.kind === "weekly" ? "weekly" : "daily"}`;
+    if (!byUnified.has(k)) byUnified.set(k, new Set());
+    byUnified.get(k).add(c.store_id);
+  }
+  const usable = [...byUnified.entries()].filter(([, s]) => s.size >= 2);
+  if (!usable.length) {
+    throw new Error(
+      "2개 이상 서점에 공통으로 있는 분야가 없습니다. " +
+        "config/sources.yaml 의 unified 값을 확인하세요."
+    );
+  }
+  unifiedForCombined = usable[0][0].split("|");
+  return `${usable.length}개 분야가 2사 이상 공통 (예: ${unifiedForCombined[0]})`;
+});
+
+// ---- 9. 종합 순위 조회문 ----
+//     열 이름을 두 번 적는 실수를 여기서 잡습니다.
+await step("종합 순위 (3사 평균)", async () => {
+  if (!latestDate || !unifiedForCombined) throw new Error("앞 단계 실패로 건너뜀");
+  const [unified, period] = unifiedForCombined;
+
+  const { data: cats, error: e0 } = await db
+    .from("categories")
+    .select("id,store_id,kind")
+    .eq("enabled", true)
+    .eq("unified_code", unified);
+  if (e0) throw new Error(e0.message);
+
+  const ids = (cats ?? [])
+    .filter(
+      (c) =>
+        c.kind !== "offline" &&
+        (c.kind === "weekly" ? "weekly" : "daily") === period
+    )
+    .map((c) => c.id);
+  if (!ids.length) throw new Error("해당 분야의 목록이 없습니다");
+
+  const { data, error } = await db
+    .from("rankings")
+    .select(
+      `rank, sales_point, category_id,
+       store_book:store_books!inner (
+         id, store_id, raw_title, raw_author, raw_publisher,
+         pub_ym, cover_url, isbn13, book_id
+       )`
+    )
+    .in("category_id", ids)
+    .eq("snapshot_date", latestDate)
+    .lte("rank", 300)
+    .order("rank")
+    .limit(1000);
+  if (error) throw new Error(error.message);
+
+  const rows = data ?? [];
+  const linked = rows.filter((r) => r.store_book?.book_id);
+  const byBook = new Map();
+  const catStore = new Map((cats ?? []).map((c) => [c.id, c.store_id]));
+  for (const r of linked) {
+    const b = r.store_book.book_id;
+    if (!byBook.has(b)) byBook.set(b, new Set());
+    byBook.get(b).add(catStore.get(r.category_id));
+  }
+  const multi = [...byBook.values()].filter((s) => s.size >= 2).length;
+
+  if (!rows.length) throw new Error("순위가 하나도 안 나왔습니다");
+  if (!linked.length) {
+    return `${rows.length}건 (아직 묶인 책이 없어 종합 순위는 비어 있습니다 — 매칭 실행 전)`;
+  }
+  return `${rows.length}건 중 묶인 것 ${linked.length}건, 2사 이상 등장 ${multi}종`;
+});
+
+// ---- 10. 순위 개수 세기 (더보기 버튼 판단용) ----
+await step("분야별 권수 세기", async () => {
+  if (!firstCategory || !latestDate) throw new Error("앞 단계 실패로 건너뜀");
+  const { count, error } = await db
+    .from("rankings")
+    .select("rank", { count: "exact", head: true })
+    .eq("category_id", firstCategory.id)
+    .eq("snapshot_date", latestDate);
+  if (error) throw new Error(error.message);
+  return `${firstCategory.name}: ${count ?? 0}권`;
+});
+
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 화면이 빈 채로 뜰 수 있습니다.`);

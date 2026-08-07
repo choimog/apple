@@ -27,3 +27,6 @@ Thumbs.db
 # Next.js 빌드 결과
 web/.next/
 web/node_modules/
+
+# 빌드 중간 산출물 (사람이 고칠 파일이 아닙니다)
+web/tsconfig.tsbuildinfo

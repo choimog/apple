@@ -22,7 +22,10 @@ export default function RootLayout({
             </Link>
             <nav className="flex gap-4 text-sm text-slate-600">
               <Link href="/" className="hover:text-slate-900 hover:underline">
-                순위표
+                종합 순위
+              </Link>
+              <Link href="/store" className="hover:text-slate-900 hover:underline">
+                서점별 순위
               </Link>
               <Link href="/search" className="hover:text-slate-900 hover:underline">
                 도서 검색

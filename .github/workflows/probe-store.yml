@@ -1,0 +1,39 @@
+# =============================================================================
+#  서점 구조 탐침 — 수동 실행 전용
+# =============================================================================
+#  크롤러를 만들기 전에 서점 목록 페이지의 실제 HTML 구조를 확인합니다.
+#  ※ 서점당 요청 1건. 상세 페이지 진입 없음.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/probe-store.yml
+# =============================================================================
+
+name: 서점 구조 탐침
+
+on:
+  workflow_dispatch:
+    inputs:
+      store:
+        description: "탐침할 서점 (yes24 / kyobo / yes24,kyobo)"
+        required: false
+        default: "yes24,kyobo"
+
+jobs:
+  probe:
+    name: 목록 구조 덤프
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 탐침 실행
+        env:
+          PROBE_STORE: ${{ inputs.store }}
+        run: python crawler/probe_store.py

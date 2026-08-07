@@ -40,6 +40,28 @@ def _chunks(items: list, size: int = 500) -> Iterable[list]:
         yield items[i : i + size]
 
 
+def _select_all(query_factory, step: int = 1000) -> list[dict]:
+    """
+    표 전체를 나눠서 읽어옵니다.
+
+    【왜 필요한가요? — 2026-08-07 실제로 겪은 문제】
+    Supabase 는 한 번에 1,000행까지만 돌려줍니다.
+    이걸 모르고 그냥 읽으면 "표에 1,000행밖에 없다" 고 착각합니다.
+    실제로 빈 껍데기 5,186종을 지워야 하는데 158종만 지운 적이 있습니다.
+
+    query_factory 는 매번 새 조회를 만들어 주는 함수입니다.
+    (한 번 쓴 조회를 재사용하면 조건이 겹쳐 쌓입니다)
+    """
+    out: list[dict] = []
+    start = 0
+    while True:
+        rows = query_factory().range(start, start + step - 1).execute().data or []
+        out.extend(rows)
+        if len(rows) < step:
+            return out
+        start += step
+
+
 # -----------------------------------------------------------------------------
 #  카테고리 동기화 — sources.yaml 의 내용을 DB 에 반영
 # -----------------------------------------------------------------------------
@@ -169,23 +191,7 @@ def fetch_all_store_books(client: Client) -> list[dict]:
     cols = ("id,store_id,store_book_key,raw_title,raw_author,raw_publisher,"
             "norm_title,norm_author,norm_publisher,pub_ym,isbn13,cover_url,"
             "edition_tags,set_volumes,book_id")
-    out: list[dict] = []
-    step = 1000
-    start = 0
-    while True:
-        res = (
-            client.table("store_books")
-            .select(cols)
-            .order("id")
-            .range(start, start + step - 1)
-            .execute()
-        )
-        rows = res.data or []
-        out.extend(rows)
-        if len(rows) < step:
-            break
-        start += step
-    return out
+    return _select_all(lambda: client.table("store_books").select(cols).order("id"))
 
 
 def fetch_manual_decisions(client: Client) -> dict[tuple[int, int], str]:
@@ -194,15 +200,14 @@ def fetch_manual_decisions(client: Client) -> dict[tuple[int, int], str]:
     이 결정은 자동 로직이 절대 뒤집지 못합니다.
     돌려주는 값: {(작은id, 큰id): 'manual_merge' | 'manual_split'}
     """
-    res = (
-        client.table("book_matches")
+    rows = _select_all(
+        lambda: client.table("book_matches")
         .select("store_book_a,store_book_b,decision")
         .in_("decision", ["manual_merge", "manual_split"])
-        .execute()
+        .order("id")
     )
     return {
-        (r["store_book_a"], r["store_book_b"]): r["decision"]
-        for r in (res.data or [])
+        (r["store_book_a"], r["store_book_b"]): r["decision"] for r in rows
     }
 
 
@@ -269,8 +274,9 @@ def delete_orphan_books(client: Client, keep_ids: set[int]) -> int:
     아무 서점 도서와도 연결되지 않은 도서 마스터를 지웁니다.
     (매칭을 다시 계산하면 예전에 만들어진 빈 껍데기가 남을 수 있습니다)
     """
-    res = client.table("books").select("id").execute()
-    all_ids = {r["id"] for r in (res.data or [])}
+    # ※ 그냥 select 하면 1,000행만 옵니다. 나눠서 전부 읽어야 합니다.
+    rows = _select_all(lambda: client.table("books").select("id").order("id"))
+    all_ids = {r["id"] for r in rows}
     orphans = sorted(all_ids - keep_ids)
     for chunk in _chunks(orphans, 200):
         client.table("books").delete().in_("id", chunk).execute()

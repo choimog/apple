@@ -36,16 +36,33 @@ export type RankingRow = {
   isNew: boolean;
 };
 
-/** 수집된 날짜 목록 (최신순). 수집이 실패한 날은 여기 없습니다. */
+/**
+ * 수집된 날짜 목록 (최신순). 수집이 실패한 날은 여기 없습니다.
+ *
+ * ※ 순위표는 하루에 수천 행씩 쌓입니다. 그런데 데이터베이스는 한 번에
+ *   1,000행까지만 돌려주므로, 그냥 읽으면 "최근 하루치" 밖에 못 봅니다.
+ *   그래서 필요한 날짜 개수가 모일 때까지 나눠서 읽습니다.
+ */
 export async function getSnapshotDates(limit = 60): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("rankings")
-    .select("snapshot_date")
-    .order("snapshot_date", { ascending: false })
-    .limit(3000);
-  if (error) throw error;
   const seen = new Set<string>();
-  for (const r of data ?? []) seen.add(r.snapshot_date as string);
+  const step = 1000;
+  let start = 0;
+
+  // 안전장치: 아무리 많아도 20번(=2만 행)까지만 읽습니다
+  for (let page = 0; page < 20 && seen.size < limit; page += 1) {
+    const { data, error } = await supabase
+      .from("rankings")
+      .select("snapshot_date")
+      .order("snapshot_date", { ascending: false })
+      .range(start, start + step - 1);
+    if (error) throw error;
+
+    const rows = data ?? [];
+    for (const r of rows) seen.add(r.snapshot_date as string);
+    if (rows.length < step) break;
+    start += step;
+  }
+
   return [...seen].slice(0, limit);
 }
 

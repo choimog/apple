@@ -44,7 +44,10 @@ Vercel 에 배포돼 있습니다. **고정 주소**(배포해도 안 바뀌는 
 
 | 항목 | 내용 |
 |---|---|
-| **저장공간 이전** | 🚨 주간이 더해져 **약 2주**면 무료 용량이 찹니다. [docs/archive-setup.md](docs/archive-setup.md) 를 이번 주 안에 한 번 해주세요. (10분, 0원) |
+| **저장공간 이전** | 🚨 **약 3주**면 무료 용량이 찹니다. [docs/archive-setup.md](docs/archive-setup.md) 를 이번 주 안에 한 번 해주세요. (10분, 0원) |
+| **사이트 속도** | [db/perf.sql](db/perf.sql) 을 Supabase SQL Editor 에서 한 번 실행하세요. (2분, 0원) |
+| **Vercel 약관** | 🚨 무료(Hobby) 는 개인 비상업 용도만 허용합니다. 업무용이면 위반 소지가 있습니다. → [docs/cost-plan.md](docs/cost-plan.md) |
+| **5년 비용 계획** | [docs/cost-plan.md](docs/cost-plan.md) 참고. 권고안은 월 약 35,000원입니다. |
 | Phase 5 | 로그인·계정·공유 링크 |
 | Phase 6 | AI 일일 인사이트 리포트 |
 

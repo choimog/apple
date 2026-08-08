@@ -132,9 +132,17 @@ def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
 
 
 def crawl_category(client_http: PoliteClient, task, parser, selectors,
-                   role_priority: list[str] | None = None) -> list:
-    """카테고리 하나를 페이지 단위로 수집합니다."""
+                   role_priority: list[str] | None = None) -> tuple[list, bool]:
+    """
+    카테고리 하나를 페이지 단위로 수집합니다.
+
+    돌려주는 값: (도서 목록, 목록의 끝까지 봤는가)
+    '목록의 끝까지 봤는가' 가 중요합니다. 서점 목록이 437권에서 끝났는데
+    우리가 1,000권을 기대하고 있으면, 437권은 '적게 걷힌' 게 아니라
+    '그게 전부' 입니다. 이 둘을 구분하지 못하면 멀쩡한 자료를 버립니다.
+    """
     role_priority = role_priority or norm.DEFAULT_ROLE_PRIORITY
+    reached_end = False
     all_rows = []
     seen_keys: set[str] = set()
     seen_ranks: set[int] = set()
@@ -170,6 +178,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
             if page > 1 and all_rows:
                 print(f"    page {page}: 도서 없음 → 목록이 여기서 끝났습니다 "
                       f"(누적 {len(all_rows)}권 유지)")
+                reached_end = True
                 break
             raise
 
@@ -177,6 +186,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
         new_rows = [r for r in rows if r.store_book_key not in seen_keys]
         if not new_rows:
             print(f"    page {page}: 새 도서 없음 → 여기서 중단")
+            reached_end = True
             break
 
         # -------------------------------------------------------------------
@@ -195,6 +205,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
             print(f"    page {page}: {len(new_rows)}권 중 {collided}권이 "
                   f"이미 나온 순위입니다 → 앞 페이지 내용의 재탕으로 보고 중단 "
                   f"(누적 {len(all_rows)}권 유지)")
+            reached_end = True
             break
 
         keep = []
@@ -213,7 +224,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
         if len(all_rows) >= task.max_items:
             break
 
-    return dedupe_ranks(all_rows[: task.max_items], task.label())
+    return dedupe_ranks(all_rows[: task.max_items], task.label()), reached_end
 
 
 # 한 페이지에서 이 비율 이상이 '이미 나온 순위' 면, 그 페이지는 앞 내용의
@@ -300,7 +311,9 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
 
     category_id = db.sync_category(client, task)
     role_priority = (words or {}).get("role_priority") or norm.DEFAULT_ROLE_PRIORITY
-    rows = crawl_category(client_http, task, parser, selectors, role_priority)
+    rows, reached_end = crawl_category(
+        client_http, task, parser, selectors, role_priority
+    )
     collected = len(rows)
 
     if fingerprints is not None:
@@ -315,15 +328,43 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
     # 그래서 첫날에는 아주 낮은 기준만 두고, 둘째 날부터 '평소의 절반' 을 씁니다.
     FIRST_DAY_FLOOR = 10
     baseline = db.median_recent_count(client, category_id, snapshot_date)
-    threshold = int(baseline * 0.5) if baseline else FIRST_DAY_FLOOR
+
     if collected == 0:
         raise RuntimeError("한 권도 수집하지 못했습니다.")
+
+    # -----------------------------------------------------------------------
+    # 【'목록이 끝났다' 와 '적게 걷혔다' 는 다릅니다 — 2026-08-08 수정】
+    #
+    # 알라딘 건강/취미 일간 목록은 437권에서 진짜로 끝납니다.
+    # 그런데 '평소' 가 1,000권으로 남아 있어서(예전 버그가 뒷 페이지의
+    # 재탕 내용까지 긁어모으던 시절의 숫자) 437권을 실패로 몰았습니다.
+    # 멀쩡한 437권을 버린 것입니다.
+    #
+    # 이 점검의 목적은 "서점 화면이 개편돼 조용히 못 긁고 있는 것" 을
+    # 잡는 것입니다. 마지막 페이지까지 정상적으로 읽고 목록의 끝을
+    # 두 눈으로 확인했다면, 그 숫자가 곧 그 목록의 길이입니다.
+    #
+    # 그래서 기준을 둘로 나눕니다:
+    #   목록 끝까지 봤다      → 25% 미만일 때만 실패 (그래도 급감은 신호)
+    #   끝을 못 보고 멈췄다   → 예전대로 50% 미만이면 실패
+    # -----------------------------------------------------------------------
+    ratio = 0.25 if reached_end else 0.5
+    threshold = int(baseline * ratio) if baseline else FIRST_DAY_FLOOR
+
     if threshold and collected < threshold:
         raise RuntimeError(
             f"수집 건수가 비정상적으로 적습니다: {collected}권 "
-            f"(기준 {threshold}권, 평소 {baseline}권). "
+            f"(기준 {threshold}권, 평소 {baseline}권"
+            f"{', 목록 끝까지 확인함' if reached_end else ''}). "
             f"서점 화면 개편 가능성 → config/selectors.yaml 확인 필요."
         )
+
+    # 실패까지는 아니어도, 평소의 절반 밑으로 떨어졌으면 알려는 드립니다.
+    # (서점이 목록 길이를 줄였을 수 있습니다. 저장은 정상적으로 합니다)
+    if baseline and collected < baseline * 0.5:
+        print(f"  ℹ️ 평소({baseline}권)보다 적은 {collected}권입니다. "
+              f"목록의 끝을 확인했으므로 그대로 저장합니다. "
+              f"서점이 목록 길이를 줄였을 수 있습니다.")
 
     if dry_run:
         print(f"  [확인 모드] 저장하지 않음. {collected}권 수집됨")

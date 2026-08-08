@@ -37,16 +37,52 @@ from common import db  # noqa: E402
 CHUNK = 500
 
 
+# ※ rankings 표에는 id 칸이 없습니다. 열쇠가 (날짜, 분야, 순위) 세 칸입니다.
+#   나눠 읽을 때 이 차례로 정렬해야 합니다.
+#   (id 로 정렬했다가 'column rankings.id does not exist' 로 멈췄습니다 — 2026-08-08)
+RANKING_ORDER = ("snapshot_date", "category_id", "rank")
+
+
+def _order_rankings(q):
+    for col in RANKING_ORDER:
+        q = q.order(col)
+    return q
+
+
 def _all_dates(client) -> list[tuple[str, int]]:
-    """순위표에 있는 날짜와 건수. (한 번에 1,000행 제한이 있어 나눠 읽습니다)"""
-    rows = db._select_all(
-        lambda: client.table("rankings").select("snapshot_date").order("id")
-    )
-    counts: dict[str, int] = {}
-    for r in rows:
-        d = r["snapshot_date"]
-        counts[d] = counts.get(d, 0) + 1
-    return sorted(counts.items(), reverse=True)
+    """
+    순위표에 있는 날짜와 건수.
+
+    순위표를 통째로 읽으면 11만 줄이라 요청이 100번 넘게 나갑니다.
+    그래서 날짜 목록은 데이터베이스에 물어보고(snapshot_dates), 건수만
+    날짜별로 셉니다. 기능이 없으면 통째로 읽는 길로 돌아갑니다.
+    """
+    dates: list[str] = []
+    try:
+        res = client.rpc("snapshot_dates", {"n": 400}).execute()
+        dates = [r["snapshot_date"] for r in (res.data or [])]
+    except Exception:  # noqa: BLE001
+        dates = []
+
+    if not dates:
+        rows = db._select_all(
+            lambda: _order_rankings(client.table("rankings").select("snapshot_date"))
+        )
+        counts: dict[str, int] = {}
+        for r in rows:
+            counts[r["snapshot_date"]] = counts.get(r["snapshot_date"], 0) + 1
+        return sorted(counts.items(), reverse=True)
+
+    out: list[tuple[str, int]] = []
+    for d in dates:
+        res = (
+            client.table("rankings")
+            .select("rank", count="exact", head=True)
+            .eq("snapshot_date", d)
+            .execute()
+        )
+        out.append((d, res.count or 0))
+    return sorted(out, reverse=True)
 
 
 def _log_dates(client) -> list[tuple[str, int]]:
@@ -135,12 +171,19 @@ def clean_orphans(client, confirm: bool) -> int:
     print("  찌꺼기 정리")
     print("=" * 66)
 
-    used = {
-        r["store_book_id"]
-        for r in db._select_all(
-            lambda: client.table("rankings").select("store_book_id").order("id")
+    # 순위표는 한 번만 읽고 두 가지를 동시에 모읍니다
+    # (예전엔 두 번 읽어서 요청이 두 배로 나갔습니다)
+    print("\n순위표를 읽는 중... (자료가 많으면 몇 분 걸립니다)")
+    used: set[int] = set()
+    used_cats: set[int] = set()
+    for r in db._select_all(
+        lambda: _order_rankings(
+            client.table("rankings").select("store_book_id,category_id")
         )
-    }
+    ):
+        used.add(r["store_book_id"])
+        used_cats.add(r["category_id"])
+
     all_sb = db._select_all(
         lambda: client.table("store_books").select("id,book_id").order("id")
     )
@@ -158,12 +201,6 @@ def clean_orphans(client, confirm: bool) -> int:
         .select("id,store_id,name,kind,code,enabled")
         .order("id")
     )
-    used_cats = {
-        r["category_id"]
-        for r in db._select_all(
-            lambda: client.table("rankings").select("category_id").order("id")
-        )
-    }
     dead_cats = [c for c in cats if not c["enabled"] and c["id"] not in used_cats]
 
     print(f"\n  서점 도서 {len(all_sb):,}권 중 순위에 안 걸린 것 {len(dead_sb):,}권")

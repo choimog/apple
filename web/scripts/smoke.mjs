@@ -114,12 +114,31 @@ for (const [path, musts] of PAGES) {
   }
 }
 
-server.kill("SIGTERM");
+/**
+ * 확인이 끝나면 사이트를 확실히 내리고 이 파일도 끝냅니다.
+ *
+ * 【왜 이렇게까지 하나요? — 2026-08-08 실제로 겪은 문제】
+ * 예전에는 kill(SIGTERM) 만 부르고 끝냈는데, next start 가 바로 안 죽으면
+ * 자식 프로세스가 살아 있어 이 파일이 영영 안 끝났습니다. 확인은 다 끝나고
+ * 결과도 다 찍혔는데 프로세스만 매달려 있었습니다.
+ * GitHub Actions 에서 이러면 작업이 제한시간까지 멈춰 있게 됩니다.
+ */
+async function shutdown(code) {
+  server.kill("SIGTERM");
+  // 3초를 줘도 안 죽으면 강제로 내립니다
+  const dead = await Promise.race([
+    new Promise((r) => server.once("exit", () => r(true))),
+    sleep(3000).then(() => false),
+  ]);
+  if (!dead) server.kill("SIGKILL");
+  process.exit(code);
+}
 
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 배포하면 그 화면이 깨져 보입니다.`);
   console.log("\n--- 사이트 로그 (마지막 부분) ---\n" + serverLog.slice(-3000));
-  process.exit(1);
+  await shutdown(1);
 }
 console.log("✅ 모든 화면 정상");
+await shutdown(0);

@@ -73,6 +73,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            # ⚠️ 지난 빌드 결과를 지우고 새로 빌드합니다.
+            #    남아 있으면 Next 가 예전 판단(정적/동적)을 재사용해서,
+            #    주소 뒤 값(?period=weekly)을 쓰는 화면이 열릴 때 오류가 납니다.
+            #    (2026-08-08 실제로 겪음)
+            rm -rf .next
             npx next build
           fi
           node scripts/smoke.mjs

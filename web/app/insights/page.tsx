@@ -1,6 +1,6 @@
-import Link from "next/link";
 import DataError from "@/components/DataError";
 import SetupNotice from "@/components/SetupNotice";
+import DatePicker from "@/components/DatePicker";
 import {
   BarList,
   Card,
@@ -13,11 +13,10 @@ import {
   StatTile,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
+import { dayLabel } from "@/lib/format";
 import {
   getCategoryShare,
   getSnapshotDates,
-  PERIOD_HELP,
-  PERIOD_LABEL,
   type Period,
 } from "@/lib/queries";
 
@@ -43,7 +42,7 @@ export default async function InsightsPage({
 
   let dates;
   try {
-    dates = await getSnapshotDates(30);
+    dates = await getSnapshotDates(400);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
@@ -69,16 +68,11 @@ export default async function InsightsPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">
-            분석 · 분야
-          </p>
-          <h1 className="mt-0.5 text-2xl font-bold tracking-tight">
+          <h1 className="text-2xl font-bold tracking-tight">
             어떤 분야가 종합 상위권을 채우고 있나
           </h1>
           <p className="mt-1 text-sm text-ink-soft">
-            종합(전체) 상위 {top}권이 각각 <strong>어느 분야 목록에도 올라
-            있는지</strong> 세어봤습니다. 지금 시장을 끌고 가는 분야가 무엇인지
-            한눈에 보입니다.
+            종합 상위 {top}권이 각각 어느 분야 목록에 올라 있는지 세어봤습니다.
           </p>
         </div>
         <PeriodSwitch period={period} hrefFor={(p) => href({ period: p })} />
@@ -102,13 +96,12 @@ export default async function InsightsPage({
           </div>
           <div>
             <FieldLabel>날짜</FieldLabel>
-            <div className="flex flex-wrap gap-1.5">
-              {dates.slice(0, 10).map((d) => (
-                <Pill key={d} href={href({ date: d })} active={d === date}>
-                  {d.slice(5)}
-                </Pill>
-              ))}
-            </div>
+            <DatePicker
+              dates={dates}
+              value={date}
+              basePath="/insights"
+              query={{ period, top: String(top) }}
+            />
           </div>
         </div>
       </Card>
@@ -133,7 +126,7 @@ export default async function InsightsPage({
               <PeriodBadge period={period} withHelp />
             </span>
           }
-          desc={`${date} 기준 · 막대는 '몇 권' 입니다 (비율 아님)`}
+          desc={`${dayLabel(date)} · 한 권이 여러 분야에 들 수 있어 합계는 ${top}권을 넘습니다 (지금 ${covered}권)`}
         />
         {rows.length === 0 ? (
           <Empty>
@@ -147,35 +140,12 @@ export default async function InsightsPage({
               key: r.code,
               label: r.label,
               value: r.books,
-              note: "권",
             }))}
+            unit="권"
           />
         )}
       </Card>
 
-      <div className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-soft sm:px-5">
-        <p className="font-semibold text-ink-soft">이 숫자를 읽는 법</p>
-        <ul className="mt-1.5 space-y-1 text-xs">
-          <li>
-            · <strong>합계가 {top}권을 넘습니다</strong> (지금 {covered}권). 한 권이
-            여러 분야에 들 수 있기 때문입니다. 예를 들어 소설 한 권이
-            &lsquo;소설&rsquo;과 &lsquo;한국소설&rsquo; 양쪽에 올라 있습니다.
-          </li>
-          <li>
-            · 그래서 <strong>비율(%)이 아니라 &lsquo;몇 권이 걸쳐 있나&rsquo;</strong>
-            로 읽어야 맞습니다. 원그래프로 그리면 거짓말이 되므로 막대로 그렸습니다.
-          </li>
-          <li>
-            · 분야 목록에 안 올라간 책은 어디에도 세어지지 않습니다. (분야 없이 종합
-            에만 있는 책)
-          </li>
-        </ul>
-        <p className="mt-2 text-xs">
-          <Link href="/best" className="text-blue-700 hover:underline">
-            → 종합 순위에서 실제 책 목록 보기
-          </Link>
-        </p>
-      </div>
     </div>
   );
 }

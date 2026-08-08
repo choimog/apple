@@ -82,7 +82,7 @@ const rankingRow = (i) => ({
   sales_point: i % 3 === 0 ? null : 500000 - i * 700,
   store_book_id: 5000 + i,
   category_id: 1,
-  snapshot_date: DATES[0],
+  snapshot_date: DATES[i % DATES.length],
   store_book: {
     id: 5000 + i,
     store_id: (i % 3) + 1,
@@ -98,6 +98,7 @@ const rankingRow = (i) => ({
 
 const RPC = {
   snapshot_dates: () => DATES.map((d) => ({ snapshot_date: d })),
+  category_dates: () => DATES.map((d) => ({ snapshot_date: d })),
   combined_rows: () => combined(50),
   combined_best: (b) => combined(Math.min(b?.p_limit ?? 100, 100)),
   publisher_ranking: (b) => nameRank(Math.min(b?.p_limit ?? 50, 50), pubs),
@@ -142,12 +143,20 @@ const TABLE = {
   store_books: () => Array.from({ length: 20 }, (_, i) => rankingRow(i).store_book),
   books: () => combined(10),
   crawl_logs: () =>
-    Array.from({ length: 8 }, (_, i) => ({
+    Array.from({ length: 12 }, (_, i) => ({
       snapshot_date: DATES[i % DATES.length],
       store_id: (i % 3) + 1,
-      status: i === 3 ? "failed" : "success",
-      items_collected: 1000 - i,
-      error_message: i === 3 ? "시험용 실패 메시지" : null,
+      category_id: i + 1,
+      status: i % 5 === 3 ? "failed" : "success",
+      items_collected: i % 5 === 3 ? 0 : 1000 - i,
+      items_expected: 1000,
+      error_message: i % 5 === 3 ? "ParseError: 시험용 실패 메시지" : null,
+      finished_at: `${DATES[i % DATES.length]}T22:1${i % 6}:00.000Z`,
+      category: {
+        name: UNIFIED[i % UNIFIED.length],
+        kind: i % 2 ? "weekly" : "online",
+        branch_name: null,
+      },
     })),
   archives: () => [],
 };

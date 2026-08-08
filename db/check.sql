@@ -72,9 +72,10 @@ SELECT * FROM (
            coalesce((SELECT string_agg(p.proname, ', ' ORDER BY p.proname)
                        FROM pg_proc p
                       WHERE p.pronamespace = 'public'::regnamespace
-                        AND p.proname IN ('snapshot_dates','combined_rows','combined_best',
-                                          'publisher_ranking','author_ranking','books_of',
-                                          'category_share','search_books_merged','crawl_summary')),
+                        AND p.proname IN ('snapshot_dates','category_dates','combined_rows',
+                                          'combined_best','publisher_ranking','author_ranking',
+                                          'books_of','category_share','search_books_merged',
+                                          'crawl_summary','publisher_conflicts')),
                     '(아직 없음)')
 
     UNION ALL SELECT 8,

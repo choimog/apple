@@ -1,23 +1,22 @@
+import Link from "next/link";
 import DataError from "@/components/DataError";
-import {
-  Card,
-  CardHead,
-  Empty,
-  PageHead,
-  StatTile,
-} from "@/components/ui";
+import { Card, CardHead, Empty, StatTile } from "@/components/ui";
 import { configError } from "@/lib/supabase";
-import { getArchivedRange, getRecentCrawlStatus, getSnapshotDates } from "@/lib/queries";
-import { getCrawlSummary } from "@/lib/queries-extra";
+import { getArchivedRange, getSnapshotDates } from "@/lib/queries";
+import { getCrawlDetail, getCrawlSummary } from "@/lib/queries-extra";
 import { store, STORE_ORDER } from "@/lib/stores";
-import { ago, dayLabel, duration, kstDateTime, kstTime, num } from "@/lib/format";
+import { dayLabel, duration, kstTime, num } from "@/lib/format";
 
-// 수집 상태는 자주 바뀌므로 1분마다 다시 읽습니다.
 export const metadata = { title: "수집 상태" };
 
+// 수집 상태는 자주 바뀌므로 1분마다 다시 읽습니다.
 export const revalidate = 60;
 
-export default async function StatusPage() {
+export default async function StatusPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
   if (configError) {
     return (
       <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
@@ -25,20 +24,18 @@ export default async function StatusPage() {
       </div>
     );
   }
+  const params = await searchParams;
 
-  let logs, dates, archived, summary;
+  let dates, archived, summary;
   try {
-    [logs, dates, archived, summary] = await Promise.all([
-      getRecentCrawlStatus(60),
-      getSnapshotDates(14),
+    [dates, archived, summary] = await Promise.all([
+      getSnapshotDates(30),
       getArchivedRange(),
-      getCrawlSummary(7),
+      getCrawlSummary(14),
     ]);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
-
-  const failed = logs.filter((l) => l.status !== "success");
 
   // 날짜별로 묶습니다 (서점 3개가 한 줄에 나란히 보이도록)
   const byDate = new Map<string, typeof summary.rows>();
@@ -48,71 +45,59 @@ export default async function StatusPage() {
   }
   const days = [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
+  // 펼쳐 볼 날짜 — 주소에 date 가 있으면 그날의 분야별 상세를 함께 읽습니다
+  const openDate =
+    params.date && days.some(([d]) => d === params.date) ? params.date : null;
+
+  let detail: Awaited<ReturnType<typeof getCrawlDetail>> = [];
+  if (openDate) {
+    try {
+      detail = await getCrawlDetail(openDate);
+    } catch (e) {
+      return <DataError detail={String(e)} />;
+    }
+  }
+
   const latest = days[0];
-  const latestFinish = latest
-    ? latest[1].reduce<string | null>(
-        (acc, r) => (!acc || (r.finishedAt ?? "") > acc ? (r.finishedAt ?? acc) : acc),
-        null
-      )
-    : null;
   const latestOk = latest ? latest[1].reduce((a, r) => a + r.ok, 0) : 0;
   const latestFail = latest ? latest[1].reduce((a, r) => a + r.failed, 0) : 0;
   const latestItems = latest ? latest[1].reduce((a, r) => a + r.items, 0) : 0;
 
   return (
     <div className="space-y-5">
-      <PageHead
-        eyebrow="상태"
-        title="수집 상태"
-        lead={
-          <>
-            매일 한국시간 오전 6시에 자동 수집합니다. 이 화면은{" "}
-            <strong>실제 기록만</strong> 보여줍니다. 실패한 날은 실패로 나옵니다.
-          </>
-        }
-      />
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">수집 상태</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          매일 한국시간 오전 6시에 자동 수집합니다. 실패한 날은 실패로 나옵니다.
+        </p>
+      </div>
 
       {/* ---------- 최근 수집 한눈에 ---------- */}
       {latest && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile label="마지막 수집일" value={dayLabel(latest[0])} />
+          <StatTile label="성공" value={num(latestOk)} unit="분야" />
           <StatTile
-            label="마지막 수집일"
-            value={dayLabel(latest[0])}
-            hint={latest[0]}
-          />
-          <StatTile
-            label="끝난 시각"
-            value={kstDateTime(latestFinish) ?? "–"}
-            hint={
-              latestFinish
-                ? `${ago(latestFinish) ?? ""} · 한국시간`
-                : "종료 시각 기록 없음"
-            }
-          />
-          <StatTile
-            label="성공 / 실패"
-            value={`${latestOk} / ${latestFail}`}
+            label="실패"
+            value={num(latestFail)}
             unit="분야"
-            hint={latestFail === 0 ? "전부 성공" : "실패 목록은 아래에 있습니다"}
+            tone={latestFail ? "accent" : "plain"}
           />
           <StatTile label="수집한 책" value={num(latestItems)} unit="권" />
         </div>
       )}
 
-      {/* ---------- 서점별 시작·종료 시각 ---------- */}
+      {/* ---------- 날짜별 · 서점별 ---------- */}
       <Card>
         <CardHead
           title="날짜별 · 서점별 수집 기록"
-          desc="시작·종료 시각은 한국시간이며 분까지 표시합니다."
+          desc="실패 숫자를 누르면 어느 분야가 실패했는지 볼 수 있습니다. 시각은 한국시간입니다."
         />
         {days.length === 0 ? (
-          <Empty title="아직 수집 기록이 없습니다">
-            GitHub → Actions → <strong>매일 수집 (daily crawl)</strong> 에서 실행
-            결과를 확인하세요.
-          </Empty>
+          <Empty title="아직 수집 기록이 없습니다" />
         ) : (
           <div className="scroll-x">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="border-b border-line-soft text-xs text-ink-faint">
                   <th className="px-4 py-2.5 text-left font-medium">날짜</th>
@@ -120,7 +105,8 @@ export default async function StatusPage() {
                   <th className="px-3 py-2.5 text-left font-medium">시작</th>
                   <th className="px-3 py-2.5 text-left font-medium">종료</th>
                   <th className="px-3 py-2.5 text-right font-medium">걸린 시간</th>
-                  <th className="px-3 py-2.5 text-right font-medium">성공/실패</th>
+                  <th className="px-3 py-2.5 text-right font-medium">성공</th>
+                  <th className="px-3 py-2.5 text-right font-medium">실패</th>
                   <th className="px-4 py-2.5 text-right font-medium">수집</th>
                 </tr>
               </thead>
@@ -130,10 +116,13 @@ export default async function StatusPage() {
                     (sid, i) => {
                       const r = rows.find((x) => x.storeId === sid)!;
                       const s = store(sid);
+                      const on = openDate === date;
                       return (
                         <tr
                           key={`${date}-${sid}`}
-                          className="border-b border-line-soft last:border-0"
+                          className={`border-b border-line-soft last:border-0 ${
+                            on ? "bg-surface-2" : ""
+                          }`}
                         >
                           <td className="px-4 py-2.5 text-xs text-ink-soft">
                             {i === 0 ? dayLabel(date) : ""}
@@ -154,20 +143,21 @@ export default async function StatusPage() {
                           <td className="px-3 py-2.5 text-right text-xs text-ink-soft">
                             {duration(r.startedAt, r.finishedAt) ?? "–"}
                           </td>
+                          <td className="tnum px-3 py-2.5 text-right text-xs text-emerald-600 dark:text-emerald-400">
+                            {r.ok}
+                          </td>
                           <td className="tnum px-3 py-2.5 text-right text-xs">
-                            <span className="text-emerald-600 dark:text-emerald-400">
-                              {r.ok}
-                            </span>
-                            <span className="text-ink-faint"> / </span>
-                            <span
-                              className={
-                                r.failed
-                                  ? "font-bold text-red-600 dark:text-red-400"
-                                  : "text-ink-faint"
-                              }
-                            >
-                              {r.failed}
-                            </span>
+                            {r.failed ? (
+                              <Link
+                                href={`/status?date=${date}#report`}
+                                scroll={false}
+                                className="font-bold text-red-600 underline underline-offset-2 dark:text-red-400"
+                              >
+                                {r.failed}
+                              </Link>
+                            ) : (
+                              <span className="text-ink-faint">0</span>
+                            )}
                           </td>
                           <td className="tnum px-4 py-2.5 text-right text-xs font-medium">
                             {num(r.items)}
@@ -189,20 +179,26 @@ export default async function StatusPage() {
         )}
       </Card>
 
+      {/* ---------- 하루치 분야별 리포트 ---------- */}
+      {openDate && <DayReport date={openDate} rows={detail} />}
+
       {/* ---------- 수집된 날짜 ---------- */}
       <Card>
-        <CardHead
-          title="수집된 날짜"
-          desc="여기 없는 날짜는 그날 수집이 되지 않았다는 뜻입니다. 빈 데이터를 채워 넣지 않습니다."
-        />
+        <CardHead title="수집된 날짜" desc="세 서점 중 하나라도 자료가 있는 날입니다." />
         <div className="flex flex-wrap gap-1.5 px-4 py-3.5 sm:px-5">
           {dates.map((d) => (
-            <span
+            <Link
               key={d}
-              className="rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs text-ink-soft"
+              href={`/status?date=${d}#report`}
+              scroll={false}
+              className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                d === openDate
+                  ? "border-transparent bg-accent text-accent-ink"
+                  : "border-line bg-surface-2 text-ink-soft hover:border-ink-faint"
+              }`}
             >
-              {dayLabel(d)}
-            </span>
+              {d.slice(5)}
+            </Link>
           ))}
           {dates.length === 0 && (
             <span className="text-sm text-ink-faint">아직 수집된 날짜가 없습니다.</span>
@@ -216,56 +212,124 @@ export default async function StatusPage() {
               <strong>{archived.from}</strong> ~ <strong>{archived.to}</strong> (
               {archived.days}일 · {num(archived.rows)}건)
             </p>
-            <p className="mt-1 text-xs text-ink-faint">
-              데이터는 지워지지 않았습니다. Supabase 용량을 위해 Cloudflare R2 로
-              옮겨 두었고, 파일로 내려받을 수 있습니다. (docs/archive-setup.md)
-            </p>
-          </div>
-        )}
-
-        {dates.length === 0 && logs.length === 0 && (
-          <div className="border-t border-line-soft px-4 py-3.5 text-sm sm:px-5">
-            <p className="font-semibold text-amber-700 dark:text-amber-400">
-              🔑 데이터베이스 읽기 권한 문제일 수 있습니다
-            </p>
-            <p className="mt-1 text-ink-soft">
-              접속은 됐는데 기록을 하나도 못 읽었습니다. Supabase → SQL Editor 에서
-              저장소의 <code>db/rls.sql</code> 을 한 번 실행해 주세요.
-            </p>
           </div>
         )}
       </Card>
-
-      {/* ---------- 실패 목록 ---------- */}
-      {failed.length > 0 && (
-        <Card className="border-red-300/60 dark:border-red-900/60">
-          <CardHead
-            title={
-              <span className="text-red-700 dark:text-red-400">
-                실패한 수집 {failed.length}건
-              </span>
-            }
-            desc="실패해도 나머지 분야는 정상 저장됩니다. 같은 분야가 매일 실패하면 알려주세요."
-          />
-          <ul className="divide-y divide-line-soft">
-            {failed.slice(0, 30).map((l, i) => (
-              <li key={i} className="px-4 py-2.5 text-xs sm:px-5">
-                <span className="text-ink-faint">{l.snapshot_date}</span>
-                <span className="mx-2 font-medium">
-                  {store(l.store_id as number).name}
-                </span>
-                <span className="text-red-700 dark:text-red-400">
-                  {(l.error_message as string) ?? (l.status as string)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="border-t border-line-soft px-4 py-3 text-xs text-ink-faint sm:px-5">
-            → GitHub → Actions 에서 해당 실행의 로그를 확인하세요. 서점이 화면을
-            개편했다면 <code>config/selectors.yaml</code> 을 고쳐야 합니다.
-          </p>
-        </Card>
-      )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+
+/**
+ * 하루치 분야별 리포트.
+ *
+ * 【2026-08-08 대표님 요청】
+ * "수집 실패한 데이터는 수집상태에서 어디어디가 실패했는지 클릭하면
+ *  리포트가 나오게 해줘."
+ * 실패한 것을 맨 위에, 이유와 함께 보여줍니다. 성공한 분야는 접어 둡니다.
+ */
+function DayReport({
+  date,
+  rows,
+}: {
+  date: string;
+  rows: Awaited<ReturnType<typeof getCrawlDetail>>;
+}) {
+  const failed = rows.filter((r) => r.status !== "success");
+  const ok = rows.filter((r) => r.status === "success");
+
+  // 같은 이유로 실패한 것끼리 묶습니다. 20개가 같은 원인이면 한 줄로 보입니다.
+  const groups = new Map<string, typeof failed>();
+  for (const r of failed) {
+    const key = r.error ?? r.status;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  return (
+    <Card id="report" className={failed.length ? "border-red-300/60 dark:border-red-900/60" : ""}>
+      <CardHead
+        title={`${dayLabel(date)} 수집 리포트`}
+        desc={`분야 ${rows.length}개 · 성공 ${ok.length} · 실패 ${failed.length}`}
+      />
+
+      {rows.length === 0 ? (
+        <Empty title="이 날짜의 수집 기록이 없습니다">
+          수집이 아예 돌지 않았거나, 기록을 남기기 전에 멈췄을 수 있습니다.
+        </Empty>
+      ) : failed.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-ink-soft sm:px-5">
+          ✅ 이 날은 {ok.length}개 분야가 모두 성공했습니다.
+        </p>
+      ) : (
+        <div className="divide-y divide-line-soft">
+          {[...groups.entries()].map(([reason, items]) => (
+            <div key={reason} className="px-4 py-3.5 sm:px-5">
+              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                {reason}
+              </p>
+              <p className="mt-0.5 text-xs text-ink-faint">{items.length}개 분야</p>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {items.map((r, i) => (
+                  <li
+                    key={i}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs"
+                  >
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-2xs font-medium ${store(r.storeId).chip}`}
+                    >
+                      {store(r.storeId).short}
+                    </span>
+                    {r.name}
+                    {r.kind === "weekly" && (
+                      <span className="text-2xs text-ink-faint">주간</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ok.length > 0 && (
+        <details className="border-t border-line-soft px-4 py-3 sm:px-5">
+          <summary className="cursor-pointer text-sm text-ink-soft">
+            성공한 분야 {ok.length}개 보기
+          </summary>
+          <div className="scroll-x mt-3">
+            <table className="w-full min-w-[520px] text-xs">
+              <thead>
+                <tr className="border-b border-line-soft text-ink-faint">
+                  <th className="py-1.5 pr-3 text-left font-medium">서점</th>
+                  <th className="py-1.5 pr-3 text-left font-medium">분야</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">수집</th>
+                  <th className="py-1.5 text-left font-medium">끝난 시각</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ok.map((r, i) => (
+                  <tr key={i} className="border-b border-line-soft last:border-0">
+                    <td className="py-1.5 pr-3">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-2xs font-medium ${store(r.storeId).chip}`}
+                      >
+                        {store(r.storeId).short}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3">{r.name}</td>
+                    <td className="tnum py-1.5 pr-3 text-right">{num(r.items)}</td>
+                    <td className="tnum py-1.5 text-ink-faint">
+                      {kstTime(r.finishedAt) ?? "–"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </Card>
   );
 }

@@ -285,6 +285,23 @@ await step("한 책에 다른 출판사가 섞이지 않았는지", async () => 
   );
 });
 
+// ---- 12. 분야별 날짜 목록 (서점별 화면이 씁니다) ----
+//     이게 없으면 "8/8 은 없는데 8/7 은 있다" 같은 혼란이 다시 생깁니다.
+await step("분야별 수집 날짜 (category_dates)", async () => {
+  if (!firstCategory) throw new Error("앞 단계 실패로 건너뜀");
+  const { data, error } = await db.rpc("category_dates", {
+    p_category_id: firstCategory.id,
+    n: 30,
+  });
+  if (error) {
+    if (/function|does not exist|schema cache/i.test(error.message)) {
+      return "건너뜀 — db/perf.sql 을 아직 실행하지 않았습니다";
+    }
+    throw new Error(error.message);
+  }
+  return `${firstCategory.name}: ${(data ?? []).length}일`;
+});
+
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 화면이 빈 채로 뜰 수 있습니다.`);

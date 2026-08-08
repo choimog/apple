@@ -74,6 +74,72 @@ type RpcSearchRow = {
   best_rank: number | null;
 };
 
+/* ------------------------------------------------ 하루치 수집 상세 (분야별) */
+
+export type CrawlDetailRow = {
+  storeId: number;
+  categoryId: number | null;
+  /** 화면에 보여줄 이름 — 분야 이름 또는 매장 이름 */
+  name: string;
+  kind: string | null;
+  status: string;
+  items: number;
+  expected: number | null;
+  error: string | null;
+  finishedAt: string | null;
+};
+
+/**
+ * 어느 날, 어느 분야가 성공했고 어느 분야가 실패했는지.
+ *
+ * 【왜 필요한가요? — 2026-08-08 대표님 요청】
+ * "수집 실패한 데이터는 수집상태에서 어디어디가 실패했는지 클릭하면
+ *  리포트가 나오게 해줘."
+ * 예전 화면은 서점별 성공/실패 '개수' 만 보여줬습니다. 개수만 봐서는
+ * 무엇을 고쳐야 할지 알 수 없습니다.
+ *
+ * ※ 데이터베이스 계산 기능(perf.sql)이 없어도 동작합니다.
+ */
+export async function getCrawlDetail(date: string): Promise<CrawlDetailRow[]> {
+  const { data, error } = await supabase
+    .from("crawl_logs")
+    .select(
+      `store_id, category_id, status, items_collected, items_expected,
+       error_message, finished_at,
+       category:categories ( name, kind, branch_name )`
+    )
+    .eq("snapshot_date", date)
+    .order("store_id")
+    .order("id");
+  if (error) throw error;
+
+  type Row = {
+    store_id: number;
+    category_id: number | null;
+    status: string;
+    items_collected: number | null;
+    items_expected: number | null;
+    error_message: string | null;
+    finished_at: string | null;
+    category: { name: string; kind: string; branch_name: string | null } | null;
+  };
+
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    storeId: r.store_id,
+    categoryId: r.category_id,
+    name:
+      r.category?.branch_name ||
+      r.category?.name ||
+      (r.category_id ? `분야 ${r.category_id}` : "분야 정보 없음"),
+    kind: r.category?.kind ?? null,
+    status: r.status,
+    items: r.items_collected ?? 0,
+    expected: r.items_expected,
+    error: r.error_message,
+    finishedAt: r.finished_at,
+  }));
+}
+
 /* ----------------------------------------------------------- 수집 상태 */
 
 export type CrawlDay = {

@@ -75,14 +75,18 @@ export function ScopeBar({ parts, note }: { parts: ReactNode[]; note?: ReactNode
 export function Card({
   children,
   className = "",
+  id,
   as: Tag = "section",
 }: {
   children: ReactNode;
   className?: string;
+  /** 화면 안에서 이 카드로 바로 이동하고 싶을 때 (#report 같은 주소) */
+  id?: string;
   as?: "section" | "div" | "article";
 }) {
   return (
     <Tag
+      id={id}
       className={`rounded-2xl border border-line bg-surface shadow-card ${className}`}
     >
       {children}

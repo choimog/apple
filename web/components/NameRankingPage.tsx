@@ -1,6 +1,7 @@
 import Link from "next/link";
 import DataError from "@/components/DataError";
 import SetupNotice from "@/components/SetupNotice";
+import DatePicker from "@/components/DatePicker";
 import {
   Card,
   CardHead,
@@ -12,13 +13,13 @@ import {
   RankBadge,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
+import { dayLabel } from "@/lib/format";
 import {
   getCategories,
   getNameRanking,
   getSnapshotDates,
   unifiedOptions,
   NAME_KIND_LABEL,
-  PERIOD_HELP,
   PERIOD_LABEL,
   type NameKind,
   type Period,
@@ -48,7 +49,7 @@ export default async function NameRankingPage({
 
   let categories, dates;
   try {
-    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(30)]);
+    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(400)]);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
@@ -81,13 +82,9 @@ export default async function NameRankingPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">
-            분석 · {word}
-          </p>
-          <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{word}별 순위</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{word}별 순위</h1>
           <p className="mt-1 text-sm text-ink-soft">
-            3사 평균 순위를 바탕으로 <strong>어느 {word}가 상위권을 많이 차지하고
-            있는지</strong> 봅니다. 이름을 누르면 그 {word}의 책 목록이 나옵니다.
+            이름을 누르면 그 {word}의 책 목록이 나옵니다.
           </p>
         </div>
         <PeriodSwitch period={period} hrefFor={(p) => href({ period: p, cat: "" })} />
@@ -110,13 +107,12 @@ export default async function NameRankingPage({
         </div>
         <div className="mt-4">
           <FieldLabel>날짜</FieldLabel>
-          <div className="flex flex-wrap gap-1.5">
-            {dates.slice(0, 10).map((d) => (
-              <Pill key={d} href={href({ date: d })} active={d === date}>
-                {d.slice(5)}
-              </Pill>
-            ))}
-          </div>
+          <DatePicker
+            dates={dates}
+            value={date}
+            basePath={base}
+            query={{ period, cat: unified }}
+          />
         </div>
       </Card>
 
@@ -128,7 +124,7 @@ export default async function NameRankingPage({
               <PeriodBadge period={period} withHelp />
             </span>
           }
-          desc={`${date} 기준 · 각 서점 ${depth}위까지 봄`}
+          desc={dayLabel(date)}
         />
 
         {rows.length === 0 ? (
@@ -215,22 +211,8 @@ export default async function NameRankingPage({
           </ul>
           <p className="text-xs">
             &ldquo;1위 한 권&rdquo;과 &ldquo;200위권 열 권&rdquo; 중 어느 쪽이 센지
-            비교할 수 있게 만든 값입니다. 순위 자체가 아니라 <strong>상위권
-            장악력</strong>을 봅니다.
+            비교하기 위한 값입니다.
           </p>
-          {kind === "publisher" && (
-            <p className="text-xs text-ink-soft">
-              ※ 출판사 표기는 서점마다 다릅니다((주)문학동네 / 문학동네).
-              &lsquo;(주)·주식회사·㈜&rsquo; 만 떼고 묶습니다. 그 이상은 임의로
-              합치지 않습니다. 임프린트도 그대로 둡니다.
-            </p>
-          )}
-          {kind === "author" && (
-            <p className="text-xs text-ink-soft">
-              ※ 저자는 서점 목록에 적힌 대표 저자 기준입니다. 공저·번역자는 대표
-              1인으로 정리된 값을 씁니다.
-            </p>
-          )}
         </div>
       </details>
     </div>

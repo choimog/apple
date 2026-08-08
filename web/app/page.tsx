@@ -51,9 +51,6 @@ export default async function Home({
       <Card>
         <Empty>
           아직 수집된 데이터가 없습니다.
-          <br />
-          GitHub → Actions → <strong>매일 수집 (daily crawl)</strong> 에서 실행
-          결과를 확인하세요.
         </Empty>
       </Card>
     );
@@ -64,7 +61,7 @@ export default async function Home({
 
   // 대시보드는 한 화면에 여러 조각을 보여주므로 한꺼번에 불러옵니다
   const [best, pubs, authors, share] = await Promise.all([
-    getCombinedBest(date, period, "all", { minStores: 2, limit: 10 }),
+    getCombinedBest(date, period, "all", { minStores: 3, limit: 10 }),
     getNameRanking("publisher", date, period, "all", { limit: 8 }),
     getNameRanking("author", date, period, "all", { limit: 8 }),
     getCategoryShare(date, period, 100),
@@ -99,10 +96,10 @@ export default async function Home({
           hint={PERIOD_HELP[period]}
         />
         <StatTile
-          label="3사 공통 상위권"
+          label="3사 공통"
           value={best.rows.length ? `${best.rows.length}+` : "0"}
           unit="종"
-          hint="2개 이상 서점 순위에 동시에 오른 책"
+          hint="세 서점 순위에 동시에 오른 책"
         />
         <StatTile
           label="가장 센 분야"
@@ -126,7 +123,7 @@ export default async function Home({
               <PeriodBadge period={period} withHelp />
             </span>
           }
-          desc="3사 순위를 평균낸 결과 · 2개 이상 서점에 오른 책"
+          desc="세 서점 모두에 오른 책을 3사 순위 평균으로 줄 세웠습니다"
           right={
             <Link
               href={`/best?${q}`}
@@ -137,12 +134,10 @@ export default async function Home({
           }
         />
         {best.rows.length === 0 ? (
-          <Empty>
-            아직 3사에 걸쳐 묶인 책이 없습니다.
-            <br />
-            <span className="text-xs">
-              같은 책 묶기는 매일 오전 9시에 돕니다.
-            </span>
+          <Empty title="세 서점 모두에 오른 책이 아직 없습니다">
+            <Link href={`/best?${q}&min=2`} className="text-accent hover:underline">
+              2개 이상 서점 기준으로 보기
+            </Link>
           </Empty>
         ) : (
           <ol className="divide-y divide-line-soft">
@@ -197,8 +192,8 @@ export default async function Home({
                 key: r.name,
                 label: r.name,
                 value: r.books,
-                note: "종",
               }))}
+              unit="종"
               hrefFor={(k) => `/publisher/${encodeURIComponent(k)}?${q}`}
             />
           )}
@@ -225,8 +220,8 @@ export default async function Home({
                 key: r.name,
                 label: r.name,
                 value: r.books,
-                note: "종",
               }))}
+              unit="종"
               hrefFor={(k) => `/author/${encodeURIComponent(k)}?${q}`}
             />
           )}
@@ -255,8 +250,8 @@ export default async function Home({
               key: r.code,
               label: r.label,
               value: r.books,
-              note: "권",
             }))}
+            unit="권"
           />
         )}
       </Card>

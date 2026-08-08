@@ -43,8 +43,10 @@
   --shadow-2: rgb(28 25 23 / 0.10);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
+/* 어두운 화면.
+   기본값은 밝은 화면입니다. 브라우저/운영체제 설정을 따라가지 않고,
+   오른쪽 위 버튼으로 켠 사람에게만 적용합니다. */
+:root[data-theme="dark"] {
     color-scheme: dark;
 
     --canvas: #0c0a09;
@@ -73,7 +75,6 @@
 
     --shadow-1: rgb(0 0 0 / 0.4);
     --shadow-2: rgb(0 0 0 / 0.5);
-  }
 }
 
 html {

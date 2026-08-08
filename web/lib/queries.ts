@@ -271,6 +271,54 @@ export async function getPreviousDate(
   return (data?.[0]?.snapshot_date as string) ?? null;
 }
 
+/**
+ * 이 분야에 실제로 자료가 있는 날짜만.
+ *
+ * 【왜 만들었나요? — 2026-08-08 대표님 지적】
+ * "서점별에서 알라딘·일간·전체·8/8 을 보니까 수집된 데이터가 없다고 하는데,
+ *  8월 7일은 있거든?"
+ *
+ * 원인은 날짜 목록이 세 서점을 통째로 합친 목록이었기 때문입니다. 교보가
+ * 8월 8일치를 저장하면 8월 8일이 목록에 뜨고, 알라딘의 그 분야에 8월 8일치가
+ * 없어도 고를 수 있었습니다. 고르면 빈 표가 나오는데 이유는 알 수 없었습니다.
+ *
+ * 이제 서점별 화면은 '고른 분야에 실제로 있는 날짜' 만 보여줍니다.
+ * 고를 수 있는 날짜는 전부 자료가 있는 날짜입니다.
+ *
+ */
+export async function getCategoryDates(
+  categoryId: number,
+  limit = 400
+): Promise<string[]> {
+  // ---- 빠른 길: 데이터베이스가 날짜만 뽑아 줍니다 (db/perf.sql) ----
+  const fast = await supabase.rpc("category_dates", {
+    p_category_id: categoryId,
+    n: limit,
+  });
+  if (!fast.error && fast.data) {
+    return (fast.data as { snapshot_date: string }[]).map((r) => r.snapshot_date);
+  }
+
+  // ---- 느린 길: perf.sql 을 아직 실행하지 않았을 때 ----
+  // 순위표를 1,000줄씩 읽습니다. 한 분야가 하루 200권이면 12번 읽어도
+  // 60일치밖에 못 봅니다. 그래서 위의 빠른 길이 켜져 있어야 합니다.
+  const seen = new Set<string>();
+  const step = 1000;
+  for (let page = 0; page < 12 && seen.size < limit; page += 1) {
+    const { data, error } = await supabase
+      .from("rankings")
+      .select("snapshot_date")
+      .eq("category_id", categoryId)
+      .order("snapshot_date", { ascending: false })
+      .range(page * step, page * step + step - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    for (const r of rows) seen.add(r.snapshot_date as string);
+    if (rows.length < step) break;
+  }
+  return [...seen].slice(0, limit);
+}
+
 // ---------------------------------------------------------------------------
 //  종합 베스트셀러 — 3사 순위의 평균
 // ---------------------------------------------------------------------------

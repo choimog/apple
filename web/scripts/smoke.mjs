@@ -34,15 +34,15 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
 /** 열어볼 주소와, 그 화면에 반드시 있어야 할 문구 */
 const PAGES = [
   ["/", ["오늘의 베스트셀러", "종합 베스트셀러 TOP 10"]],
-  ["/best", ["종합 베스트셀러", "이 순위는 어떻게 계산했나요?"]],
+  ["/best", ["종합 베스트셀러", "몇 개 서점에 올라야 넣을지"]],
   ["/best?period=weekly", ["주간"]],
-  ["/store", ["서점별 순위", "1. 서점"]],
+  ["/store", ["서점별 순위", "집계 기간", "온라인 일간"]],
   ["/store?tab=weekly", ["집계 기간"]],
   ["/publishers", ["출판사별 순위", "점수는 어떻게 매기나요?"]],
   ["/authors", ["저자별 순위"]],
-  ["/insights", ["어떤 분야가 종합 상위권을 채우고 있나", "이 숫자를 읽는 법"]],
+  ["/insights", ["어떤 분야가 종합 상위권을 채우고 있나"]],
   ["/search?q=%EC%86%8C%EC%84%A4", []],
-  ["/status", ["수집 상태"]],
+  ["/status", ["수집 상태", "날짜별 · 서점별 수집 기록"]],
 ];
 
 const server = spawn("npx", ["next", "start", "-p", PORT], {
@@ -113,6 +113,36 @@ for (const [path, musts] of PAGES) {
     bad(path, String(e?.message ?? e));
   }
 }
+
+/**
+ * 하루치 수집 리포트가 실제로 열리는지.
+ *
+ * 날짜는 미리 적어 둘 수 없습니다(매일 바뀝니다). 그래서 수집 상태 화면에서
+ * 실제 링크를 하나 뽑아 그 주소를 열어 봅니다.
+ */
+await (async () => {
+  const name = "/status?date=… (하루치 리포트)";
+  try {
+    const html = await (await fetch(BASE + "/status")).text();
+    const m = html.match(/\/status\?date=(\d{4}-\d{2}-\d{2})/);
+    if (!m) {
+      console.log(`  ⏭️ ${name} — 아직 수집 기록이 없어 건너뜁니다`);
+      return;
+    }
+    const res = await fetch(`${BASE}/status?date=${m[1]}`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    const body = (await res.text()).replaceAll("<!-- -->", "");
+    if (res.status !== 200) bad(name, `HTTP ${res.status}`);
+    else if (body.includes("데이터를 불러오지 못했습니다"))
+      bad(name, "‘데이터를 불러오지 못했습니다’ 화면이 떴습니다");
+    else if (!body.includes("수집 리포트"))
+      bad(name, "리포트 카드가 없습니다");
+    else ok(name, m[1]);
+  } catch (e) {
+    bad(name, String(e?.message ?? e));
+  }
+})();
 
 /**
  * 확인이 끝나면 사이트를 확실히 내리고 이 파일도 끝냅니다.

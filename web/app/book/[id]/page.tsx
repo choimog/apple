@@ -140,9 +140,6 @@ export default async function BookPage({
                 )}
               </span>
             </p>
-            <p className="mt-2 text-xs leading-relaxed text-ink-faint">
-              저자·출판사 이름을 누르면 그들이 순위에 올린 다른 책을 볼 수 있습니다.
-            </p>
           </div>
         </div>
       </Card>
@@ -151,11 +148,7 @@ export default async function BookPage({
       <Card>
         <CardHead
           title="지금 순위"
-          desc={
-            latestDate
-              ? `${dayLabel(latestDate)} 기준 · 각 서점이 발표한 순위 그대로입니다`
-              : "순위 기록이 없습니다"
-          }
+          desc={latestDate ? dayLabel(latestDate) : "순위 기록이 없습니다"}
         />
         <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
           {STORE_ORDER.map((sid: StoreId) => {
@@ -209,32 +202,40 @@ export default async function BookPage({
         </div>
       </Card>
 
-      {/* ═══════════ 추이 ═══════════ */}
+      {/* ═══════════ 추이 ═══════════
+          【2026-08-08 대표님 지적】
+          "순위 추이와 판매지수 추이를 위아래로 구분하지 말고 병렬로 구분할 것."
+          같은 기간의 두 지표는 나란히 놓아야 함께 읽힙니다. */}
       {(["daily", "weekly"] as Period[]).map((p) => (
         <Card key={p}>
           <CardHead
             title={
               <span className="flex items-center gap-2">
-                <PeriodBadge period={p} /> 순위 추이
+                <PeriodBadge period={p} withHelp /> 추이
               </span>
             }
-            desc={`${PERIOD_HELP[p]} · 위로 갈수록 높은 순위입니다`}
           />
-          <TrendChart history={history} period={p} metric="rank" />
-
-          {hasSales && (
-            <>
-              <div className="border-y border-line-soft px-4 py-3 text-[15px] font-bold sm:px-5">
-                {PERIOD_LABEL[p]} 판매지수 추이
+          <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+            <div>
+              <div className="px-4 pt-3 text-sm font-semibold sm:px-5">
+                순위 <span className="font-normal text-ink-faint">· 위로 갈수록 높은 순위</span>
               </div>
-              <TrendChart history={history} period={p} metric="sales" />
-              <p className="px-4 py-3 text-xs leading-relaxed text-ink-faint sm:px-5">
-                판매지수는 예스24·알라딘만 공개합니다. 두 값은 계산식이 다른 별개의
-                수치라 서로 더하거나 평균 내지 않고 그대로 그립니다. 교보문고는
-                공개하지 않습니다.
-              </p>
-            </>
-          )}
+              <TrendChart history={history} period={p} metric="rank" />
+            </div>
+            <div>
+              <div className="px-4 pt-3 text-sm font-semibold sm:px-5">
+                판매지수{" "}
+                <span className="font-normal text-ink-faint">· 예스24·알라딘만 공개</span>
+              </div>
+              {hasSales ? (
+                <TrendChart history={history} period={p} metric="sales" />
+              ) : (
+                <p className="px-4 py-10 text-center text-sm text-ink-faint">
+                  판매지수 기록이 없습니다.
+                </p>
+              )}
+            </div>
+          </div>
         </Card>
       ))}
 
@@ -245,7 +246,7 @@ export default async function BookPage({
         <Card>
           <CardHead
             title="올라 있는 교보문고 매장"
-            desc={`${branches.length}개 매장 · 매장 순위는 그 매장에서 어제 하루 팔린 순서입니다`}
+            desc={`${branches.length}개 매장`}
           />
           <div className="flex flex-wrap gap-1.5 p-4 sm:p-5">
             {branches.map((b, i) => (
@@ -265,7 +266,7 @@ export default async function BookPage({
       <Card>
         <CardHead
           title="서점별 표기"
-          desc="같은 책이라도 서점마다 제목·저자 표기가 조금씩 다릅니다. 원본 그대로 보여드립니다."
+          desc="서점이 적어 놓은 원본 표기입니다."
         />
         <ul className="divide-y divide-line-soft">
           {stores.map((s) => {
@@ -286,10 +287,6 @@ export default async function BookPage({
             );
           })}
         </ul>
-        <p className="border-t border-line-soft px-4 py-3 text-xs text-ink-faint sm:px-5">
-          서로 다른 책이 잘못 묶여 보이면 알려주세요. 사람이 내린 판단은 자동 묶기가
-          절대 뒤집지 못하도록 되어 있습니다.
-        </p>
       </Card>
     </div>
   );
@@ -323,7 +320,7 @@ function PlacementCard({ rows }: { rows: CurrentPlacement[] }) {
     <Card>
       <CardHead
         title="올라 있는 목록"
-        desc="‘전체’ 는 그 서점의 종합 순위이고, ‘분야’ 는 그 분야 안에서의 순위입니다. 뜻이 다르므로 나눠서 보여줍니다."
+        desc="‘전체’ 는 그 서점의 종합 순위, ‘분야’ 는 그 분야 안에서의 순위입니다."
       />
       {rows.length === 0 ? (
         <Empty title="이 날짜에 온라인 순위에 올라 있지 않습니다">

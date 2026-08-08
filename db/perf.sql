@@ -121,6 +121,49 @@ $$;
 
 
 -- ----------------------------------------------------------------------------
+--  2-2. 한 분야에 자료가 있는 날짜만
+-- ----------------------------------------------------------------------------
+--  【왜 따로 필요한가요? — 2026-08-08 대표님 지적】
+--  "알라딘·일간·전체·8/8 은 자료가 없다는데 8월 7일은 있거든?"
+--
+--  위 snapshot_dates 는 세 서점을 통째로 합친 날짜입니다. 교보가 저장하면
+--  그 날짜가 목록에 뜨고, 알라딘의 그 분야에 없어도 고를 수 있었습니다.
+--  서점별 화면은 '고른 분야에 실제로 있는 날짜' 만 보여줘야 합니다.
+--
+--  순위표를 훑지 않고 (category_id, snapshot_date) 색인만 건너뛰며 읽습니다.
+--  자료가 몇 년치 쌓여도 날짜 개수만큼만 봅니다.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.category_dates(
+    p_category_id int,
+    n int DEFAULT 400
+)
+RETURNS TABLE (snapshot_date date)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH RECURSIVE step AS (
+        SELECT max(r.snapshot_date) AS d
+          FROM rankings r
+         WHERE r.category_id = p_category_id
+        UNION ALL
+        SELECT (SELECT max(r.snapshot_date)
+                  FROM rankings r
+                 WHERE r.category_id = p_category_id
+                   AND r.snapshot_date < step.d)
+          FROM step
+         WHERE step.d IS NOT NULL
+    )
+    SELECT step.d
+      FROM step
+     WHERE step.d IS NOT NULL
+     ORDER BY step.d DESC
+     LIMIT greatest(1, least(n, 1000));
+$$;
+
+
+-- ----------------------------------------------------------------------------
 --  3. 【공통】 그날의 '책별 3사 순위' — 아래 기능들이 전부 이걸 씁니다
 -- ----------------------------------------------------------------------------
 --  종합 순위·출판사 순위·저자 순위·분야 점유율이 모두 같은 계산을 씁니다.

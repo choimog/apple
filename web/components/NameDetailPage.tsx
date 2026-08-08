@@ -10,14 +10,13 @@ import {
   StatTile,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
+import { dayLabel } from "@/lib/format";
 import {
   getBooksOf,
   getCategories,
   getSnapshotDates,
   unifiedOptions,
   NAME_KIND_LABEL,
-  PERIOD_HELP,
-  PERIOD_LABEL,
   type NameKind,
   type Period,
 } from "@/lib/queries";
@@ -47,7 +46,7 @@ export default async function NameDetailPage({
 
   let categories, dates;
   try {
-    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(30)]);
+    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(400)]);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
@@ -81,14 +80,11 @@ export default async function NameDetailPage({
         <div className="min-w-0">
           <p className="text-xs text-ink-soft">
             <Link href={listHref} className="hover:underline">
-              분석 · {word}별 순위
+              ← {word}별 순위
             </Link>
           </p>
           <h1 className="mt-0.5 truncate text-2xl font-bold tracking-tight">{name}</h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            {date} 기준 · {PERIOD_LABEL[period]}({PERIOD_HELP[period]}) 순위에 올라
-            있는 책
-          </p>
+          <p className="mt-1 text-sm text-ink-soft">{dayLabel(date)}</p>
         </div>
         <PeriodSwitch period={period} hrefFor={(p) => href({ period: p })} />
       </div>
@@ -120,7 +116,7 @@ export default async function NameDetailPage({
       <Card>
         <CardHead
           title={`${name} · ${rows.length}종`}
-          desc={`각 서점 ${depth}위까지 본 결과입니다. 표지를 누르면 그 책의 3사 추이를 볼 수 있습니다.`}
+          desc="번호는 이 목록 안에서의 차례입니다. 실제 순위는 서점별 칸에 있습니다."
         />
         {rows.length === 0 ? (
           <Empty>
@@ -136,11 +132,6 @@ export default async function NameDetailPage({
           </ul>
         )}
       </Card>
-
-      <p className="px-1 text-xs text-ink-soft">
-        ※ 순위 번호는 <strong>이 {word}의 책들 안에서의 차례</strong>입니다.
-        전체 순위가 아닙니다. 각 책의 실제 순위는 서점별 칸에 적혀 있습니다.
-      </p>
     </div>
   );
 }

@@ -93,10 +93,6 @@ export default async function SearchPage({
           ))}
         </div>
 
-        <p className="mt-3 text-xs leading-relaxed text-ink-faint">
-          ※ 지금까지 <strong>순위에 든 적 있는 책</strong> 안에서만 찾습니다.
-          한 번도 베스트셀러에 오른 적 없는 책은 나오지 않습니다.
-        </p>
       </Card>
 
       {!ok && (
@@ -122,9 +118,7 @@ export default async function SearchPage({
 
           {rows.length === 0 ? (
             <Empty title="찾는 책이 없습니다">
-              제목 일부만 넣어 보시거나, 저자·출판사 이름으로 다시 찾아보세요.
-              <br />
-              띄어쓰기가 서점 표기와 다르면 안 나올 수 있습니다.
+              제목 일부만 넣거나, 저자·출판사 이름으로 찾아보세요.
             </Empty>
           ) : (
             <ul className="divide-y divide-line-soft">
@@ -201,13 +195,6 @@ export default async function SearchPage({
         </Card>
       )}
 
-      {q && ok && rows.length > 0 && (
-        <p className="px-1 text-xs leading-relaxed text-ink-faint">
-          ※ 회색 배지는 그 서점 순위에 <strong>든 적이 없다</strong>는 뜻입니다.
-          그 서점에서 안 판다는 뜻이 아닙니다 — 저희는 베스트셀러 목록만 모으기
-          때문에, 순위에 못 든 책은 알 수 없습니다.
-        </p>
-      )}
     </div>
   );
 }

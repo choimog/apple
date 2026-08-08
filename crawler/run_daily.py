@@ -97,6 +97,17 @@ def kst_today():
     return datetime.now(KST).date()
 
 
+def now_iso() -> str:
+    """지금 시각.
+
+    【왜 넣었나요? — 2026-08-08】
+    crawl_logs 에 finished_at 을 아무도 안 채우고 있었습니다. 그래서 화면의
+    '끝난 시각'·'걸린 시간' 이 사실은 '마지막 기록이 저장된 시각' 이었습니다.
+    분야 하나가 끝날 때마다 실제 종료 시각을 남깁니다.
+    """
+    return datetime.now(KST).isoformat()
+
+
 def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
     """파서 결과를 store_books 표 형식으로 변환 (정규화 포함).
 
@@ -406,6 +417,7 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
         "store_id": task.store_id,
         "category_id": category_id,
         "snapshot_date": snapshot_date.isoformat(),
+        "finished_at": now_iso(),
         "status": "success",
         "items_collected": collected,
         "items_expected": task.max_items,
@@ -477,10 +489,52 @@ def main() -> int:
         origin = store_tasks[0].url_template.split("/", 3)[:3]
         origin_url = "/".join(origin)
 
+        # ---- 설정에 있는 분야를 먼저 DB 에 등록합니다 ----
+        # 수집이 실패한 분야도 '설정에 있는 분야' 이므로 여기서 등록해 둡니다.
+        # 그래야 아래 정리 단계에서 실수로 꺼버리지 않습니다.
+        #
+        # 【robots 확인보다 먼저 합니다 — 2026-08-08】
+        # 예전에는 robots 에 막히면 기록을 한 줄도 남기지 않고 넘어갔습니다.
+        # 그러면 화면에서 '성공도 실패도 아닌 무(無)' 가 되어, 왜 비어 있는지
+        # 아무도 알 수 없었습니다. 이제 막혀도 분야별로 이유를 남깁니다.
+        live_ids: set[int] = set()
+        cat_id_by_task: dict[int, int] = {}
+        for task in store_tasks:
+            try:
+                cid = db.sync_category(client, task)
+                live_ids.add(cid)
+                cat_id_by_task[id(task)] = cid
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠️ 분야 등록 실패({task.label()}): {exc}")
+
+        # ---- 설정에서 빠진 분야를 '수집 안 함' 으로 바꿉니다 ----
+        # 지우지 않고 끄기만 합니다. 지난 순위 기록은 그대로 남습니다.
+        if not dry_run:
+            try:
+                turned_off = db.disable_missing_categories(
+                    client, store_tasks[0].store_id, live_ids
+                )
+                if turned_off:
+                    print(f"\n🧹 설정에 없는 분야 {len(turned_off)}개를 껐습니다 "
+                          f"(기록은 남아 있습니다): {', '.join(turned_off[:10])}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠️ 분야 정리 실패(수집에는 영향 없음): {exc}")
+
         # ---- robots.txt 재확인 (수집 방식과 무관하게 항상 보통 요청으로) ----
         if not robots_allows(origin_url, store_tasks[0].url_for(1), ua, store_code):
             for t in store_tasks:
                 results.append((t.label(), "blocked_by_robots", 0))
+                if not dry_run:
+                    db.write_log(client, {
+                        "run_id": run_id, "store_id": t.store_id,
+                        "category_id": cat_id_by_task.get(id(t)),
+                        "snapshot_date": snapshot_date.isoformat(),
+                        "finished_at": now_iso(),
+                        "status": "failed", "items_collected": 0,
+                        "error_message":
+                            "robots.txt 가 이 경로 수집을 허용하지 않습니다. "
+                            "임의로 우회하지 않고 건너뛰었습니다.",
+                    })
             continue
 
         # ---- 이 서점을 어떤 방식으로 읽을지 ----
@@ -506,29 +560,6 @@ def main() -> int:
                 referer=origin_url,
             )
 
-        # ---- 설정에 있는 분야를 먼저 DB 에 등록합니다 ----
-        # 수집이 실패한 분야도 '설정에 있는 분야' 이므로 여기서 등록해 둡니다.
-        # 그래야 아래 정리 단계에서 실수로 꺼버리지 않습니다.
-        live_ids: set[int] = set()
-        for task in store_tasks:
-            try:
-                live_ids.add(db.sync_category(client, task))
-            except Exception as exc:  # noqa: BLE001
-                print(f"  ⚠️ 분야 등록 실패({task.label()}): {exc}")
-
-        # ---- 설정에서 빠진 분야를 '수집 안 함' 으로 바꿉니다 ----
-        # 지우지 않고 끄기만 합니다. 지난 순위 기록은 그대로 남습니다.
-        if not dry_run:
-            try:
-                turned_off = db.disable_missing_categories(
-                    client, store_tasks[0].store_id, live_ids
-                )
-                if turned_off:
-                    print(f"\n🧹 설정에 없는 분야 {len(turned_off)}개를 껐습니다 "
-                          f"(기록은 남아 있습니다): {', '.join(turned_off[:10])}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"  ⚠️ 분야 정리 실패(수집에는 영향 없음): {exc}")
-
         with fetcher as http:
             for task in store_tasks:
                 try:
@@ -543,7 +574,9 @@ def main() -> int:
                     if not dry_run:
                         db.write_log(client, {
                             "run_id": run_id, "store_id": task.store_id,
+                            "category_id": cat_id_by_task.get(id(task)),
                             "snapshot_date": snapshot_date.isoformat(),
+                            "finished_at": now_iso(),
                             "status": "failed", "items_collected": 0,
                             "error_message": f"차단 의심: {exc}",
                             "http_stats": http.stats.to_json(),
@@ -555,7 +588,9 @@ def main() -> int:
                     if not dry_run:
                         db.write_log(client, {
                             "run_id": run_id, "store_id": task.store_id,
+                            "category_id": cat_id_by_task.get(id(task)),
                             "snapshot_date": snapshot_date.isoformat(),
+                            "finished_at": now_iso(),
                             "status": "failed", "items_collected": 0,
                             "error_message": f"{type(exc).__name__}: {exc}"[:900],
                             "http_stats": http.stats.to_json(),

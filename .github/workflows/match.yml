@@ -61,3 +61,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: python crawler/run_match.py
+
+      # -----------------------------------------------------------------
+      #  묶은 결과를 실제 자료로 검사합니다.
+      #
+      #  【왜 필요한가요? — 2026-08-08】
+      #  "규칙을 고쳤다" 와 "데이터베이스에서 정말 갈라졌다" 는 다릅니다.
+      #  출판사가 다른 책이 한 권으로 뭉쳐 있으면 여기서 빨간불이 납니다.
+      #  (확인만 하는 dry_run 일 때는 저장을 안 했으니 건너뜁니다)
+      # -----------------------------------------------------------------
+      - name: 묶인 결과 검사 (출판사가 섞이지 않았는지)
+        if: ${{ inputs.dry_run != 'true' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/verify_publishers.py

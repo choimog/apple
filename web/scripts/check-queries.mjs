@@ -267,7 +267,10 @@ await step("한 책에 다른 출판사가 섞이지 않았는지", async () => 
   const { data, error } = await db.rpc("publisher_conflicts", { p_limit: 20 });
   if (error) {
     if (/function|does not exist|schema cache/i.test(error.message)) {
-      return "건너뜀 — db/perf.sql 을 아직 실행하지 않았습니다";
+      // perf.sql 을 아직 실행하지 않았어도 확인이 멈추면 안 됩니다.
+      // 같은 내용을 [도서 매칭] 작업의 crawler/verify_publishers.py 가
+      // 매번 검사합니다. 그쪽이 진짜 기준입니다.
+      return "건너뜀 — db/perf.sql 실행 전 (검사는 [도서 매칭] 작업에서 이미 하고 있습니다)";
     }
     throw new Error(error.message);
   }

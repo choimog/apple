@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
-from common.match import Candidate, compare, compare_with_isbn  # noqa: E402
+from common.match import Candidate, compare, compare_with_isbn, similarity  # noqa: E402
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
 #   알라딘 → 예스24 → 교보
@@ -138,6 +138,65 @@ def pick_representative(rows: list[dict]) -> dict:
         "cover_url": cover_row["cover_url"] if cover_row else None,
         "cover_source": STORE_CODE.get(cover_row["store_id"]) if cover_row else None,
     }
+
+
+# -----------------------------------------------------------------------------
+#  무리 안에 출판사가 섞였으면 갈라내기 (마지막 안전장치)
+# -----------------------------------------------------------------------------
+def split_by_publisher(
+    cluster: list[int],
+    by_id: dict[int, dict],
+    pair_score: dict[tuple[int, int], float],
+    floor: float,
+) -> list[list[int]]:
+    """
+    한 무리 안에 서로 다른 출판사가 섞여 있으면 출판사별로 쪼갭니다.
+
+    【왜 또 필요한가요? — 2026-08-08】
+    "출판사가 다르면 안 묶는다" 는 규칙은 두 권씩 비교할 때 적용됩니다.
+    그런데 무리를 만들 때는 이어진 것을 계속 따라갑니다. 그래서 이런 일이
+    생길 수 있습니다.
+
+        민음사 싯다르타 ─ (출판사 안 적힌 싯다르타) ─ 문학동네 싯다르타
+
+    가운데 책은 출판사를 모르니 양쪽 다 통과합니다. 결과적으로 민음사와
+    문학동네가 한 권이 됩니다. 규칙은 지켰는데 결과는 틀립니다.
+    그래서 무리를 다 만든 뒤 마지막으로 한 번 더 확인해서 갈라냅니다.
+
+    출판사를 모르는 책은, 점수가 가장 높았던 상대 쪽에 붙입니다.
+    """
+    known = [i for i in cluster if by_id[i].get("norm_publisher")]
+    unknown = [i for i in cluster if not by_id[i].get("norm_publisher")]
+
+    # 닮은 출판사끼리 먼저 묶습니다 ((주)민음사 와 민음사는 같은 편)
+    pub_groups = Groups()
+    for i in known:
+        pub_groups.find(i)
+    for x in range(len(known)):
+        for y in range(x + 1, len(known)):
+            a, b = known[x], known[y]
+            if similarity(by_id[a]["norm_publisher"],
+                          by_id[b]["norm_publisher"]) >= floor:
+                pub_groups.union(a, b)
+
+    parts = pub_groups.clusters()
+    if len(parts) <= 1:
+        return [cluster]           # 섞이지 않았습니다. 그대로 둡니다.
+
+    # 출판사를 모르는 책을 어느 쪽에 붙일지 정합니다
+    for i in unknown:
+        best_root, best_score = None, -1.0
+        for j in known:
+            lo, hi = (i, j) if i < j else (j, i)
+            s = pair_score.get((lo, hi), -1.0)
+            if s > best_score:
+                best_root, best_score = pub_groups.find(j), s
+        if best_root is not None and best_score >= 0:
+            parts[best_root].append(i)
+        else:
+            parts.setdefault(i, []).append(i)   # 붙일 곳이 없으면 혼자
+
+    return [sorted(p) for p in parts.values()]
 
 
 def main() -> int:
@@ -244,7 +303,28 @@ def main() -> int:
           f"검토대기 {counts['auto_low']:,}쌍 · 거부 {counts['rejected']:,}쌍")
 
     # ---- 무리 만들기 ----
-    clusters = groups.clusters()
+    raw_clusters = groups.clusters()
+
+    # 출판사가 섞인 무리를 갈라냅니다 (위 split_by_publisher 설명 참고)
+    floor = mcfg["thresholds"].get("publisher_hard_floor", 0.80)
+    pair_score = {(m["store_book_a"], m["store_book_b"]): m["score"]
+                  for m in match_rows}
+    clusters: dict[int, list[int]] = {}
+    split_count = 0
+    for cluster in raw_clusters.values():
+        parts = ([cluster] if len(cluster) < 2
+                 else split_by_publisher(cluster, by_id, pair_score, floor))
+        if len(parts) > 1:
+            split_count += 1
+        for part in parts:
+            clusters[min(part)] = sorted(part)
+    if split_count:
+        print(f"  ⚠️ 출판사가 섞여 있어 갈라낸 무리 {split_count:,}종 "
+              f"→ 출판사별로 따로 셉니다.")
+
+    # 갈라낸 뒤의 소속을 다시 계산합니다 (아래 경고에서 씁니다)
+    owner = {i: root for root, part in clusters.items() for i in part}
+
     multi = {k: v for k, v in clusters.items() if len(v) > 1}
     print(f"\n▶ 결과: 도서 {len(clusters):,}종 "
           f"(그중 2개 서점 이상에서 발견된 책 {len(multi):,}종)")
@@ -268,7 +348,7 @@ def main() -> int:
     # 사람이 "아님" 이라고 한 짝이 다른 책을 거쳐 한 무리가 된 경우 경고
     warned = 0
     for (lo, hi), d in manual.items():
-        if d == "manual_split" and groups.find(lo) == groups.find(hi):
+        if d == "manual_split" and owner.get(lo, lo) == owner.get(hi, hi):
             warned += 1
     if warned:
         print(f"  ⚠️ 사람이 '아님' 이라고 한 짝 {warned}건이 다른 책을 거쳐 "

@@ -201,6 +201,53 @@ r = compare(a, b, CFG)
 check("출판사 모름 + 85점 → 묶임", r.decision, "auto_high")
 
 
+print("\n[12] 다른 책을 다리 삼아 출판사가 섞이는 것도 막는다")
+# 【왜 이 시험이 필요한가요? — 2026-08-08】
+# "출판사가 다르면 안 묶는다" 는 두 권씩 비교할 때만 적용됩니다.
+# 그런데 무리를 만들 때는 이어진 것을 계속 따라가기 때문에,
+#   민음사 ─ (출판사 안 적힌 책) ─ 문학동네
+# 처럼 가운데를 거쳐 간접적으로 한 무리가 될 수 있습니다.
+# 그래서 무리를 다 만든 뒤 마지막으로 한 번 더 갈라냅니다.
+import types as _types                                   # noqa: E402
+_fake = _types.ModuleType("supabase")                     # DB 없이 불러오기 위함
+_fake.Client = object
+_fake.create_client = lambda *a, **k: None
+sys.modules.setdefault("supabase", _fake)
+from run_match import split_by_publisher                  # noqa: E402
+
+FLOOR = CFG["thresholds"].get("publisher_hard_floor", 0.80)
+
+
+def sb(i: int, store_id: int, publisher: str | None) -> dict:
+    return {"id": i, "store_id": store_id,
+            "norm_publisher": norm.normalize_publisher(publisher, PUBS)}
+
+
+# 민음사(1) ─ 출판사모름(2) ─ 문학동네(3) 이 한 무리가 된 상황
+by_id = {1: sb(1, 1, "민음사"), 2: sb(2, 2, None), 3: sb(3, 3, "문학동네")}
+pair = {(1, 2): 88.0, (2, 3): 86.0}
+parts = split_by_publisher([1, 2, 3], by_id, pair, FLOOR)
+check("민음사와 문학동네가 갈라진다", len(parts), 2)
+check("출판사 모르는 책은 점수가 높았던 쪽(민음사)에 붙는다",
+      sorted(sorted(p) for p in parts), [[1, 2], [3]])
+
+# 같은 출판사를 다르게 적은 것은 갈라지면 안 됩니다
+by_id2 = {1: sb(1, 1, "민음사"), 2: sb(2, 2, "(주)민음사"), 3: sb(3, 3, "민음사")}
+parts2 = split_by_publisher([1, 2, 3], by_id2, {}, FLOOR)
+check("표기만 다른 같은 출판사는 안 갈라진다", len(parts2), 1)
+
+# 출판사를 전부 모르면 건드리지 않습니다 (근거 없이 쪼개지 않음)
+by_id3 = {1: sb(1, 1, None), 2: sb(2, 2, None)}
+parts3 = split_by_publisher([1, 2], by_id3, {}, FLOOR)
+check("전부 출판사를 모르면 그대로 둔다", len(parts3), 1)
+
+# 대표님이 지적하신 그대로: 출판사 4곳의 싯다르타
+by_id4 = {i: sb(i, i, p) for i, p in enumerate(
+    ["민음사", "서정시학", "다산북스", "문학동네"], start=1)}
+parts4 = split_by_publisher([1, 2, 3, 4], by_id4, {}, FLOOR)
+check("출판사 4곳의 싯다르타는 4권으로 갈라진다", len(parts4), 4)
+
+
 print("\n" + "=" * 60)
 if failures:
     print(f"  ❌ 실패 {len(failures)}건: {', '.join(failures)}")

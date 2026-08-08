@@ -323,7 +323,22 @@ def main() -> int:
                 "book_id": book_id,
             })
 
-    for cluster in clusters.values():
+    # -------------------------------------------------------------------------
+    # 【한 번호를 두 무리가 나눠 가지면 안 됩니다 — 2026-08-08】
+    #
+    # 규칙이 엄격해지면(예: 출판사가 다르면 다른 책) 예전에 한 덩어리였던
+    # 무리가 여러 개로 갈라집니다. 그런데 갈라진 조각들은 저마다
+    # "나도 예전 도서번호 100번을 쓰고 있었다" 고 주장합니다.
+    # 그대로 두면 네 조각이 전부 100번을 집어가서, 규칙을 고쳤는데도
+    # 데이터베이스에서는 여전히 한 권으로 묶여 있게 됩니다.
+    #
+    # 그래서 한 번호는 '먼저 온 무리' 하나만 쓰고, 나머지는 새 번호를 받습니다.
+    # 어느 무리가 먼저인지는 실행할 때마다 달라지면 안 되므로 정렬해 둡니다.
+    # -------------------------------------------------------------------------
+    claimed_book_ids: set[int] = set()
+    ordered_clusters = sorted(clusters.values(), key=lambda c: min(c))
+
+    for cluster in ordered_clusters:
         members = [by_id[i] for i in cluster]
         rep = pick_representative(members)
 
@@ -351,10 +366,15 @@ def main() -> int:
                 confidence = "high"
         rep["match_confidence"] = confidence
 
-        # 이미 만들어진 도서 마스터가 있으면 그걸 재사용 (주소가 안 바뀌도록)
-        existing = sorted(m["book_id"] for m in members if m.get("book_id"))
+        # 이미 만들어진 도서 마스터가 있으면 그걸 재사용 (주소가 안 바뀌도록).
+        # 단, 다른 무리가 이미 가져간 번호는 쓸 수 없습니다.
+        existing = sorted(
+            m["book_id"] for m in members
+            if m.get("book_id") and m["book_id"] not in claimed_book_ids
+        )
         if existing:
             book_id = existing[0]
+            claimed_book_ids.add(book_id)
             keep_book_ids.add(book_id)
             to_update.append({"id": book_id, **rep})
             mark_links(book_id, members)

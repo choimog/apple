@@ -98,13 +98,26 @@ check("다른 책으로 판정", r.decision, "rejected")
 check("이유가 판형 차이", r.reasons["rejected_by"], "에디션 표기가 다름")
 
 
-print("\n[5] 예시 C — 검토 대기가 되는 경우 (문서 6절)")
+print("\n[5] 예시 C — 출판사를 한쪽만 알 때 (문서 6절)")
+# 【2026-08-08 규칙이 바뀌었습니다】
+# 예전에는 80점으로 '검토 대기(auto_low)' 묶음이었습니다.
+# 지금은 출판사를 한쪽이라도 모르면 더 엄격한 기준(85점)을 요구합니다.
+# '모른다' 와 '같다' 는 다르기 때문입니다. 출판사가 비어 있다는 이유로
+# 다른 출판사의 같은 원작이 뭉치면 안 됩니다.
+# → 실제로 갈라지는 게 눈에 띄면 config/matching.yaml 의
+#   publisher_unknown_needs_high 를 false 로 바꾸면 예전 동작이 됩니다.
 a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=301)
 b = make(3, "아버지의 해방일지", "정지아 (지은이)", None, "2022-10", sb_id=302)
 r = compare(a, b, CFG)
 print(f"  ℹ️ 점수 {r.score}점 · 근거 {r.reasons}")
-check("검토 대기로 묶인다", r.decision, "auto_low")
-check("출판사는 값 없음으로 0점", r.reasons["publisher"], "missing")
+check("출판사를 모르면 80점으로는 안 묶인다", r.decision, "rejected")
+
+# 출판사가 양쪽에 다 있으면 예전처럼 검토 대기로 묶입니다
+a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=303)
+b = make(3, "아버지의 해방일지", "정지아 (지은이)", "창비", "2022-10", sb_id=304)
+r = compare(a, b, CFG)
+check("출판사가 같으면 묶인다", r.decision in ("auto_high", "auto_low"), True)
+check("출판사가 같다고 기록된다", r.reasons["publisher"], "exact")
 
 
 print("\n[6] 절대 묶으면 안 되는 경우들")
@@ -147,6 +160,45 @@ check("빈 값을 맞다고 치지 않는다",
       (r.reasons["author"], r.reasons["publisher"], r.reasons["pub_ym"]),
       ("missing", "missing", "missing"))
 check("따라서 자동 병합되지 않는다", r.decision, "rejected")
+
+
+print("\n[9] 출판사가 다르면 제목·저자가 같아도 다른 책이다")
+# 【2026-08-08 대표님 지적】
+# 민음사·서정시학·다산북스·문학동네의 '싯다르타' 가 한 권으로 뭉쳐 있었습니다.
+# 같은 원작이어도 판권·번역·정가가 다른 별개의 상품입니다.
+# 예전에는 제목 50 + 저자 25 = 75점이 묶는 기준(65점)을 넘어 버렸습니다.
+for pub_b in ["문학동네", "서정시학", "다산북스", "열린책들"]:
+    a = make(2, "싯다르타", "헤르만 헤세", "민음사", None, sb_id=900)
+    b = make(3, "싯다르타", "헤르만 헤세", pub_b, None, sb_id=901)
+    r = compare(a, b, CFG)
+    check(f"민음사 vs {pub_b} 는 안 묶인다", r.decision, "rejected")
+
+# 출간월까지 같아도(예전 85점 = 자동병합) 갈라져야 합니다
+a = make(2, "싯다르타", "헤르만 헤세", "민음사", "2023-05", sb_id=902)
+b = make(3, "싯다르타", "헤르만 헤세", "다산북스", "2023-05", sb_id=903)
+r = compare(a, b, CFG)
+check("출간월이 같아도 출판사가 다르면 안 묶인다", r.decision, "rejected")
+check("거부 사유가 출판사로 기록된다", r.reasons.get("rejected_by"), "출판사가 다름")
+
+print("\n[10] 표기만 다른 같은 출판사는 그대로 묶인다")
+for pub_b in ["(주)민음사", "민음사(주)", "주식회사 민음사"]:
+    a = make(2, "싯다르타", "헤르만 헤세", "민음사", "2023-05", sb_id=910)
+    b = make(3, "싯다르타", "헤르만 헤세", pub_b, "2023-05", sb_id=911)
+    r = compare(a, b, CFG)
+    check(f"민음사 vs {pub_b} 는 묶인다", r.decision in ("auto_high", "auto_low"), True)
+
+print("\n[11] 출판사를 모를 때는 더 엄격하게 본다")
+# 한쪽 출판사를 모르면 '다르지 않다' 고 말할 수 없습니다.
+# 제목·저자만 같은 75점으로는 묶지 않고, 출간월까지 같은 85점을 요구합니다.
+a = make(2, "싯다르타", "헤르만 헤세", "민음사", None, sb_id=920)
+b = make(3, "싯다르타", "헤르만 헤세", None, None, sb_id=921)
+r = compare(a, b, CFG)
+check("출판사 모름 + 75점 → 안 묶임", r.decision, "rejected")
+
+a = make(2, "싯다르타", "헤르만 헤세", "민음사", "2023-05", sb_id=922)
+b = make(3, "싯다르타", "헤르만 헤세", None, "2023-05", sb_id=923)
+r = compare(a, b, CFG)
+check("출판사 모름 + 85점 → 묶임", r.decision, "auto_high")
 
 
 print("\n" + "=" * 60)

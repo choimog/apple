@@ -142,6 +142,33 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     if title_sim < th["title_hard_floor"]:
         return _reject("제목이 너무 다름", {"title_sim": round(title_sim, 3)})
 
+    # -------------------------------------------------------------------------
+    # 출판사가 다르면 다른 책입니다. 점수와 상관없이 즉시 거부합니다.
+    #
+    # 【왜 이 규칙이 생겼나요? — 2026-08-08 대표님 지적】
+    # 민음사·서정시학·다산북스·문학동네의 '싯다르타' 가 한 권으로 뭉쳐
+    # 있었습니다. 같은 원작이어도 판권·번역·정가가 다른 별개의 상품입니다.
+    # 출판 마케팅에서 이 둘을 섞으면 자료 자체가 쓸모없어집니다.
+    #
+    # 예전에는 출판사를 '15점짜리 가산점' 으로만 봤습니다. 그래서
+    #   제목 50 + 저자 25 = 75점  →  묶는 기준(65점)을 넘어 버렸습니다.
+    # 출판사가 완전히 달라도 묶였다는 뜻입니다.
+    #
+    # 이제 1단계(즉시 거부)로 올립니다. 점수로는 절대 뒤집을 수 없습니다.
+    #
+    # ※ '민음사' 와 '(주)민음사' 처럼 표기만 다른 경우까지 갈라놓으면 안 되므로,
+    #   표기를 정리한 뒤 닮은 정도로 비교합니다. (publisher_hard_floor)
+    # -------------------------------------------------------------------------
+    publisher_known = bool(a.norm_publisher and b.norm_publisher)
+    if publisher_known:
+        pub_sim = similarity(a.norm_publisher, b.norm_publisher)
+        if pub_sim < th.get("publisher_hard_floor", 0.80):
+            return _reject("출판사가 다름", {
+                "a": a.norm_publisher,
+                "b": b.norm_publisher,
+                "publisher_sim": round(pub_sim, 3),
+            })
+
     # =========================================================================
     #  2단계 — 점수 매기기
     # =========================================================================
@@ -198,6 +225,15 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     # =========================================================================
     #  3단계 — 점수로 판정
     # =========================================================================
+    # 출판사를 한쪽이라도 모르면, '다르지 않다' 고 말할 수 없습니다.
+    # 이럴 때는 낮은 기준(auto_low)으로 묶지 않고 높은 기준을 요구합니다.
+    # (제목·저자만 같아도 다른 출판사의 같은 원작일 수 있기 때문입니다)
+    if not publisher_known and th.get("publisher_unknown_needs_high", True):
+        reasons["publisher_unknown"] = True
+        decision = "auto_high" if final >= th["auto_high"] else "rejected"
+        reasons["note"] = "출판사를 알 수 없어 더 엄격한 기준을 적용함"
+        return MatchResult(score=final, decision=decision, reasons=reasons)
+
     if final >= th["auto_high"]:
         decision = "auto_high"
     elif final >= th["auto_low"]:

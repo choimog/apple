@@ -602,41 +602,24 @@ $$;
 
 
 -- ----------------------------------------------------------------------------
---  11. 자료 점검 — 한 책 안에 서로 다른 출판사가 섞여 있지 않은지
+--  11. (없앰) 출판사 섞임 점검은 SQL 로 하지 않습니다
 -- ----------------------------------------------------------------------------
---  【왜 필요한가요? — 2026-08-08 대표님 지적】
---  민음사·서정시학·다산북스·문학동네의 '싯다르타' 가 한 권으로 뭉쳐
---  있었습니다. 규칙을 고쳤지만, 정말 고쳐졌는지는 자료로 확인해야 합니다.
+--  【왜 없앴나요? — 2026-08-08】
+--  여기에 publisher_conflicts 라는 기능을 뒀었습니다. 그런데 SQL 로는
+--  출판사 이름을 '글자가 똑같은가' 로만 비교할 수 있어서, 사실은 같은
+--  출판사인데 다르다고 알려 왔습니다.
 --
---  이 기능은 "한 도서 마스터에 묶인 서점 상품들의 출판사가 서로 다른 경우"
---  를 찾아냅니다. 결과가 0건이어야 정상입니다.
+--      문학사상 / 문학사상사      ← 같은 곳
+--      지식과감성 / 지식과감성#   ← 같은 곳
+--      스노우폭스북스 / 스노우폭스북스p ← 같은 곳
 --
---  ※ 표기만 다른 경우((주)민음사)는 정규화된 값으로 비교하므로 안 걸립니다.
+--  실제 묶기 규칙은 '얼마나 닮았는가(0.80 이상이면 같은 곳)' 로 봅니다.
+--  같은 판단을 두 군데에 따로 적어 두면, 한쪽이 반드시 거짓말을 합니다.
+--
+--  그래서 점검은 crawler/verify_publishers.py 한 곳에서만 합니다.
+--  그 파일은 묶기 코드의 계산식을 그대로 가져다 쓰고, [도서 매칭] 작업이
+--  끝날 때마다 자동으로 돌면서 섞인 책이 있으면 작업을 실패시킵니다.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.publisher_conflicts(p_limit int DEFAULT 20)
-RETURNS TABLE (
-    book_id    bigint,
-    title      text,
-    publishers text[]
-)
-LANGUAGE sql
-STABLE
-SECURITY INVOKER
-SET search_path = public
-AS $$
-    SELECT sb.book_id,
-           min(b.title),
-           array_agg(DISTINCT sb.norm_publisher ORDER BY sb.norm_publisher)
-      FROM store_books sb
-      JOIN books b ON b.id = sb.book_id
-     WHERE sb.book_id IS NOT NULL
-       AND sb.norm_publisher IS NOT NULL
-       AND btrim(sb.norm_publisher) <> ''
-     GROUP BY sb.book_id
-    HAVING count(DISTINCT sb.norm_publisher) > 1
-     ORDER BY count(DISTINCT sb.norm_publisher) DESC, sb.book_id
-     LIMIT greatest(1, least(p_limit, 200));
-$$;
 
 
 -- ----------------------------------------------------------------------------
@@ -660,8 +643,6 @@ GRANT EXECUTE ON FUNCTION public.category_share(date, text, int)
 GRANT EXECUTE ON FUNCTION public.search_books_merged(text, int)
     TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.crawl_summary(int)
-    TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.publisher_conflicts(int)
     TO anon, authenticated;
 
 

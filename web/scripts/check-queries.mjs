@@ -260,30 +260,13 @@ await step("분야별 권수 세기", async () => {
   return `${firstCategory.name}: ${count ?? 0}권`;
 });
 
-// ---- 11. 한 책 안에 서로 다른 출판사가 섞여 있지 않은지 ----
-//     【2026-08-08 대표님 지적】 민음사·문학동네 '싯다르타' 가 한 권으로
-//     뭉쳐 있었습니다. 규칙을 고쳤으니, 정말 고쳐졌는지 자료로 확인합니다.
-await step("한 책에 다른 출판사가 섞이지 않았는지", async () => {
-  const { data, error } = await db.rpc("publisher_conflicts", { p_limit: 20 });
-  if (error) {
-    if (/function|does not exist|schema cache/i.test(error.message)) {
-      // perf.sql 을 아직 실행하지 않았어도 확인이 멈추면 안 됩니다.
-      // 같은 내용을 [도서 매칭] 작업의 crawler/verify_publishers.py 가
-      // 매번 검사합니다. 그쪽이 진짜 기준입니다.
-      return "건너뜀 — db/perf.sql 실행 전 (검사는 [도서 매칭] 작업에서 이미 하고 있습니다)";
-    }
-    throw new Error(error.message);
-  }
-  const rows = data ?? [];
-  if (rows.length === 0) return "✅ 섞인 책 0건";
-  const sample = rows
-    .slice(0, 5)
-    .map((r) => `${r.title} → ${(r.publishers ?? []).join(" / ")}`)
-    .join("\n       ");
-  throw new Error(
-    `서로 다른 출판사가 한 책으로 묶여 있습니다 (${rows.length}건 이상):\n       ${sample}`
-  );
-});
+// ---- 11. (없앰) 출판사 섞임 점검 ----
+//     여기서 SQL 로 확인했었는데, SQL 은 출판사 이름을 '글자가 똑같은가' 로만
+//     비교할 수 있어서 '문학사상 / 문학사상사' 처럼 같은 곳을 다르다고
+//     알려 왔습니다. 실제 규칙은 '얼마나 닮았는가' 로 봅니다.
+//     같은 판단을 두 군데에 적으면 한쪽은 반드시 거짓말을 하므로,
+//     점검은 crawler/verify_publishers.py 한 곳에서만 합니다.
+//     (그 파일은 [도서 매칭] 작업이 끝날 때마다 자동으로 돕니다)
 
 // ---- 12. 분야별 날짜 목록 (서점별 화면이 씁니다) ----
 //     이게 없으면 "8/8 은 없는데 8/7 은 있다" 같은 혼란이 다시 생깁니다.

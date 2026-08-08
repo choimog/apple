@@ -101,12 +101,24 @@ async function selectAll<T>(
  *   그래서 필요한 날짜 개수가 모일 때까지 나눠서 읽습니다.
  */
 export async function getSnapshotDates(limit = 60): Promise<string[]> {
+  // ---- 빠른 길: 데이터베이스가 날짜만 뽑아 줍니다 (db/perf.sql) ----
+  // 순위표가 아무리 커져도 날짜 개수만큼만 봅니다.
+  const fast = await supabase.rpc("snapshot_dates", { n: limit });
+  if (!fast.error && fast.data) {
+    return (fast.data as { snapshot_date: string }[]).map((r) => r.snapshot_date);
+  }
+
+  // ---- 느린 길: db/perf.sql 을 아직 실행하지 않았을 때 ----
+  // 순위표를 1,000줄씩 읽어 날짜를 모읍니다. 데이터가 쌓일수록 느려집니다.
+  // (이 길로 오면 화면 아래에 "속도 개선을 켜세요" 안내가 나옵니다)
   const seen = new Set<string>();
   const step = 1000;
   let start = 0;
 
-  // 안전장치: 아무리 많아도 40번(=4만 행)까지만 읽습니다
-  for (let page = 0; page < 40 && seen.size < limit; page += 1) {
+  // 안전장치: 아무리 많아도 10번(=1만 행)까지만 읽습니다.
+  // 예전엔 40번이었는데, 하루 11만 줄이 쌓이면서 그것만으로 화면이
+  // 10초 넘게 멈췄습니다. (2026-08-08)
+  for (let page = 0; page < 10 && seen.size < limit; page += 1) {
     const { data, error } = await supabase
       .from("rankings")
       .select("snapshot_date")
@@ -197,20 +209,26 @@ export async function getRankings(
   const rows = (data ?? []) as unknown as Omit<RankingRow, "change" | "isNew">[];
 
   // ---- 등락 계산: 바로 이전 수집일과 비교 ----
+  //
+  // 【화면에 보이는 책만 물어봅니다 — 2026-08-08 속도 개선】
+  // 예전에는 어제 순위 1,000줄을 통째로 받아왔습니다. 화면에는 50권만
+  // 보이는데 950줄은 버리는 셈이라, 이것만으로도 화면이 몇 초씩 멈췄습니다.
+  // 이제 보이는 책의 번호만 넘겨서 딱 그만큼만 받아옵니다.
   const prevDate = await getPreviousDate(categoryId, date);
   const prevRank = new Map<number, number>();
-  if (prevDate) {
-    const prev = await selectAll<{ store_book_id: number; rank: number }>(
-      (from, to) =>
-        supabase
-          .from("rankings")
-          .select("rank, store_book_id")
-          .eq("category_id", categoryId)
-          .eq("snapshot_date", prevDate)
-          .range(from, to),
-      5000
-    );
-    for (const p of prev) prevRank.set(p.store_book_id, p.rank);
+  if (prevDate && rows.length) {
+    const { data: prev } = await supabase
+      .from("rankings")
+      .select("rank, store_book_id")
+      .eq("category_id", categoryId)
+      .eq("snapshot_date", prevDate)
+      .in(
+        "store_book_id",
+        rows.map((r) => r.store_book.id)
+      );
+    for (const p of prev ?? []) {
+      prevRank.set(p.store_book_id as number, p.rank as number);
+    }
   }
 
   return rows.map((r) => {
@@ -302,7 +320,12 @@ export async function getCombinedBest(
   period: Period,
   unifiedCode: string,
   opts: { minStores?: number; depth?: number; limit?: number } = {}
-): Promise<{ rows: CombinedRow[]; depth: number; usedCategories: Category[] }> {
+): Promise<{
+  rows: CombinedRow[];
+  depth: number;
+  usedCategories: Category[];
+  fast: boolean;
+}> {
   const minStores = opts.minStores ?? 2;
   // 각 서점에서 몇 위까지 볼지. 너무 깊게 보면 화면이 느려집니다.
   const depth = opts.depth ?? 300;
@@ -314,8 +337,41 @@ export async function getCombinedBest(
       periodOf(c) === period &&
       c.kind !== "offline" // 매장별은 온라인 순위와 성격이 달라 섞지 않습니다
   );
-  if (!cats.length) return { rows: [], depth, usedCategories: [] };
+  if (!cats.length) {
+    return { rows: [], depth, usedCategories: [], fast: true };
+  }
 
+  // ---- 빠른 길: 데이터베이스가 계산해서 100줄만 보내줍니다 (db/perf.sql) ----
+  // 예전에는 순위 6,000줄을 받아와 사이트에서 직접 계산했습니다.
+  const rpc = await supabase.rpc("combined_best", {
+    p_date: date,
+    p_period: period,
+    p_unified: unifiedCode,
+    p_min_stores: minStores,
+    p_depth: depth,
+    p_limit: limit,
+  });
+  if (!rpc.error && rpc.data) {
+    const rows = (rpc.data as RpcCombinedRow[]).map((r) => ({
+      bookId: Number(r.book_id),
+      title: r.title,
+      author: r.author,
+      publisher: r.publisher,
+      coverUrl: r.cover_url,
+      ranks: numberMap(r.ranks),
+      sales: numberMap(r.sales),
+      storeCount: r.store_count,
+      avgRank: Number(r.avg_rank),
+    }));
+    return {
+      rows,
+      depth,
+      usedCategories: await usedIn(cats, date),
+      fast: true,
+    };
+  }
+
+  // ---- 느린 길: db/perf.sql 을 아직 실행하지 않았을 때 ----
   const rankRows = await selectAll<{
     rank: number;
     sales_point: number | null;
@@ -382,7 +438,57 @@ export async function getCombinedBest(
   }
 
   rows.sort((x, y) => x.avgRank - y.avgRank || y.storeCount - x.storeCount);
-  return { rows: rows.slice(0, limit), depth, usedCategories: cats };
+  const top = rows.slice(0, limit);
+  return { rows: top, depth, usedCategories: await usedIn(cats, date), fast: false };
+}
+
+/** 데이터베이스 함수가 돌려주는 모양 (db/perf.sql 의 combined_best) */
+type RpcCombinedRow = {
+  book_id: number | string;
+  title: string;
+  author: string | null;
+  publisher: string | null;
+  cover_url: string | null;
+  store_count: number;
+  avg_rank: number | string;
+  ranks: Record<string, number> | null;
+  sales: Record<string, number> | null;
+};
+
+/** {"3": 12} 처럼 문자열 열쇠로 온 것을 숫자 열쇠로 바꿉니다 */
+function numberMap(src: Record<string, number> | null): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(src ?? {})) out[Number(k)] = Number(v);
+  return out;
+}
+
+/**
+ * '이 분야로 쓴 목록' 에서 그날 실제로 자료가 있는 분야만 남깁니다.
+ *
+ * 【왜 필요한가요? — 2026-08-08 대표님 지적】
+ * 일간을 눌렀는데 "알라딘 전체 · 알라딘 종합" 처럼 한 서점이 두 번 나왔습니다.
+ * 예전 설정에 있던 알라딘 '전체'(코드 없음)를 새 설정에서 '종합'(코드 0)으로
+ * 바꿨는데, 데이터베이스의 옛 줄이 켜진 채로 남아 있었기 때문입니다.
+ * 그 옛 분야에는 오늘 자료가 없어서 순위 숫자에는 영향이 없었지만,
+ * 목록에 이름이 뜨니 "왜 둘을 같이 넣었나" 로 보일 수밖에 없습니다.
+ *
+ * 수집 쪽에서 옛 분야를 자동으로 끄도록 고쳤고(db.disable_missing_categories),
+ * 화면에서도 '그날 자료가 실제로 있는 분야' 만 보여줍니다. 두 겹으로 막습니다.
+ *
+ * 분야가 보통 2~4개뿐이라 확인 비용은 무시할 수준입니다.
+ */
+async function usedIn(cats: Category[], date: string): Promise<Category[]> {
+  const checks = await Promise.all(
+    cats.map(async (c) => {
+      const { count } = await supabase
+        .from("rankings")
+        .select("rank", { count: "exact", head: true })
+        .eq("category_id", c.id)
+        .eq("snapshot_date", date);
+      return (count ?? 0) > 0 ? c : null;
+    })
+  );
+  return checks.filter((c): c is Category => c !== null);
 }
 
 /** 종합 순위에서 고를 수 있는 통합 분야 목록 (3사에 모두 있는 것 우선) */

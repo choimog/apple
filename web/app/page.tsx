@@ -58,7 +58,7 @@ export default async function Home({
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
-  const { rows, depth, usedCategories } = result;
+  const { rows, depth, usedCategories, fast } = result;
 
   const href = (over: Record<string, string>) => {
     const p = new URLSearchParams({
@@ -132,6 +132,23 @@ export default async function Home({
           ))}
         </Picker>
       </section>
+
+      {/* ============ 속도 개선이 아직 안 켜졌을 때만 보입니다 ============ */}
+      {!fast && (
+        <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">🐢 이 화면은 지금 느린 방식으로 돌고 있습니다</p>
+          <p className="mt-1">
+            데이터베이스가 계산해 줄 수 있는 일을 사이트가 직접 하고 있습니다.
+            자료가 쌓일수록 점점 더 느려집니다.
+          </p>
+          <p className="mt-2">
+            <strong>고치는 법 (한 번만, 2분, 0원):</strong> Supabase → SQL Editor →
+            New query 에 저장소의{" "}
+            <code className="rounded bg-amber-100 px-1">db/perf.sql</code> 을
+            붙여넣고 Run 을 누르세요. 사이트를 다시 배포할 필요도 없습니다.
+          </p>
+        </section>
+      )}
 
       {/* ================= 계산 방법 (숨기지 않고 밝힙니다) ================= */}
       <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">

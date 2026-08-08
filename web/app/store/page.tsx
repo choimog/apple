@@ -4,6 +4,7 @@ import RankChange from "@/components/RankChange";
 import ExportButton from "@/components/ExportButton";
 import DataError from "@/components/DataError";
 import SalesPoint from "@/components/SalesPoint";
+import { Card, CardHead, Empty, FieldLabel, Pill, RankBadge } from "@/components/ui";
 import { configError, STORE_COLOR, STORE_NAME } from "@/lib/supabase";
 import {
   buildStoreTree,
@@ -116,19 +117,33 @@ export default async function StorePage({
 
   return (
     <div className="space-y-4">
-      {/* ================= 1단계: 서점 ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-1.5 text-xs font-semibold text-slate-500">1. 서점</h2>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">
+          순위 · 서점별
+        </p>
+        <h1 className="mt-0.5 text-2xl font-bold tracking-tight">서점별 순위</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          각 서점이 <strong>스스로 발표한 순위</strong> 그대로입니다.
+          3사를 섞지 않습니다. 섞은 순위는{" "}
+          <Link href="/best" className="text-blue-700 hover:underline">
+            종합 순위
+          </Link>{" "}
+          에서 보세요.
+        </p>
+      </div>
+
+      {/* ============ 1 서점 → 2 기간 → 3 분야 ============ */}
+      <Card className="p-4 sm:p-5">
+        <FieldLabel>1. 서점</FieldLabel>
         <div className="flex flex-wrap gap-1.5">
           {tree.map((t) => (
             <Link
               key={t.storeId}
-              // 서점을 바꾸면 분야·탭은 처음부터 다시 고릅니다
               href={`/store?store=${t.storeId}&date=${date}`}
-              className={`rounded-full border px-3 py-1 text-xs ${
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
                 t.storeId === storeId
                   ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
               }`}
             >
               {STORE_NAME[t.storeId]}
@@ -136,78 +151,73 @@ export default async function StorePage({
           ))}
         </div>
 
-        {/* ================= 2단계: 집계 기간 ================= */}
-        <h2 className="mb-1.5 mt-4 text-xs font-semibold text-slate-500">
-          2. 집계 기간
-        </h2>
-        <div className="flex flex-wrap gap-1.5">
-          {tabs.map((t) => (
-            <Link
-              key={t.key}
-              href={`/store?store=${storeId}&tab=${t.key}&date=${date}`}
-              title={t.help}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                t.key === tab
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
-              }`}
-            >
-              {t.label} <span className="opacity-60">({t.list.length})</span>
-            </Link>
-          ))}
-        </div>
-        <p className="mt-1 text-xs text-slate-500">
-          {tabs.find((t) => t.key === tab)?.help}
-        </p>
-
-        {/* ================= 3단계: 분야 / 매장 ================= */}
-        <h2 className="mb-1.5 mt-4 text-xs font-semibold text-slate-500">
-          3. {tab === "branch" ? "매장" : "분야"} ({list.length}개)
-        </h2>
-        <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded border border-slate-100 bg-slate-50 p-2">
-          {list.map((c) => (
-            <Link
-              key={c.id}
-              href={href({ cat: String(c.id), n: String(PAGE_SIZE) })}
-              className={`rounded-full border px-2.5 py-1 text-xs ${
-                c.id === category.id
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
-              }`}
-            >
-              {tab === "branch" ? c.branch_name : c.name}
-            </Link>
-          ))}
+        <div className="mt-4">
+          <FieldLabel>2. 집계 기간</FieldLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {tabs.map((t) => {
+              const on = t.key === tab;
+              return (
+                <Link
+                  key={t.key}
+                  href={`/store?store=${storeId}&tab=${t.key}&date=${date}`}
+                  title={t.help}
+                  className={`rounded-lg border px-4 py-2 transition-colors ${
+                    on
+                      ? t.key === "weekly"
+                        ? "border-violet-500 bg-violet-50 text-violet-900"
+                        : "border-sky-500 bg-sky-50 text-sky-900"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                  }`}
+                >
+                  <span className="block text-sm font-bold">
+                    {t.label}{" "}
+                    <span className="font-normal opacity-60">{t.list.length}</span>
+                  </span>
+                  <span className="block text-[11px] opacity-70">{t.help}</span>
+                </Link>
+              );
+            })}
+          </div>
         </div>
 
-        {/* ================= 날짜 ================= */}
-        <h2 className="mb-1.5 mt-4 text-xs font-semibold text-slate-500">날짜</h2>
-        <div className="flex flex-wrap gap-1.5">
-          {dates.slice(0, 14).map((d) => (
-            <Link
-              key={d}
-              href={href({ date: d })}
-              className={`rounded border px-2 py-1 text-xs ${
-                d === date
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
-              }`}
-            >
-              {d.slice(5)}
-            </Link>
-          ))}
+        <div className="mt-4">
+          <FieldLabel>
+            3. {tab === "branch" ? "매장" : "분야"} ({list.length}개)
+          </FieldLabel>
+          <div className="scroll-x flex max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/70 p-2">
+            {list.map((c) => (
+              <Pill
+                key={c.id}
+                href={href({ cat: String(c.id), n: String(PAGE_SIZE) })}
+                active={c.id === category.id}
+              >
+                {tab === "branch" ? c.branch_name : c.name}
+              </Pill>
+            ))}
+          </div>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
-          ※ 목록에 없는 날짜는 그날 수집이 되지 않았다는 뜻입니다. (빈 데이터를 채워
-          넣지 않습니다)
-        </p>
-      </section>
+
+        <div className="mt-4">
+          <FieldLabel>날짜</FieldLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {dates.slice(0, 10).map((d) => (
+              <Pill key={d} href={href({ date: d })} active={d === date}>
+                {d.slice(5)}
+              </Pill>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            ※ 목록에 없는 날짜는 그날 수집이 되지 않았다는 뜻입니다. 빈 데이터를
+            채워 넣지 않습니다.
+          </p>
+        </div>
+      </Card>
 
       {/* ================= 순위표 ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
           <div>
-            <h1 className="text-base font-bold">
+            <h2 className="text-base font-bold">
               <span
                 className={`mr-2 rounded px-1.5 py-0.5 text-xs ${STORE_COLOR[storeId]}`}
               >
@@ -216,14 +226,20 @@ export default async function StorePage({
               {category.branch_name && `${category.branch_name} · `}
               {category.name}
               {/* 일간과 주간은 분야 이름이 같습니다. 반드시 구분해 보여줍니다. */}
-              <span className="ml-2 rounded border border-slate-300 px-1.5 py-0.5 text-xs font-normal text-slate-600">
+              <span
+                className={`ml-2 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                  isWeekly(category)
+                    ? "bg-violet-100 text-violet-800"
+                    : "bg-sky-100 text-sky-800"
+                }`}
+              >
                 {isWeekly(category)
                   ? "주간 · 최근 7일"
                   : category.kind === "offline"
                     ? "매장 · 어제 하루"
                     : "일간 · 어제 하루"}
               </span>
-            </h1>
+            </h2>
             <p className="mt-1 text-xs text-slate-500">
               {date} 기준 · 전체 {total.toLocaleString()}권 중 {rows.length}권 표시
               {prevDate ? ` · 등락은 ${prevDate} 대비` : " · 비교할 이전 기록 없음"}
@@ -238,17 +254,17 @@ export default async function StorePage({
         </div>
 
         {rows.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-slate-500">
-            이 날짜에 수집된 데이터가 없습니다.
-          </p>
+          <Empty>이 날짜에 수집된 데이터가 없습니다.</Empty>
         ) : (
           <>
             <ul className="divide-y divide-slate-100">
               {rows.map((r) => (
                 <li key={r.rank} className="flex items-start gap-3 px-4 py-3">
-                  <div className="w-10 shrink-0 text-center">
-                    <div className="text-lg font-bold tabular-nums">{r.rank}</div>
-                    <RankChange change={r.change} isNew={r.isNew} />
+                  <div className="w-11 shrink-0 text-center">
+                    <RankBadge rank={r.rank} />
+                    <div className="mt-1">
+                      <RankChange change={r.change} isNew={r.isNew} />
+                    </div>
                   </div>
 
                   <Cover url={r.store_book.cover_url} alt={r.store_book.raw_title} />
@@ -303,7 +319,7 @@ export default async function StorePage({
             )}
           </>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

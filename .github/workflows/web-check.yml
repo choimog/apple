@@ -55,13 +55,27 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: node scripts/check-anon.mjs
 
-      - name: 빌드
+      - name: 빌드 (실제 열쇠는 안 씁니다)
         # 빌드할 때는 가짜 주소를 씁니다. 실제 값은 Vercel 에 등록돼 있습니다.
         # (관리자 열쇠가 사이트 코드에 섞여 들어가지 않도록)
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://build-check.invalid
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-check
         run: npx next build
+
+      - name: 실제 데이터로 다시 빌드 + 모든 화면 열어보기
+        # 빌드가 통과해도 화면이 멀쩡하다는 뜻은 아닙니다.
+        # 위 빌드는 가짜 접속 정보로 돌기 때문에 조회문이 실제로 도는지
+        # 확인하지 못합니다. 여기서 진짜 열쇠로 띄우고 전부 열어봅니다.
+        # (SUPABASE_ANON_KEY 가 없으면 스스로 건너뜁니다)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            npx next build
+          fi
+          node scripts/smoke.mjs
 
       - name: 보안 취약점 확인
         run: npm audit --omit=dev

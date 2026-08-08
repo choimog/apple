@@ -2,12 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   디자인 토큰
+   --------------------------------------------------------------------------
+   색을 여기 한 곳에만 적어 둡니다. 나중에 분위기를 바꾸고 싶으면
+   이 값들만 고치면 사이트 전체가 따라옵니다.
+
+   서점 색(교보 초록 / 예스24 파랑 / 알라딘 주황)은 색약이신 분도 구분할 수
+   있는지 검사기로 확인한 조합입니다. 색만으로 구분하게 두지 않고 항상
+   서점 이름을 함께 적습니다.
+   ========================================================================== */
 :root {
   color-scheme: light;
+
+  --ink:          #0f172a;   /* 본문 */
+  --ink-soft:     #475569;   /* 보조 설명 */
+  --ink-faint:    #94a3b8;   /* 흐린 안내 */
+  --line:         #e2e8f0;   /* 경계선 */
+  --line-strong:  #cbd5e1;
+  --surface:      #ffffff;   /* 카드 */
+  --canvas:       #f6f7f9;   /* 바탕 */
+  --accent:       #1d4ed8;   /* 강조 */
+  --accent-soft:  #eff6ff;
+
+  --store-kyobo:  #059669;
+  --store-yes24:  #2563eb;
+  --store-aladin: #ea580c;
+
+  --up:           #dc2626;   /* 순위 상승 (한국 관행: 상승 빨강) */
+  --down:         #2563eb;
+}
+
+html {
+  /* 아이폰에서 가로 스크롤이 생기지 않도록 */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
+  background: var(--canvas);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  font-family: "Pretendard Variable", Pretendard, -apple-system,
+    BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic",
+    "Segoe UI", Roboto, sans-serif;
+  /* 숫자가 표에서 흔들리지 않게 */
+  font-feature-settings: "tnum" 0;
 }
 
 /* 표지 이미지가 안 뜰 때를 위한 회색 자리표시자 */
@@ -16,7 +55,27 @@ body {
     45deg,
     #f1f5f9,
     #f1f5f9 6px,
-    #e2e8f0 6px,
-    #e2e8f0 12px
+    #e8edf3 6px,
+    #e8edf3 12px
   );
+}
+
+/* 가로로 긴 표·그래프는 자기 안에서만 스크롤되게 (본문이 밀리지 않도록) */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 키보드로 이동할 때만 초점 테두리를 보여줍니다 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

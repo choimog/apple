@@ -706,3 +706,124 @@ export async function getArchivedRange(): Promise<{
     rows: data.reduce((a, r) => a + ((r.row_count as number) ?? 0), 0),
   };
 }
+
+// ---------------------------------------------------------------------------
+//  출판사 / 저자 순위 · 분야 점유율
+//  (전부 db/perf.sql 의 데이터베이스 기능을 씁니다. 없으면 빈 값을 돌려주고
+//   화면에 "속도 개선을 켜세요" 안내가 뜹니다 — 조용히 틀린 값을 만들지 않습니다)
+// ---------------------------------------------------------------------------
+
+export type NameRank = {
+  name: string;
+  books: number;
+  bestRank: number;
+  score: number;
+  topTitles: string[];
+};
+
+/** 'publisher' = 출판사별, 'author' = 저자별 */
+export type NameKind = "publisher" | "author";
+
+export const NAME_KIND_LABEL: Record<NameKind, string> = {
+  publisher: "출판사",
+  author: "저자",
+};
+
+export async function getNameRanking(
+  kind: NameKind,
+  date: string,
+  period: Period,
+  unified = "all",
+  opts: { depth?: number; minStores?: number; limit?: number } = {}
+): Promise<{ rows: NameRank[]; ok: boolean; depth: number }> {
+  const depth = opts.depth ?? 300;
+  const { data, error } = await supabase.rpc(
+    kind === "publisher" ? "publisher_ranking" : "author_ranking",
+    {
+      p_date: date,
+      p_period: period,
+      p_unified: unified,
+      p_depth: depth,
+      p_min_stores: opts.minStores ?? 1,
+      p_limit: opts.limit ?? 50,
+    }
+  );
+  if (error || !data) return { rows: [], ok: false, depth };
+  const rows = (data as RpcNameRow[]).map((r) => ({
+    name: r.name,
+    books: r.books,
+    bestRank: Number(r.best_rank),
+    score: Number(r.score),
+    topTitles: r.top_titles ?? [],
+  }));
+  return { rows, ok: true, depth };
+}
+
+type RpcNameRow = {
+  name: string;
+  books: number;
+  best_rank: number | string;
+  score: number | string;
+  top_titles: string[] | null;
+};
+
+/** 한 출판사(또는 저자)가 순위에 올린 책 목록 */
+export async function getBooksOf(
+  kind: NameKind,
+  name: string,
+  date: string,
+  period: Period,
+  unified = "all",
+  opts: { depth?: number; limit?: number } = {}
+): Promise<{ rows: CombinedRow[]; ok: boolean }> {
+  const { data, error } = await supabase.rpc("books_of", {
+    p_field: kind,
+    p_name: name,
+    p_date: date,
+    p_period: period,
+    p_unified: unified,
+    p_depth: opts.depth ?? 300,
+    p_limit: opts.limit ?? 100,
+  });
+  if (error || !data) return { rows: [], ok: false };
+  const rows = (data as RpcCombinedRow[]).map((r) => ({
+    bookId: Number(r.book_id),
+    title: r.title,
+    author: r.author,
+    publisher: r.publisher,
+    coverUrl: r.cover_url,
+    ranks: numberMap(r.ranks),
+    sales: numberMap(r.sales),
+    storeCount: r.store_count,
+    avgRank: Number(r.avg_rank),
+  }));
+  return { rows, ok: true };
+}
+
+export type CategoryShare = { code: string; label: string; books: number };
+
+/**
+ * 종합 상위권을 어떤 분야가 채우고 있는지.
+ *
+ * ⚠️ 한 권이 여러 분야에 들 수 있어(소설이면서 한국소설) 합이 100%가 아닙니다.
+ *    비율이 아니라 '몇 권이 걸쳐 있나' 로 읽어야 합니다. 화면에도 그렇게 씁니다.
+ */
+export async function getCategoryShare(
+  date: string,
+  period: Period,
+  top = 100
+): Promise<{ rows: CategoryShare[]; ok: boolean; top: number }> {
+  const { data, error } = await supabase.rpc("category_share", {
+    p_date: date,
+    p_period: period,
+    p_top: top,
+  });
+  if (error || !data) return { rows: [], ok: false, top };
+  return {
+    rows: (data as { unified_code: string; label: string; books: number }[]).map(
+      (r) => ({ code: r.unified_code, label: r.label, books: r.books })
+    ),
+    ok: true,
+    top,
+  };
+}

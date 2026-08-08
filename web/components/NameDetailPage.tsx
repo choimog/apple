@@ -1,0 +1,146 @@
+import Link from "next/link";
+import BookRow from "@/components/BookRow";
+import DataError from "@/components/DataError";
+import SetupNotice from "@/components/SetupNotice";
+import {
+  Card,
+  CardHead,
+  Empty,
+  PeriodSwitch,
+  StatTile,
+} from "@/components/ui";
+import { configError } from "@/lib/supabase";
+import {
+  getBooksOf,
+  getCategories,
+  getSnapshotDates,
+  unifiedOptions,
+  NAME_KIND_LABEL,
+  PERIOD_HELP,
+  PERIOD_LABEL,
+  type NameKind,
+  type Period,
+} from "@/lib/queries";
+
+/** 한 출판사(또는 저자)가 순위에 올린 책 목록 */
+export default async function NameDetailPage({
+  kind,
+  params,
+  searchParams,
+}: {
+  kind: NameKind;
+  params: Promise<{ name: string }>;
+  searchParams: Promise<{ period?: string; cat?: string; date?: string }>;
+}) {
+  if (configError) {
+    return (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+        {configError}
+      </div>
+    );
+  }
+  const { name: rawName } = await params;
+  const name = decodeURIComponent(rawName);
+  const sp = await searchParams;
+  const word = NAME_KIND_LABEL[kind];
+  const listHref = kind === "publisher" ? "/publishers" : "/authors";
+
+  let categories, dates;
+  try {
+    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(30)]);
+  } catch (e) {
+    return <DataError detail={String(e)} />;
+  }
+  if (!dates.length) {
+    return (
+      <Card>
+        <Empty>아직 수집된 데이터가 없습니다.</Empty>
+      </Card>
+    );
+  }
+
+  const period: Period = sp.period === "weekly" ? "weekly" : "daily";
+  const date = sp.date && dates.includes(sp.date) ? sp.date : dates[0];
+  const options = unifiedOptions(categories, period);
+  const unified =
+    sp.cat && options.some((o) => o.code === sp.cat) ? sp.cat : (options[0]?.code ?? "all");
+
+  const { rows, ok } = await getBooksOf(kind, name, date, period, unified, {
+    limit: 100,
+  });
+
+  const depth = 300;
+  const best = rows.length ? Math.min(...rows.map((r) => r.avgRank)) : null;
+  const inThree = rows.filter((r) => r.storeCount >= 3).length;
+  const href = (over: Record<string, string>) =>
+    `?${new URLSearchParams({ period, cat: unified, date, ...over }).toString()}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs text-slate-500">
+            <Link href={listHref} className="hover:underline">
+              분석 · {word}별 순위
+            </Link>
+          </p>
+          <h1 className="mt-0.5 truncate text-2xl font-bold tracking-tight">{name}</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {date} 기준 · {PERIOD_LABEL[period]}({PERIOD_HELP[period]}) 순위에 올라
+            있는 책
+          </p>
+        </div>
+        <PeriodSwitch period={period} hrefFor={(p) => href({ period: p })} />
+      </div>
+
+      {!ok && (
+        <SetupNotice
+          what={`${word} 화면은 데이터베이스가 계산해 주는 기능입니다. 아직 안 켜져 있어 값을 만들 수 없습니다.`}
+        />
+      )}
+
+      {rows.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatTile label="순위에 올린 책" value={rows.length} unit="종" />
+          <StatTile
+            label="가장 높은 순위"
+            value={best !== null ? best.toFixed(1) : "–"}
+            unit="위"
+            hint="3사 평균 순위 기준"
+          />
+          <StatTile
+            label="3사 모두 올린 책"
+            value={inThree}
+            unit="종"
+            hint="교보·예스24·알라딘 세 곳 모두의 순위에 있는 책"
+          />
+        </div>
+      )}
+
+      <Card>
+        <CardHead
+          title={`${name} · ${rows.length}종`}
+          desc={`각 서점 ${depth}위까지 본 결과입니다. 표지를 누르면 그 책의 3사 추이를 볼 수 있습니다.`}
+        />
+        {rows.length === 0 ? (
+          <Empty>
+            {ok
+              ? `이 날짜·기간에는 ${word} "${name}" 의 책이 순위에 없습니다.`
+              : "데이터베이스 계산 기능이 켜지면 여기에 목록이 나옵니다."}
+          </Empty>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {rows.map((r, i) => (
+              <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <p className="px-1 text-xs text-slate-500">
+        ※ 순위 번호는 <strong>이 {word}의 책들 안에서의 차례</strong>입니다.
+        전체 순위가 아닙니다. 각 책의 실제 순위는 서점별 칸에 적혀 있습니다.
+      </p>
+    </div>
+  );
+}

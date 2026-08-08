@@ -1,4 +1,6 @@
+import Link from "next/link";
 import Cover from "@/components/Cover";
+import { Card, CardHead, Empty } from "@/components/ui";
 import DataError from "@/components/DataError";
 import SalesPoint from "@/components/SalesPoint";
 import TrendChart from "@/components/TrendChart";
@@ -66,7 +68,7 @@ export default async function BookPage({
   return (
     <div className="space-y-4">
       {/* ================= 도서 정보 ================= */}
-      <section className="flex items-start gap-4 rounded-lg border border-slate-200 bg-white p-4">
+      <Card className="flex items-start gap-4 p-4 sm:p-5">
         <Cover
           url={main.cover_url}
           alt={main.raw_title}
@@ -74,10 +76,35 @@ export default async function BookPage({
         />
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold">{main.raw_title}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {main.raw_author || "저자 정보 없음"}
-            {main.raw_publisher ? ` · ${main.raw_publisher}` : ""}
-            {main.pub_ym ? ` · ${main.pub_ym}` : ""}
+          {/* 저자·출판사를 누르면 그들이 순위에 올린 책을 모아서 봅니다 */}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-600">
+            {main.raw_author ? (
+              <Link
+                href={`/author/${encodeURIComponent(main.raw_author)}`}
+                className="hover:text-slate-900 hover:underline"
+              >
+                {main.raw_author}
+              </Link>
+            ) : (
+              <span className="text-slate-400">저자 정보 없음</span>
+            )}
+            {main.raw_publisher && (
+              <>
+                <span className="text-slate-300">·</span>
+                <Link
+                  href={`/publisher/${encodeURIComponent(main.raw_publisher)}`}
+                  className="hover:text-slate-900 hover:underline"
+                >
+                  {main.raw_publisher}
+                </Link>
+              </>
+            )}
+            {main.pub_ym && (
+              <>
+                <span className="text-slate-300">·</span>
+                <span>{main.pub_ym}</span>
+              </>
+            )}
           </p>
           {main.isbn13 ? (
             <p className="mt-1 text-xs text-slate-500">ISBN {main.isbn13}</p>
@@ -91,13 +118,14 @@ export default async function BookPage({
             {latestDate ? `최근 기록 ${latestDate}` : "순위 기록 없음"}
           </p>
         </div>
-      </section>
+      </Card>
 
       {/* ================= 지금 순위 (서점 × 기간) ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
-          지금 순위 {latestDate && <span className="text-slate-400">({latestDate})</span>}
-        </h2>
+      <Card>
+        <CardHead
+          title="지금 순위"
+          desc={latestDate ? `${latestDate} 기준` : undefined}
+        />
         <div className="grid gap-3 p-4 sm:grid-cols-3">
           {STORE_ORDER.map((sid) => (
             <div key={sid} className="rounded border border-slate-200 p-3">
@@ -139,26 +167,26 @@ export default async function BookPage({
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
       {/* ================= 추이 그래프 ================= */}
       {(["daily", "weekly"] as Period[]).map((p) => (
-        <section key={p} className="rounded-lg border border-slate-200 bg-white">
-          <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
-            {PERIOD_LABEL[p]} 순위 추이{" "}
-            <span className="font-normal text-slate-400">({PERIOD_HELP[p]})</span>
-          </h2>
+        <Card key={p}>
+          <CardHead
+            title={`${PERIOD_LABEL[p]} 순위 추이`}
+            desc={PERIOD_HELP[p]}
+          />
           <TrendChart history={history} period={p} metric="rank" />
 
-          <h2 className="border-y border-slate-200 px-4 py-3 text-sm font-semibold">
+          <div className="border-y border-slate-100 px-4 py-3 text-[15px] font-bold sm:px-5">
             {PERIOD_LABEL[p]} 판매지수 추이
-          </h2>
+          </div>
           <TrendChart history={history} period={p} metric="sales" />
           <p className="px-4 py-3 text-xs text-slate-500">
             판매지수는 예스24·알라딘만 공개합니다. 두 서점의 값은 계산식이 다른 별개의
             수치라 서로 더하거나 평균 내지 않고 그대로 그립니다.
           </p>
-        </section>
+        </Card>
       ))}
 
       {/* ================= 올라 있는 분야 ================= */}
@@ -177,10 +205,8 @@ export default async function BookPage({
       )}
 
       {/* ================= 서점별 표기 ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
-          서점별 표기
-        </h2>
+      <Card>
+        <CardHead title="서점별 표기" />
         <div className="space-y-1.5 p-4">
           {stores.map((s) => (
             <div key={s.id} className="flex items-start gap-2 text-xs">
@@ -201,7 +227,7 @@ export default async function BookPage({
           같은 책이라도 서점마다 제목·저자 표기가 조금씩 다릅니다. 원본 그대로
           보여드립니다. (묶기가 잘못됐다고 보이면 알려주세요)
         </p>
-      </section>
+      </Card>
     </div>
   );
 }
@@ -218,14 +244,18 @@ function PlacementTable({
   showBranch?: boolean;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
-        {title} <span className="font-normal text-slate-400">({rows.length})</span>
-      </h2>
+    <Card>
+      <CardHead
+        title={
+          <>
+            {title} <span className="font-normal text-slate-400">({rows.length})</span>
+          </>
+        }
+      />
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-slate-500">{empty}</p>
+        <Empty>{empty}</Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="scroll-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500">
@@ -276,6 +306,6 @@ function PlacementTable({
           </table>
         </div>
       )}
-    </section>
+    </Card>
   );
 }

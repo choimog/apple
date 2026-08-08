@@ -71,10 +71,10 @@ $$;
 
 
 -- ----------------------------------------------------------------------------
---  3. 종합 베스트셀러 (3사 순위 평균)
+--  3. 【공통】 그날의 '책별 3사 순위' — 아래 기능들이 전부 이걸 씁니다
 -- ----------------------------------------------------------------------------
---  예전에는 사이트가 순위 6,000줄을 받아와서 직접 계산했습니다.
---  이제 데이터베이스가 계산해서 100줄만 보냅니다.
+--  종합 순위·출판사 순위·저자 순위·분야 점유율이 모두 같은 계산을 씁니다.
+--  한 군데에만 적어 두면 규칙이 어긋날 일이 없습니다.
 --
 --  【계산 규칙 — 화면에 적어 둔 것과 똑같습니다】
 --   · 각 서점의 p_depth 위까지만 봅니다
@@ -82,6 +82,65 @@ $$;
 --   · 올라 있는 서점들의 순위만 평균 냅니다 (없는 서점은 계산에서 뺌)
 --   · 아직 같은 책으로 안 묶인 책(book_id 없음)은 제외합니다
 --   · 판매지수는 서점별로 따로 담습니다 (서로 다른 지표라 평균 내지 않음)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.combined_rows(
+    p_date    date,
+    p_period  text,
+    p_unified text,
+    p_depth   int DEFAULT 300
+)
+RETURNS TABLE (
+    book_id     bigint,
+    store_count int,
+    avg_rank    numeric,
+    ranks       jsonb,
+    sales       jsonb
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH cats AS (
+        SELECT c.id, c.store_id
+          FROM categories c
+         WHERE c.enabled
+           AND c.unified_code = p_unified
+           AND c.kind <> 'offline'      -- 매장별은 온라인 순위와 성격이 달라 제외
+           AND (CASE WHEN c.kind = 'weekly' THEN 'weekly' ELSE 'daily' END) = p_period
+    ),
+    per_store AS (
+        SELECT sb.book_id,
+               cats.store_id,
+               min(r.rank) AS best_rank,
+               (array_agg(r.sales_point ORDER BY r.rank))[1] AS sales_point
+          FROM rankings r
+          JOIN cats            ON cats.id = r.category_id
+          JOIN store_books sb  ON sb.id   = r.store_book_id
+         WHERE r.snapshot_date = p_date
+           AND r.rank <= p_depth
+           AND sb.book_id IS NOT NULL
+         GROUP BY sb.book_id, cats.store_id
+    )
+    SELECT ps.book_id,
+           count(*)::int               AS store_count,
+           round(avg(ps.best_rank), 1) AS avg_rank,
+           jsonb_object_agg(ps.store_id::text, ps.best_rank) AS ranks,
+           coalesce(
+               jsonb_object_agg(ps.store_id::text, ps.sales_point)
+                   FILTER (WHERE ps.sales_point IS NOT NULL),
+               '{}'::jsonb
+           ) AS sales
+      FROM per_store ps
+     GROUP BY ps.book_id;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  4. 종합 베스트셀러 (3사 순위 평균)
+-- ----------------------------------------------------------------------------
+--  예전에는 사이트가 순위 6,000줄을 받아와서 직접 계산했습니다.
+--  이제 데이터베이스가 계산해서 100줄만 보냅니다.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.combined_best(
     p_date       date,
@@ -107,65 +166,247 @@ STABLE
 SECURITY INVOKER
 SET search_path = public
 AS $$
-    WITH cats AS (
-        SELECT c.id, c.store_id
-          FROM categories c
-         WHERE c.enabled
-           AND c.unified_code = p_unified
-           AND c.kind <> 'offline'      -- 매장별은 온라인 순위와 성격이 달라 제외
-           AND (CASE WHEN c.kind = 'weekly' THEN 'weekly' ELSE 'daily' END) = p_period
-    ),
-    per_store AS (
-        -- 한 서점 안에서 여러 분야에 올라 있으면 가장 높은(작은) 순위를 씁니다
-        SELECT sb.book_id,
-               cats.store_id,
-               min(r.rank) AS best_rank,
-               (array_agg(r.sales_point ORDER BY r.rank))[1] AS sales_point
-          FROM rankings r
-          JOIN cats            ON cats.id = r.category_id
-          JOIN store_books sb  ON sb.id   = r.store_book_id
-         WHERE r.snapshot_date = p_date
-           AND r.rank <= p_depth
-           AND sb.book_id IS NOT NULL
-         GROUP BY sb.book_id, cats.store_id
-    ),
-    agg AS (
-        SELECT ps.book_id,
-               count(*)::int                     AS store_count,
-               round(avg(ps.best_rank), 1)       AS avg_rank,
-               jsonb_object_agg(ps.store_id::text, ps.best_rank) AS ranks,
-               coalesce(
-                   jsonb_object_agg(ps.store_id::text, ps.sales_point)
-                       FILTER (WHERE ps.sales_point IS NOT NULL),
-                   '{}'::jsonb
-               )                                 AS sales
-          FROM per_store ps
-         GROUP BY ps.book_id
-    )
-    SELECT a.book_id,
-           b.title,
-           b.author,
-           b.publisher,
-           b.cover_url,
-           a.store_count,
-           a.avg_rank,
-           a.ranks,
-           a.sales
-      FROM agg a
-      JOIN books b ON b.id = a.book_id
-     WHERE a.store_count >= p_min_stores
-     ORDER BY a.avg_rank ASC, a.store_count DESC
+    SELECT r.book_id, b.title, b.author, b.publisher, b.cover_url,
+           r.store_count, r.avg_rank, r.ranks, r.sales
+      FROM public.combined_rows(p_date, p_period, p_unified, p_depth) r
+      JOIN books b ON b.id = r.book_id
+     WHERE r.store_count >= p_min_stores
+     ORDER BY r.avg_rank ASC, r.store_count DESC
      LIMIT greatest(1, least(p_limit, 500));
 $$;
 
 
 -- ----------------------------------------------------------------------------
---  4. 사이트(공개용 열쇠)가 이 두 기능을 쓸 수 있게 허용
+--  5. 출판사별 순위
+-- ----------------------------------------------------------------------------
+--  【점수는 어떻게 매기나요? — 화면에도 그대로 적어 둡니다】
+--    한 권이 평균 3위면  (300 + 1) - 3   = 298점
+--    한 권이 평균 250위면 (300 + 1) - 250 =  51점
+--  즉 "상위권에 몇 권을 올렸는가" 를 한 숫자로 나타낸 값입니다.
+--  1위 한 권과 200위 열 권 중 어느 쪽이 센지를 비교할 수 있게 해 줍니다.
+--
+--  ※ 출판사 표기는 서점마다 다릅니다((주)문학동네 / 문학동네).
+--    '(주)·주식회사·㈜' 만 떼고 묶습니다. 그 이상은 임의로 합치지 않습니다.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.publisher_ranking(
+    p_date       date,
+    p_period     text,
+    p_unified    text DEFAULT 'all',
+    p_depth      int  DEFAULT 300,
+    p_min_stores int  DEFAULT 1,
+    p_limit      int  DEFAULT 50
+)
+RETURNS TABLE (
+    name       text,
+    books      int,
+    best_rank  numeric,
+    score      numeric,
+    top_titles text[]
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH rows AS (
+        SELECT * FROM public.combined_rows(p_date, p_period, p_unified, p_depth)
+    ),
+    named AS (
+        SELECT btrim(regexp_replace(b.publisher, '\(주\)|주식회사|㈜', '', 'g')) AS nm,
+               b.title, r.avg_rank, r.book_id, r.store_count
+          FROM rows r
+          JOIN books b ON b.id = r.book_id
+         WHERE b.publisher IS NOT NULL
+           AND btrim(b.publisher) <> ''
+           AND r.store_count >= p_min_stores
+    )
+    SELECT nm,
+           count(DISTINCT book_id)::int,
+           min(avg_rank),
+           round(sum(greatest(0, (p_depth + 1) - avg_rank))),
+           (array_agg(title ORDER BY avg_rank))[1:3]
+      FROM named
+     WHERE nm <> ''
+     GROUP BY nm
+     ORDER BY 4 DESC, 2 DESC
+     LIMIT greatest(1, least(p_limit, 300));
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  6. 저자별 순위 — 규칙은 출판사와 같습니다
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.author_ranking(
+    p_date       date,
+    p_period     text,
+    p_unified    text DEFAULT 'all',
+    p_depth      int  DEFAULT 300,
+    p_min_stores int  DEFAULT 1,
+    p_limit      int  DEFAULT 50
+)
+RETURNS TABLE (
+    name       text,
+    books      int,
+    best_rank  numeric,
+    score      numeric,
+    top_titles text[]
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH rows AS (
+        SELECT * FROM public.combined_rows(p_date, p_period, p_unified, p_depth)
+    ),
+    named AS (
+        SELECT btrim(b.author) AS nm, b.title, r.avg_rank, r.book_id, r.store_count
+          FROM rows r
+          JOIN books b ON b.id = r.book_id
+         WHERE b.author IS NOT NULL
+           AND btrim(b.author) <> ''
+           AND r.store_count >= p_min_stores
+    )
+    SELECT nm,
+           count(DISTINCT book_id)::int,
+           min(avg_rank),
+           round(sum(greatest(0, (p_depth + 1) - avg_rank))),
+           (array_agg(title ORDER BY avg_rank))[1:3]
+      FROM named
+     WHERE nm <> ''
+     GROUP BY nm
+     ORDER BY 4 DESC, 2 DESC
+     LIMIT greatest(1, least(p_limit, 300));
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  7. 한 출판사(또는 저자)가 순위에 올린 책 목록
+-- ----------------------------------------------------------------------------
+--  p_field: 'publisher' 또는 'author'
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.books_of(
+    p_field   text,
+    p_name    text,
+    p_date    date,
+    p_period  text,
+    p_unified text DEFAULT 'all',
+    p_depth   int  DEFAULT 300,
+    p_limit   int  DEFAULT 100
+)
+RETURNS TABLE (
+    book_id     bigint,
+    title       text,
+    author      text,
+    publisher   text,
+    cover_url   text,
+    store_count int,
+    avg_rank    numeric,
+    ranks       jsonb,
+    sales       jsonb
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    SELECT r.book_id, b.title, b.author, b.publisher, b.cover_url,
+           r.store_count, r.avg_rank, r.ranks, r.sales
+      FROM public.combined_rows(p_date, p_period, p_unified, p_depth) r
+      JOIN books b ON b.id = r.book_id
+     WHERE CASE WHEN p_field = 'author'
+                THEN btrim(b.author) = p_name
+                ELSE btrim(regexp_replace(b.publisher, '\(주\)|주식회사|㈜', '', 'g')) = p_name
+           END
+     ORDER BY r.avg_rank
+     LIMIT greatest(1, least(p_limit, 500));
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  8. 분야 점유율 — 종합 상위권을 어떤 분야가 채우고 있나
+-- ----------------------------------------------------------------------------
+--  종합(전체) 상위 p_top 권이 각각 어느 분야 목록에도 올라 있는지 세어봅니다.
+--
+--  ⚠️ 한 권이 여러 분야에 들 수 있습니다(소설이면서 한국소설).
+--    그래서 합계가 p_top 을 넘습니다. 비율이 아니라 '몇 권이 걸쳐 있나' 입니다.
+--    화면에도 그렇게 적습니다.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.category_share(
+    p_date   date,
+    p_period text,
+    p_top    int DEFAULT 100
+)
+RETURNS TABLE (
+    unified_code text,
+    label        text,
+    books        int
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH top_books AS MATERIALIZED (
+        SELECT r.book_id
+          FROM public.combined_rows(p_date, p_period, 'all', p_top) r
+         ORDER BY r.avg_rank
+         LIMIT greatest(1, least(p_top, 500))
+    ),
+    -- ⚠️ 여기서 방향이 중요합니다.
+    --    "그날 순위 전체를 훑어서 상위권 책을 걸러내기" 로 짜면 11만 줄을
+    --    훑느라 4초가 걸렸습니다. 반대로 "상위권 책 100권의 상품번호로
+    --    순위표를 찾아가기" 로 하면 색인(store_book_id)을 타서 순식간입니다.
+    sbs AS MATERIALIZED (
+        SELECT sb.id, sb.book_id
+          FROM store_books sb
+          JOIN top_books t ON t.book_id = sb.book_id
+    ),
+    cats AS (
+        SELECT c.id, c.unified_code, c.name
+          FROM categories c
+         WHERE c.enabled
+           AND c.kind <> 'offline'
+           AND c.unified_code IS NOT NULL
+           AND c.unified_code <> 'all'
+           AND (CASE WHEN c.kind = 'weekly' THEN 'weekly' ELSE 'daily' END) = p_period
+    ),
+    hits AS (
+        SELECT cats.unified_code, sbs.book_id
+          FROM sbs
+          JOIN rankings r ON r.store_book_id = sbs.id
+                         AND r.snapshot_date = p_date
+          JOIN cats     ON cats.id = r.category_id
+         GROUP BY cats.unified_code, sbs.book_id
+    ),
+    labels AS (
+        SELECT DISTINCT ON (unified_code) unified_code, name
+          FROM cats ORDER BY unified_code, length(name), name
+    )
+    SELECT h.unified_code, l.name, count(*)::int
+      FROM hits h JOIN labels l ON l.unified_code = h.unified_code
+     GROUP BY h.unified_code, l.name
+     ORDER BY 3 DESC;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  9. 사이트(공개용 열쇠)가 이 기능들을 쓸 수 있게 허용
 -- ----------------------------------------------------------------------------
 --  둘 다 읽기 전용이고 SECURITY INVOKER 라 보안 잠금을 우회하지 않습니다.
 -- ----------------------------------------------------------------------------
 GRANT EXECUTE ON FUNCTION public.snapshot_dates(int) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.combined_rows(date, text, text, int)
+    TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.combined_best(date, text, text, int, int, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.publisher_ranking(date, text, text, int, int, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.author_ranking(date, text, text, int, int, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.books_of(text, text, date, text, text, int, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.category_share(date, text, int)
     TO anon, authenticated;
 
 

@@ -1,360 +1,289 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
-import SalesPoint from "@/components/SalesPoint";
+import SetupNotice from "@/components/SetupNotice";
+import {
+  BarList,
+  Card,
+  CardHead,
+  Empty,
+  PeriodSwitch,
+  RankBadge,
+  StatTile,
+} from "@/components/ui";
 import { configError, STORE_COLOR, STORE_NAME } from "@/lib/supabase";
 import {
-  getCategories,
+  getCategoryShare,
   getCombinedBest,
+  getNameRanking,
   getSnapshotDates,
-  unifiedOptions,
   PERIOD_HELP,
   PERIOD_LABEL,
   type Period,
 } from "@/lib/queries";
 
-// 하루 한 번 새 데이터가 들어오므로 10분마다 다시 읽습니다.
 export const revalidate = 600;
 
-const STORE_ORDER = [1, 2, 3]; // 교보 · 예스24 · 알라딘
-const SALES_STORES = new Set([2, 3]); // 판매지수를 제공하는 서점
+const STORE_ORDER = [1, 2, 3];
 
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{
-    period?: string;
-    cat?: string;
-    date?: string;
-    min?: string;
-  }>;
+  searchParams: Promise<{ period?: string; date?: string }>;
 }) {
-  if (configError) return <SetupNotice message={configError} />;
+  if (configError) {
+    return (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+        {configError}
+      </div>
+    );
+  }
   const params = await searchParams;
 
-  let categories, dates;
+  let dates;
   try {
-    [categories, dates] = await Promise.all([getCategories(), getSnapshotDates(30)]);
+    dates = await getSnapshotDates(30);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
-
-  if (!categories.length || !dates.length) {
-    return <EmptyNotice categoryCount={categories.length} dateCount={dates.length} />;
+  if (!dates.length) {
+    return (
+      <Card>
+        <Empty>
+          아직 수집된 데이터가 없습니다.
+          <br />
+          GitHub → Actions → <strong>매일 수집 (daily crawl)</strong> 에서 실행
+          결과를 확인하세요.
+        </Empty>
+      </Card>
+    );
   }
 
   const period: Period = params.period === "weekly" ? "weekly" : "daily";
   const date = params.date && dates.includes(params.date) ? params.date : dates[0];
-  const options = unifiedOptions(categories, period);
-  const unified =
-    params.cat && options.some((o) => o.code === params.cat)
-      ? params.cat
-      : (options[0]?.code ?? "all");
-  const minStores = params.min === "3" ? 3 : params.min === "1" ? 1 : 2;
 
-  let result;
-  try {
-    result = await getCombinedBest(date, period, unified, { minStores, limit: 100 });
-  } catch (e) {
-    return <DataError detail={String(e)} />;
-  }
-  const { rows, depth, usedCategories, fast } = result;
+  // 대시보드는 한 화면에 여러 조각을 보여주므로 한꺼번에 불러옵니다
+  const [best, pubs, authors, share] = await Promise.all([
+    getCombinedBest(date, period, "all", { minStores: 2, limit: 10 }),
+    getNameRanking("publisher", date, period, "all", { limit: 8 }),
+    getNameRanking("author", date, period, "all", { limit: 8 }),
+    getCategoryShare(date, period, 100),
+  ]);
 
-  const href = (over: Record<string, string>) => {
-    const p = new URLSearchParams({
-      period,
-      cat: unified,
-      date,
-      min: String(minStores),
-      ...over,
-    });
-    return `/?${p.toString()}`;
-  };
+  const needSetup = !best.fast || !pubs.ok || !authors.ok || !share.ok;
+  const href = (p: Period) => `/?period=${p}&date=${date}`;
+  const q = `period=${period}&date=${date}`;
 
   return (
-    <div className="space-y-4">
-      {/* ================= 고르기 ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h1 className="text-lg font-bold">종합 베스트셀러</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          교보문고·예스24·알라딘 <strong>3사의 순위를 평균</strong>해서 매긴
-          순위입니다. 한 서점의 이벤트나 매대 밀어주기에 흔들리지 않습니다.
-        </p>
-
-        <Picker label="집계 기간">
-          {(["daily", "weekly"] as Period[]).map((p) => (
-            <Chip
-              key={p}
-              href={href({ period: p, cat: "" })}
-              active={p === period}
-              title={PERIOD_HELP[p]}
-            >
-              {PERIOD_LABEL[p]}
-            </Chip>
-          ))}
-        </Picker>
-
-        <Picker label="분야">
-          {options.map((o) => (
-            <Chip
-              key={o.code}
-              href={href({ cat: o.code })}
-              active={o.code === unified}
-              title={`${o.storeCount}개 서점에 있는 분야`}
-            >
-              {o.label}
-            </Chip>
-          ))}
-        </Picker>
-
-        <Picker label="날짜">
-          {dates.slice(0, 14).map((d) => (
-            <Chip key={d} href={href({ date: d })} active={d === date}>
-              {d.slice(5)}
-            </Chip>
-          ))}
-        </Picker>
-
-        <Picker label="몇 개 서점에 올라야 넣을지">
-          {[
-            { v: 3, t: "3사 모두", h: "세 서점 전부에 오른 책만. 가장 확실합니다." },
-            { v: 2, t: "2개 이상", h: "두 서점 이상. 보통 이걸 씁니다." },
-            { v: 1, t: "1개도 포함", h: "한 서점에만 있어도 넣습니다. 평균의 뜻이 약해집니다." },
-          ].map((m) => (
-            <Chip
-              key={m.v}
-              href={href({ min: String(m.v) })}
-              active={m.v === minStores}
-              title={m.h}
-            >
-              {m.t}
-            </Chip>
-          ))}
-        </Picker>
-      </section>
-
-      {/* ============ 속도 개선이 아직 안 켜졌을 때만 보입니다 ============ */}
-      {!fast && (
-        <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">🐢 이 화면은 지금 느린 방식으로 돌고 있습니다</p>
-          <p className="mt-1">
-            데이터베이스가 계산해 줄 수 있는 일을 사이트가 직접 하고 있습니다.
-            자료가 쌓일수록 점점 더 느려집니다.
+    <div className="space-y-5">
+      {/* ================= 머리말 ================= */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">오늘의 베스트셀러</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            교보문고 · 예스24 · 알라딘 <strong>{date}</strong> 기준
           </p>
-          <p className="mt-2">
-            <strong>고치는 법 (한 번만, 2분, 0원):</strong> Supabase → SQL Editor →
-            New query 에 저장소의{" "}
-            <code className="rounded bg-amber-100 px-1">db/perf.sql</code> 을
-            붙여넣고 Run 을 누르세요. 사이트를 다시 배포할 필요도 없습니다.
-          </p>
-        </section>
+        </div>
+        <PeriodSwitch period={period} hrefFor={href} />
+      </div>
+
+      {needSetup && (
+        <SetupNotice what="아래 일부 화면은 데이터베이스 계산 기능이 있어야 값이 나옵니다." />
       )}
 
-      {/* ================= 계산 방법 (숨기지 않고 밝힙니다) ================= */}
-      <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">
-        <summary className="cursor-pointer font-semibold text-slate-700">
-          이 순위는 어떻게 계산했나요?
-        </summary>
-        <ul className="mt-2 space-y-1 text-slate-600">
-          <li>
-            · 각 서점의 <strong>{depth}위까지</strong>를 가져와서, 같은 책으로 묶인
-            것끼리 모읍니다.
-          </li>
-          <li>
-            · 한 서점 안에서 여러 분야에 올라 있으면 <strong>가장 높은 순위</strong>를
-            그 서점의 값으로 씁니다.
-          </li>
-          <li>
-            · 올라 있는 서점들의 순위를 <strong>평균</strong>냅니다. 목록에 없는 서점은
-            계산에서 <strong>뺍니다</strong>. (가짜 숫자를 넣어 평균을 흐리지 않습니다)
-          </li>
-          <li>
-            · 아직 <strong>같은 책 묶기가 안 된 책은 제외</strong>합니다. 안 그러면 같은
-            책이 세 번 따로 등장합니다. 묶기는 매일 오전 9시에 돕니다.
-          </li>
-          <li>
-            · 판매지수는 <strong>서점끼리 평균 내지 않습니다.</strong> 예스24
-            &lsquo;판매지수&rsquo;와 알라딘 &lsquo;세일즈포인트&rsquo;는 계산식이 다른
-            별개의 값이라 섞으면 뜻이 없어집니다. 그래서 따로 보여줍니다.
-          </li>
-          <li className="text-slate-500">
-            · 이 분야로 쓴 목록:{" "}
-            {usedCategories
-              .map((c) => `${STORE_NAME[c.store_id]} ${c.name}`)
-              .join(" · ") || "없음"}
-          </li>
-        </ul>
-      </details>
+      {/* ================= 한눈 요약 ================= */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label="집계 기간"
+          value={PERIOD_LABEL[period]}
+          hint={PERIOD_HELP[period]}
+        />
+        <StatTile
+          label="3사 공통 상위권"
+          value={best.rows.length ? `${best.rows.length}+` : "0"}
+          unit="종"
+          hint="2개 이상 서점 순위에 동시에 오른 책"
+        />
+        <StatTile
+          label="가장 센 분야"
+          value={share.rows[0]?.label ?? "–"}
+          hint="종합 상위 100권을 가장 많이 차지한 분야"
+        />
+        <StatTile
+          label="수집된 날짜"
+          value={dates.length}
+          unit="일"
+          hint="수집이 실패한 날은 세지 않습니다"
+        />
+      </div>
 
-      {/* ================= 순위표 ================= */}
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-bold">
-            {options.find((o) => o.code === unified)?.label ?? unified} ·{" "}
-            {PERIOD_LABEL[period]} · {date}
-          </h2>
-          <span className="text-xs text-slate-500">{rows.length}종</span>
-        </div>
-
-        {rows.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-slate-500">
-            <p>조건에 맞는 책이 없습니다.</p>
-            <p className="mt-2 text-xs">
-              이 날짜에 이 분야가 아직 수집되지 않았거나,
-              <br />
-              같은 책 묶기가 아직 안 돌았을 수 있습니다. (매일 오전 9시)
-            </p>
-            <Link href={href({ min: "1" })} className="mt-3 inline-block underline">
-              1개 서점만 올라도 보기
+      {/* ================= 종합 TOP 10 ================= */}
+      <Card>
+        <CardHead
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              종합 베스트셀러 TOP 10
+              <span
+                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                  period === "weekly"
+                    ? "bg-violet-100 text-violet-800"
+                    : "bg-sky-100 text-sky-800"
+                }`}
+              >
+                {PERIOD_LABEL[period]}
+              </span>
+            </span>
+          }
+          desc="3사 순위를 평균낸 결과 · 2개 이상 서점에 오른 책"
+          right={
+            <Link
+              href={`/best?${q}`}
+              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+            >
+              전체 보기 →
             </Link>
-          </div>
+          }
+        />
+        {best.rows.length === 0 ? (
+          <Empty>
+            아직 3사에 걸쳐 묶인 책이 없습니다.
+            <br />
+            <span className="text-xs">
+              같은 책 묶기는 매일 오전 9시에 돕니다.
+            </span>
+          </Empty>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {rows.map((r, i) => (
-              <li key={r.bookId} className="flex items-start gap-3 px-4 py-3">
-                <div className="w-9 shrink-0 pt-1 text-center">
-                  <div className="text-lg font-bold tabular-nums">{i + 1}</div>
-                  <div
-                    className="text-[10px] text-slate-500"
-                    title="올라 있는 서점들의 순위 평균"
-                  >
-                    평균 {r.avgRank.toFixed(1)}
-                  </div>
-                </div>
-
-                <Cover url={r.coverUrl} alt={r.title} />
-
+          <ol className="divide-y divide-slate-100">
+            {best.rows.map((r, i) => (
+              <li key={r.bookId} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+                <RankBadge rank={i + 1} size="sm" />
+                <Cover url={r.coverUrl} alt={r.title} className="h-12 w-8" />
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/book/${r.bookId}`}
-                    className="font-medium hover:underline"
+                    className="block truncate text-sm font-semibold hover:underline"
                   >
                     {r.title}
                   </Link>
-                  <p className="mt-0.5 text-sm text-slate-600">
-                    {r.author || "저자 정보 없음"}
+                  <p className="truncate text-xs text-slate-500">
+                    {r.author ?? "저자 정보 없음"}
                     {r.publisher && ` · ${r.publisher}`}
                   </p>
-
-                  {/* 3사 순위 + 판매지수를 한눈에 */}
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    {STORE_ORDER.map((sid) => {
-                      const rank = r.ranks[sid];
-                      const sales = r.sales[sid];
-                      return (
-                        <div
-                          key={sid}
-                          className={`rounded border px-2 py-1.5 ${
-                            rank === undefined
-                              ? "border-slate-100 bg-slate-50"
-                              : "border-slate-200 bg-white"
-                          }`}
-                        >
-                          <div className="flex items-baseline justify-between gap-1">
-                            <span
-                              className={`rounded px-1 py-0.5 text-[10px] ${STORE_COLOR[sid]}`}
-                            >
-                              {STORE_NAME[sid]}
-                            </span>
-                            <span className="text-sm font-bold tabular-nums">
-                              {rank === undefined ? (
-                                <span
-                                  className="text-xs font-normal text-slate-400"
-                                  title={`${depth}위 안에 없습니다`}
-                                >
-                                  없음
-                                </span>
-                              ) : (
-                                `${rank}위`
-                              )}
-                            </span>
-                          </div>
-                          {rank !== undefined && (
-                            <div className="mt-1">
-                              <SalesPoint
-                                value={sales ?? null}
-                                storeProvides={SALES_STORES.has(sid)}
-                                size="sm"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
+                <div className="hidden shrink-0 gap-1 sm:flex">
+                  {STORE_ORDER.map((sid) => (
+                    <span
+                      key={sid}
+                      className={`rounded px-1.5 py-0.5 text-[10px] tabular-nums ${
+                        r.ranks[sid] !== undefined
+                          ? STORE_COLOR[sid]
+                          : "bg-slate-50 text-slate-300"
+                      }`}
+                      title={
+                        r.ranks[sid] !== undefined
+                          ? `${STORE_NAME[sid]} ${r.ranks[sid]}위`
+                          : `${STORE_NAME[sid]} 순위 밖`
+                      }
+                    >
+                      {r.ranks[sid] !== undefined ? r.ranks[sid] : "–"}
+                    </span>
+                  ))}
+                </div>
+                <span className="w-12 shrink-0 text-right text-xs text-slate-400 tabular-nums">
+                  평균 {r.avgRank.toFixed(1)}
+                </span>
               </li>
             ))}
-          </ul>
+          </ol>
         )}
-      </section>
-    </div>
-  );
-}
+      </Card>
 
-// ---------------------------------------------------------------------------
+      {/* ================= 출판사 · 저자 ================= */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHead
+            title="출판사 TOP 8"
+            desc="상위권을 많이 차지한 순서"
+            right={
+              <Link
+                href={`/publishers?${q}`}
+                className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+              >
+                전체 →
+              </Link>
+            }
+          />
+          {pubs.rows.length === 0 ? (
+            <Empty>아직 자료가 없습니다.</Empty>
+          ) : (
+            <BarList
+              items={pubs.rows.map((r) => ({
+                key: r.name,
+                label: r.name,
+                value: r.books,
+                note: "종",
+              }))}
+              hrefFor={(k) => `/publisher/${encodeURIComponent(k)}?${q}`}
+            />
+          )}
+        </Card>
 
-function Picker({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <>
-      <h2 className="mb-1.5 mt-4 text-xs font-semibold text-slate-500">{label}</h2>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
-    </>
-  );
-}
+        <Card>
+          <CardHead
+            title="저자 TOP 8"
+            desc="상위권을 많이 차지한 순서"
+            right={
+              <Link
+                href={`/authors?${q}`}
+                className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+              >
+                전체 →
+              </Link>
+            }
+          />
+          {authors.rows.length === 0 ? (
+            <Empty>아직 자료가 없습니다.</Empty>
+          ) : (
+            <BarList
+              items={authors.rows.map((r) => ({
+                key: r.name,
+                label: r.name,
+                value: r.books,
+                note: "종",
+              }))}
+              hrefFor={(k) => `/author/${encodeURIComponent(k)}?${q}`}
+            />
+          )}
+        </Card>
+      </div>
 
-function Chip({
-  href,
-  active,
-  title,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      title={title}
-      className={`rounded-full border px-3 py-1 text-xs ${
-        active
-          ? "border-slate-900 bg-slate-900 text-white"
-          : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
-      }`}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function SetupNotice({ message }: { message: string }) {
-  return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 p-6">
-      <h1 className="text-base font-bold text-amber-900">설정이 아직 안 됐습니다</h1>
-      <p className="mt-2 whitespace-pre-line text-sm text-amber-800">{message}</p>
-    </div>
-  );
-}
-
-function EmptyNotice({
-  categoryCount,
-  dateCount,
-}: {
-  categoryCount: number;
-  dateCount: number;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-300 bg-white p-6">
-      <h1 className="text-base font-bold">아직 수집된 데이터가 없습니다</h1>
-      <p className="mt-2 text-sm text-slate-600">
-        분야 {categoryCount}개 · 수집된 날짜 {dateCount}일
-      </p>
-      <p className="mt-2 text-sm text-slate-600">
-        GitHub → Actions → <strong>매일 수집 (daily crawl)</strong> 에서 실행 결과를
-        확인하세요. 데이터가 없으면 없다고 표시합니다. 가짜로 채우지 않습니다.
-      </p>
+      {/* ================= 분야 분석 ================= */}
+      <Card>
+        <CardHead
+          title="어떤 분야가 상위권을 채우고 있나"
+          desc="종합 상위 100권이 각 분야 목록에 몇 권 걸쳐 있는지 (비율 아님)"
+          right={
+            <Link
+              href={`/insights?${q}`}
+              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+            >
+              자세히 →
+            </Link>
+          }
+        />
+        {share.rows.length === 0 ? (
+          <Empty>아직 자료가 없습니다.</Empty>
+        ) : (
+          <BarList
+            items={share.rows.slice(0, 8).map((r) => ({
+              key: r.code,
+              label: r.label,
+              value: r.books,
+              note: "권",
+            }))}
+          />
+        )}
+      </Card>
     </div>
   );
 }

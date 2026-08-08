@@ -559,7 +559,45 @@ $$;
 
 
 -- ----------------------------------------------------------------------------
---  11. 사이트(공개용 열쇠)가 이 기능들을 쓸 수 있게 허용
+--  11. 자료 점검 — 한 책 안에 서로 다른 출판사가 섞여 있지 않은지
+-- ----------------------------------------------------------------------------
+--  【왜 필요한가요? — 2026-08-08 대표님 지적】
+--  민음사·서정시학·다산북스·문학동네의 '싯다르타' 가 한 권으로 뭉쳐
+--  있었습니다. 규칙을 고쳤지만, 정말 고쳐졌는지는 자료로 확인해야 합니다.
+--
+--  이 기능은 "한 도서 마스터에 묶인 서점 상품들의 출판사가 서로 다른 경우"
+--  를 찾아냅니다. 결과가 0건이어야 정상입니다.
+--
+--  ※ 표기만 다른 경우((주)민음사)는 정규화된 값으로 비교하므로 안 걸립니다.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.publisher_conflicts(p_limit int DEFAULT 20)
+RETURNS TABLE (
+    book_id    bigint,
+    title      text,
+    publishers text[]
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    SELECT sb.book_id,
+           min(b.title),
+           array_agg(DISTINCT sb.norm_publisher ORDER BY sb.norm_publisher)
+      FROM store_books sb
+      JOIN books b ON b.id = sb.book_id
+     WHERE sb.book_id IS NOT NULL
+       AND sb.norm_publisher IS NOT NULL
+       AND btrim(sb.norm_publisher) <> ''
+     GROUP BY sb.book_id
+    HAVING count(DISTINCT sb.norm_publisher) > 1
+     ORDER BY count(DISTINCT sb.norm_publisher) DESC, sb.book_id
+     LIMIT greatest(1, least(p_limit, 200));
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  12. 사이트(공개용 열쇠)가 이 기능들을 쓸 수 있게 허용
 -- ----------------------------------------------------------------------------
 --  둘 다 읽기 전용이고 SECURITY INVOKER 라 보안 잠금을 우회하지 않습니다.
 -- ----------------------------------------------------------------------------
@@ -579,6 +617,8 @@ GRANT EXECUTE ON FUNCTION public.category_share(date, text, int)
 GRANT EXECUTE ON FUNCTION public.search_books_merged(text, int)
     TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.crawl_summary(int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.publisher_conflicts(int)
     TO anon, authenticated;
 
 

@@ -260,6 +260,28 @@ await step("분야별 권수 세기", async () => {
   return `${firstCategory.name}: ${count ?? 0}권`;
 });
 
+// ---- 11. 한 책 안에 서로 다른 출판사가 섞여 있지 않은지 ----
+//     【2026-08-08 대표님 지적】 민음사·문학동네 '싯다르타' 가 한 권으로
+//     뭉쳐 있었습니다. 규칙을 고쳤으니, 정말 고쳐졌는지 자료로 확인합니다.
+await step("한 책에 다른 출판사가 섞이지 않았는지", async () => {
+  const { data, error } = await db.rpc("publisher_conflicts", { p_limit: 20 });
+  if (error) {
+    if (/function|does not exist|schema cache/i.test(error.message)) {
+      return "건너뜀 — db/perf.sql 을 아직 실행하지 않았습니다";
+    }
+    throw new Error(error.message);
+  }
+  const rows = data ?? [];
+  if (rows.length === 0) return "✅ 섞인 책 0건";
+  const sample = rows
+    .slice(0, 5)
+    .map((r) => `${r.title} → ${(r.publishers ?? []).join(" / ")}`)
+    .join("\n       ");
+  throw new Error(
+    `서로 다른 출판사가 한 책으로 묶여 있습니다 (${rows.length}건 이상):\n       ${sample}`
+  );
+});
+
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 화면이 빈 채로 뜰 수 있습니다.`);

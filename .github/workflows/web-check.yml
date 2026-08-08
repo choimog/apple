@@ -39,6 +39,11 @@ jobs:
       - name: 필요한 도구 설치
         run: npm ci --no-audit --no-fund
 
+      - name: 엑셀 내려받기 규칙 시험
+        # CSV 는 조용히 망가집니다. 제목에 쉼표가 하나 들어가면 그 줄부터
+        # 칸이 통째로 밀리는데 파일은 정상적으로 열립니다. 여기서 잡습니다.
+        run: node scripts/test-csv.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BookExportButton from "@/components/BookExportButton";
 import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
 import SalesPoint from "@/components/SalesPoint";
@@ -206,13 +207,24 @@ export default async function BookPage({
           【2026-08-08 대표님 지적】
           "순위 추이와 판매지수 추이를 위아래로 구분하지 말고 병렬로 구분할 것."
           같은 기간의 두 지표는 나란히 놓아야 함께 읽힙니다. */}
-      {(["daily", "weekly"] as Period[]).map((p) => (
+      {(["daily", "weekly"] as Period[]).map((p, i) => (
         <Card key={p}>
           <CardHead
             title={
               <span className="flex items-center gap-2">
                 <PeriodBadge period={p} withHelp /> 추이
               </span>
+            }
+            /* 내려받기는 일간·주간을 한꺼번에 받으므로 위쪽 카드에만 답니다 */
+            right={
+              i === 0 ? (
+                <BookExportButton
+                  history={history}
+                  title={main.raw_title}
+                  author={main.raw_author}
+                  publisher={main.raw_publisher}
+                />
+              ) : undefined
             }
           />
           <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">

@@ -134,65 +134,66 @@ export default async function NameRankingPage({
               : "데이터베이스 계산 기능이 켜지면 여기에 순위가 나옵니다."}
           </Empty>
         ) : (
-          <div className="scroll-x">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-line-soft text-xs text-ink-soft">
-                  <th className="w-14 px-4 py-2 text-left">순위</th>
-                  <th className="px-3 py-2 text-left">{word}</th>
-                  <th className="w-20 px-3 py-2 text-right">올린 책</th>
-                  <th className="w-20 px-3 py-2 text-right">최고 순위</th>
-                  <th className="w-40 px-4 py-2 text-right">점수</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr
-                    key={r.name}
-                    className="border-b border-slate-50 last:border-0 hover:bg-surface-2"
-                  >
-                    <td className="px-4 py-2.5">
-                      <RankBadge rank={i + 1} size="sm" />
-                    </td>
-                    <td className="px-3 py-2.5">
+          /*
+            좌우 스크롤 없는 목록.
+
+            【2026-08-08 대표님 지적】
+            "출판사별 순위, 저자 순에서 보이는 데이터의 좌우가 너무 길어서
+             스크롤이 생기는데, 이게 좀 불편해."
+
+            예전에는 칸 5개짜리 표(최소 640px)라 좁은 화면에서 옆으로
+            밀어야 했습니다. 표를 버리고, 한 줄 안에서 아래로 쌓이는
+            모양으로 바꿨습니다. 어떤 너비에서도 옆으로 넘치지 않습니다.
+          */
+          <ul className="divide-y divide-line-soft">
+            {rows.map((r, i) => (
+              <li key={r.name} className="px-4 py-3 hover:bg-surface-2 sm:px-5">
+                <div className="flex items-start gap-3">
+                  <div className="pt-0.5">
+                    <RankBadge rank={i + 1} size="sm" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-3">
                       <Link
                         href={`${detail}/${encodeURIComponent(r.name)}?period=${period}&cat=${unified}&date=${date}`}
-                        className="font-semibold hover:underline"
+                        className="truncate font-semibold hover:underline"
                       >
                         {r.name}
                       </Link>
-                      {r.topTitles.length > 0 && (
-                        <p className="mt-0.5 truncate text-xs text-ink-faint">
-                          {r.topTitles.join(" · ")}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-medium tnum">
-                      {r.books}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tnum text-ink-soft">
-                      {r.bestRank.toFixed(1)}위
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
-                          <div
-                            className="h-full rounded-full bg-blue-600"
-                            style={{
-                              width: `${Math.max(2, Math.round((r.score / topScore) * 100))}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="w-14 text-right font-bold tnum">
-                          {r.score.toLocaleString()}
+                      <span className="tnum shrink-0 text-sm font-bold">
+                        {r.score.toLocaleString()}
+                        <span className="ml-1 text-2xs font-normal text-ink-faint">
+                          점
                         </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                    </div>
+
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-soft">
+                      <span className="tnum">{r.books}종</span>
+                      <span className="text-ink-faint">·</span>
+                      <span className="tnum">최고 {r.bestRank.toFixed(1)}위</span>
+                    </p>
+
+                    {r.topTitles.length > 0 && (
+                      <p className="mt-0.5 truncate text-xs text-ink-faint">
+                        {r.topTitles.join(" · ")}
+                      </p>
+                    )}
+
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{
+                          width: `${Math.max(2, Math.round((r.score / topScore) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
 

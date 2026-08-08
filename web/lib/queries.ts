@@ -620,6 +620,8 @@ export type HistoryPoint = {
   period: Period;
   rank: number;
   sales: number | null;
+  /** 이 순위가 나온 분야 (한 서점에서 여러 분야에 올랐으면 가장 높은 순위 쪽) */
+  categoryName: string;
 };
 
 export type CurrentPlacement = {
@@ -711,6 +713,7 @@ export async function getBookDetail(bookId: number): Promise<{
         period,
         rank: r.rank,
         sales: r.sales_point,
+        categoryName: cat.name,
       });
     }
   }

@@ -50,7 +50,9 @@ jobs:
       - name: 수집 규칙 시험 (규칙이 깨졌으면 여기서 멈춤)
         # 서점에 접속하기 전에 먼저 돌립니다. 규칙이 깨졌으면
         # 괜히 서점을 두드릴 필요가 없습니다.
-        run: python tests/test_dedupe_ranks.py
+        run: |
+          python tests/test_dedupe_ranks.py
+          python tests/test_fail_alert.py
 
       - name: 브라우저(크로미움) 설치
         if: ${{ inputs.store == '' || contains(inputs.store, 'kyobo') }}

@@ -25,6 +25,51 @@
 
 
 -- ----------------------------------------------------------------------------
+--  0. 먼저 확인 — 필요한 표와 칸이 다 있는지
+-- ----------------------------------------------------------------------------
+--  【왜 이걸 먼저 하나요? — 2026-08-08】
+--  필요한 칸이 없으면 아래에서 'column "..." does not exist' 라는 짧은 오류만
+--  나옵니다. 그 메시지만 봐서는 무엇을 어떻게 고쳐야 할지 알 수 없습니다.
+--  그래서 먼저 확인하고, 없으면 무엇이 없는지 한국어로 알려드립니다.
+-- ----------------------------------------------------------------------------
+DO $guard$
+DECLARE
+    missing text := '';
+    need    text[][] := ARRAY[
+        ['rankings',   'category_id'],
+        ['rankings',   'snapshot_date'],
+        ['rankings',   'store_book_id'],
+        ['rankings',   'rank'],
+        ['categories', 'unified_code'],
+        ['categories', 'kind'],
+        ['categories', 'enabled'],
+        ['store_books','book_id'],
+        ['books',      'author'],
+        ['books',      'publisher'],
+        ['crawl_logs', 'started_at'],
+        ['crawl_logs', 'finished_at']
+    ];
+    i int;
+BEGIN
+    FOR i IN 1 .. array_length(need, 1) LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name  = need[i][1]
+               AND column_name = need[i][2]
+        ) THEN
+            missing := missing || format('  · %s 표의 %s 칸%s', need[i][1], need[i][2], chr(10));
+        END IF;
+    END LOOP;
+
+    IF missing <> '' THEN
+        RAISE EXCEPTION E'이 파일을 실행하기 전에 db/schema.sql 을 먼저 실행해야 합니다.\n\n없는 것:\n%\n하는 법: Supabase → SQL Editor → New query 에 저장소의 db/schema.sql 전체를 붙여넣고 Run → 그다음 이 파일(db/perf.sql)을 실행하세요.\n\n※ db/check.sql 을 실행하면 지금 상태를 자세히 볼 수 있습니다.', missing;
+    END IF;
+END
+$guard$;
+
+
+-- ----------------------------------------------------------------------------
 --  1. 인덱스 — "이 분야의 어제 기록" 을 빨리 찾기 위한 색인
 -- ----------------------------------------------------------------------------
 --  등락(▲▼)을 계산하려면 '이 분야의 바로 앞 수집일' 을 찾아야 합니다.

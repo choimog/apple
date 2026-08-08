@@ -59,6 +59,22 @@ BLOCK_HOSTS = (
 #  '등록된 이미지 없음' 자리표시자로 바꿔버려 ISBN 을 잃었습니다)
 
 
+class PageRenderTimeout(RuntimeError):
+    """
+    정해진 시간 안에 도서 목록이 화면에 안 그려졌을 때.
+
+    【왜 따로 만들었나요? — 2026-08-08 실제 사고】
+    교보는 목록이 끝난 페이지를 열어도 '도서가 0권' 이라고 알려주지 않고,
+    그냥 도서 칸을 영영 안 그립니다. 그러면 우리 쪽에서는 시간 초과가 납니다.
+    이걸 '고장' 으로 처리했더니, 이미 잘 받아 둔 앞 페이지까지 통째로 버리고
+    분야 14개가 매번 똑같이 실패했습니다.
+
+    그래서 이 예외를 따로 두고, 수집 쪽에서
+    "앞 페이지는 받았는데 뒷 페이지가 안 그려진다 = 목록이 끝난 것"
+    으로 판단할 수 있게 합니다.
+    """
+
+
 class _Response:
     """PoliteClient(보통 방식) 와 똑같이 생긴 응답. 수집 코드를 공유하기 위함입니다."""
 
@@ -200,7 +216,7 @@ class PoliteBrowser:
                           f"{wait}초 쉬고 다시 시도 ({attempt}/{self.max_retries})")
                     time.sleep(wait)
 
-        raise RuntimeError(
+        raise PageRenderTimeout(
             f"{self.max_retries}번 시도했지만 화면이 안 그려졌습니다: "
             f"{type(last_error).__name__}"
         ) from last_error

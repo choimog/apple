@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "crawler"))
 
-from run_daily import dedupe_ranks  # noqa: E402
+from run_daily import dedupe_ranks, is_recycled_page  # noqa: E402
 
 failures: list[str] = []
 
@@ -87,6 +87,19 @@ check_raises(
 
 print("\n[5] 빈 목록도 터지지 않는다")
 check("빈 목록", dedupe_ranks([], "테스트"), [])
+
+print("\n[6] '앞 내용의 재탕' 페이지를 알아본다")
+# 목록의 끝을 지나면 서점이 앞 페이지 순위를 다시 돌려줍니다.
+# 그 페이지는 쓰지 않고 거기서 멈춰야 합니다.
+seen = set(range(1, 601))            # 1~600위는 이미 받았음
+check("정상 페이지(601~620위)는 재탕이 아니다",
+      is_recycled_page(rows(*range(601, 621)), seen), False)
+check("절반이 이미 나온 순위면 재탕이다",
+      is_recycled_page(rows(*range(1, 11), *range(601, 611)), seen), True)
+check("한두 권만 겹치는 건 재탕이 아니다 (그 책만 빼면 됨)",
+      is_recycled_page(rows(5, *range(601, 621)), seen), False)
+check("빈 페이지는 재탕 판단 대상이 아니다",
+      is_recycled_page([], seen), False)
 
 print("\n" + "=" * 60)
 if failures:

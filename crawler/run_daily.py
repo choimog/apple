@@ -39,6 +39,18 @@ from common.robots import parse as parse_robots  # noqa: E402
 from stores import aladin, kyobo, yes24  # noqa: E402
 from stores.base import ParseError  # noqa: E402
 
+# "이 페이지에는 도서가 없다" 를 서점마다 다른 모양으로 알려옵니다.
+#   ParseError        : 도서 칸이 하나도 없는 페이지 (알라딘·예스24)
+#   PageRenderTimeout : 도서 칸을 영영 안 그림 (교보. 브라우저로 읽기 때문)
+# 앞 페이지를 이미 받았다면 둘 다 '목록의 끝' 이라는 뜻입니다.
+END_OF_LIST_SIGNS: tuple[type[BaseException], ...] = (ParseError,)
+try:
+    from common.browser import PageRenderTimeout  # noqa: E402
+
+    END_OF_LIST_SIGNS = (ParseError, PageRenderTimeout)
+except Exception:  # playwright 가 없는 환경(시험 등)에서는 ParseError 만
+    pass
+
 # 한국시간 (서머타임 없음)
 KST = timezone(timedelta(hours=9))
 
@@ -125,12 +137,13 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
     role_priority = role_priority or norm.DEFAULT_ROLE_PRIORITY
     all_rows = []
     seen_keys: set[str] = set()
+    seen_ranks: set[int] = set()
 
     for page in range(1, task.total_pages + 1):
         url = task.url_for(page)
-        resp = client_http.get(url)
 
         try:
+            resp = client_http.get(url)
             rows = parser.parse_page(
                 resp.text,
                 selectors,
@@ -138,22 +151,24 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
                 page=page,
                 page_size=task.page_size,
             )
-        except ParseError:
+        except END_OF_LIST_SIGNS:
             # ---------------------------------------------------------------
             # 【목록의 끝을 '고장' 으로 착각하지 않기 — 2026-08-08 실제 사고】
             #
             # 서점 목록이 850권에서 끝나는데 우리가 1,000권까지 달라고 하면,
-            # 남은 페이지에는 도서 칸이 하나도 없습니다.
-            # 그걸 "화면이 개편됐다" 로 보고 예외를 냈더니, 이미 잘 받아 둔
-            # 850권을 통째로 버리고 그 분야 전체가 실패로 기록됐습니다.
+            # 서점은 "0권입니다" 라고 알려주지 않습니다. 대신
+            #   알라딘·예스24 → 도서 칸이 하나도 없는 페이지를 줍니다
+            #   교보          → 도서 칸을 영영 안 그려서 시간 초과가 납니다
+            # 둘 다 '고장' 으로 처리했더니, 이미 잘 받아 둔 850권을 통째로
+            # 버리고 그 분야가 실패로 기록됐습니다.
             # (알라딘 27개, 교보 14개가 이렇게 날아갔습니다)
             #
             # 구분하는 방법은 간단합니다:
-            #   1페이지부터 비어 있다  → 진짜 고장. 그대로 예외를 냅니다.
-            #   앞 페이지는 받았는데 뒤가 비었다 → 그냥 목록이 끝난 것입니다.
+            #   1페이지부터 안 된다  → 진짜 고장. 그대로 예외를 냅니다.
+            #   앞 페이지는 받았는데 뒤가 안 된다 → 그냥 목록이 끝난 것입니다.
             # ---------------------------------------------------------------
             if page > 1 and all_rows:
-                print(f"    page {page}: 도서 칸 없음 → 목록이 여기서 끝났습니다 "
+                print(f"    page {page}: 도서 없음 → 목록이 여기서 끝났습니다 "
                       f"(누적 {len(all_rows)}권 유지)")
                 break
             raise
@@ -164,10 +179,36 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
             print(f"    page {page}: 새 도서 없음 → 여기서 중단")
             break
 
+        # -------------------------------------------------------------------
+        # 【이미 나온 순위가 다시 나오면 그 페이지는 못 믿습니다 — 2026-08-08】
+        #
+        # 예스24는 목록이 짧은 분야에서 뒷 페이지를 요청하면, 앞 페이지에
+        # 있던 순위 번호(15위 같은)를 단 '다른 책' 을 섞어서 돌려줍니다.
+        # 15위가 두 권이 되니 저장 단계에서 데이터베이스가 거부했고,
+        # 그 분야가 통째로 0권이 됐습니다. (10개 분야)
+        #
+        # 겹치는 게 몇 권이면 그 책만 빼면 되지만, 페이지의 상당수가 겹치면
+        # 그 페이지 자체가 재탕입니다. 거기서 멈추고 앞 페이지까지만 씁니다.
+        # -------------------------------------------------------------------
+        collided = count_recycled(new_rows, seen_ranks)
+        if is_recycled_page(new_rows, seen_ranks):
+            print(f"    page {page}: {len(new_rows)}권 중 {collided}권이 "
+                  f"이미 나온 순위입니다 → 앞 페이지 내용의 재탕으로 보고 중단 "
+                  f"(누적 {len(all_rows)}권 유지)")
+            break
+
+        keep = []
         for r in new_rows:
+            if r.rank in seen_ranks:
+                continue  # 아래에서 몇 권을 뺐는지 한 줄로 알립니다
+            seen_ranks.add(r.rank)
             seen_keys.add(r.store_book_key)
-        all_rows.extend(new_rows)
-        print(f"    page {page}: {len(new_rows)}권 (누적 {len(all_rows)})")
+            keep.append(r)
+
+        all_rows.extend(keep)
+        dropped = len(new_rows) - len(keep)
+        note = f" (순위 겹쳐서 {dropped}권 뺌)" if dropped else ""
+        print(f"    page {page}: {len(keep)}권{note} (누적 {len(all_rows)})")
 
         if len(all_rows) >= task.max_items:
             break
@@ -175,8 +216,30 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
     return dedupe_ranks(all_rows[: task.max_items], task.label())
 
 
-# 순위가 겹친 도서가 이 비율을 넘으면, 그 분야 자료 자체를 믿을 수 없다고 봅니다.
+# 한 페이지에서 이 비율 이상이 '이미 나온 순위' 면, 그 페이지는 앞 내용의
+# 재탕으로 보고 거기서 멈춥니다. (예스24가 목록 끝을 지나면 이렇게 나옵니다)
+RECYCLED_PAGE_RATIO = 0.30
+
+# 그래도 남은 순위 겹침이 이 비율을 넘으면, 그 분야 자료 자체를 못 믿는다고 봅니다.
 MAX_DUPLICATE_RANK_RATIO = 0.10
+
+
+def count_recycled(rows: list, seen_ranks: set[int]) -> int:
+    """이 페이지의 도서 중 '이미 나온 순위' 를 달고 있는 권수."""
+    return sum(1 for r in rows if r.rank in seen_ranks)
+
+
+def is_recycled_page(rows: list, seen_ranks: set[int]) -> bool:
+    """
+    이 페이지가 앞 페이지 내용의 재탕인지 판단합니다.
+
+    순위는 목록에서의 '자리' 입니다. 앞에서 이미 나온 자리 번호가
+    이 페이지에 잔뜩 다시 나온다면, 서점이 목록의 끝을 지나 아무거나
+    돌려주고 있다는 뜻입니다. 그런 페이지는 쓰지 않습니다.
+    """
+    if not rows:
+        return False
+    return count_recycled(rows, seen_ranks) >= len(rows) * RECYCLED_PAGE_RATIO
 
 
 def dedupe_ranks(rows: list, label: str) -> list:

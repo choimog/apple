@@ -24,7 +24,7 @@ export default function Cover({
   if (!url || failed) {
     return (
       <div
-        className={`cover-fallback shrink-0 rounded border border-slate-200 ${className}`}
+        className={`cover-fallback shrink-0 rounded border border-line ${className}`}
         aria-label="표지 없음"
         role="img"
       />
@@ -41,7 +41,7 @@ export default function Cover({
       decoding="async"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
-      className={`shrink-0 rounded border border-slate-200 object-cover ${className}`}
+      className={`shrink-0 rounded border border-line object-cover ${className}`}
     />
   );
 }

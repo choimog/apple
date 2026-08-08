@@ -18,7 +18,7 @@ const FULL_BAR = 500_000;
 export function SalesBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.round((value / FULL_BAR) * 100));
   return (
-    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
       <div
         className="h-full rounded-full bg-slate-400"
         style={{ width: `${Math.max(2, pct)}%` }}
@@ -40,7 +40,7 @@ export default function SalesPoint({
   if (!storeProvides) {
     return (
       <span
-        className="text-xs text-slate-400"
+        className="text-xs text-ink-faint"
         title="교보문고는 판매지수를 공개하지 않습니다. 추정치를 넣지 않습니다."
       >
         판매지수 미제공
@@ -49,7 +49,7 @@ export default function SalesPoint({
   }
   if (value === null) {
     return (
-      <span className="text-xs text-slate-400" title="이 날짜에 값이 없습니다">
+      <span className="text-xs text-ink-faint" title="이 날짜에 값이 없습니다">
         –
       </span>
     );
@@ -59,8 +59,8 @@ export default function SalesPoint({
       <div
         className={
           size === "sm"
-            ? "text-sm font-semibold tabular-nums text-slate-800"
-            : "text-base font-bold tabular-nums text-slate-900"
+            ? "text-sm font-semibold tnum text-ink"
+            : "text-base font-bold tnum text-ink"
         }
       >
         {value.toLocaleString()}

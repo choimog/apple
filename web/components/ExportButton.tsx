@@ -67,7 +67,7 @@ export default function ExportButton({
     <button
       onClick={download}
       disabled={!rows.length}
-      className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-500 disabled:opacity-40"
+      className="rounded border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-soft hover:border-ink-faint disabled:opacity-40"
     >
       ⬇ 엑셀로 받기
     </button>

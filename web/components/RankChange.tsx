@@ -20,13 +20,13 @@ export default function RankChange({
   }
   if (change === null) {
     return (
-      <span className="text-xs text-slate-400" title="비교할 이전 수집 기록이 없습니다">
+      <span className="text-xs text-ink-faint" title="비교할 이전 수집 기록이 없습니다">
         –
       </span>
     );
   }
   if (change === 0) {
-    return <span className="text-xs text-slate-400">—</span>;
+    return <span className="text-xs text-ink-faint">—</span>;
   }
   const up = change > 0;
   return (

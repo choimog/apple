@@ -7,6 +7,7 @@ import {
   CardHead,
   Empty,
   FieldLabel,
+  PeriodBadge,
   PeriodSwitch,
   Pill,
   StatTile,
@@ -19,6 +20,8 @@ import {
   PERIOD_LABEL,
   type Period,
 } from "@/lib/queries";
+
+export const metadata = { title: "분야 분석" };
 
 export const revalidate = 600;
 
@@ -72,7 +75,7 @@ export default async function InsightsPage({
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight">
             어떤 분야가 종합 상위권을 채우고 있나
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-soft">
             종합(전체) 상위 {top}권이 각각 <strong>어느 분야 목록에도 올라
             있는지</strong> 세어봤습니다. 지금 시장을 끌고 가는 분야가 무엇인지
             한눈에 보입니다.
@@ -127,15 +130,7 @@ export default async function InsightsPage({
           title={
             <span className="flex flex-wrap items-center gap-2">
               분야별 상위 {top}권 점유
-              <span
-                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                  period === "weekly"
-                    ? "bg-violet-100 text-violet-800"
-                    : "bg-sky-100 text-sky-800"
-                }`}
-              >
-                {PERIOD_LABEL[period]} · {PERIOD_HELP[period]}
-              </span>
+              <PeriodBadge period={period} withHelp />
             </span>
           }
           desc={`${date} 기준 · 막대는 '몇 권' 입니다 (비율 아님)`}
@@ -158,8 +153,8 @@ export default async function InsightsPage({
         )}
       </Card>
 
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 sm:px-5">
-        <p className="font-semibold text-slate-700">이 숫자를 읽는 법</p>
+      <div className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-soft sm:px-5">
+        <p className="font-semibold text-ink-soft">이 숫자를 읽는 법</p>
         <ul className="mt-1.5 space-y-1 text-xs">
           <li>
             · <strong>합계가 {top}권을 넘습니다</strong> (지금 {covered}권). 한 권이

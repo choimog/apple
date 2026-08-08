@@ -7,11 +7,13 @@ import {
   Card,
   CardHead,
   Empty,
+  PeriodBadge,
   PeriodSwitch,
   RankBadge,
   StatTile,
 } from "@/components/ui";
-import { configError, STORE_COLOR, STORE_NAME } from "@/lib/supabase";
+import { configError } from "@/lib/supabase";
+import { StoreRankStrip } from "@/components/ui";
 import {
   getCategoryShare,
   getCombinedBest,
@@ -23,8 +25,6 @@ import {
 } from "@/lib/queries";
 
 export const revalidate = 600;
-
-const STORE_ORDER = [1, 2, 3];
 
 export default async function Home({
   searchParams,
@@ -80,7 +80,7 @@ export default async function Home({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">오늘의 베스트셀러</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-soft">
             교보문고 · 예스24 · 알라딘 <strong>{date}</strong> 기준
           </p>
         </div>
@@ -123,22 +123,14 @@ export default async function Home({
           title={
             <span className="flex flex-wrap items-center gap-2">
               종합 베스트셀러 TOP 10
-              <span
-                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                  period === "weekly"
-                    ? "bg-violet-100 text-violet-800"
-                    : "bg-sky-100 text-sky-800"
-                }`}
-              >
-                {PERIOD_LABEL[period]}
-              </span>
+              <PeriodBadge period={period} withHelp />
             </span>
           }
           desc="3사 순위를 평균낸 결과 · 2개 이상 서점에 오른 책"
           right={
             <Link
               href={`/best?${q}`}
-              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+              className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint"
             >
               전체 보기 →
             </Link>
@@ -153,7 +145,7 @@ export default async function Home({
             </span>
           </Empty>
         ) : (
-          <ol className="divide-y divide-slate-100">
+          <ol className="divide-y divide-line-soft">
             {best.rows.map((r, i) => (
               <li key={r.bookId} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
                 <RankBadge rank={i + 1} size="sm" />
@@ -165,31 +157,15 @@ export default async function Home({
                   >
                     {r.title}
                   </Link>
-                  <p className="truncate text-xs text-slate-500">
+                  <p className="truncate text-xs text-ink-soft">
                     {r.author ?? "저자 정보 없음"}
                     {r.publisher && ` · ${r.publisher}`}
                   </p>
                 </div>
-                <div className="hidden shrink-0 gap-1 sm:flex">
-                  {STORE_ORDER.map((sid) => (
-                    <span
-                      key={sid}
-                      className={`rounded px-1.5 py-0.5 text-[10px] tabular-nums ${
-                        r.ranks[sid] !== undefined
-                          ? STORE_COLOR[sid]
-                          : "bg-slate-50 text-slate-300"
-                      }`}
-                      title={
-                        r.ranks[sid] !== undefined
-                          ? `${STORE_NAME[sid]} ${r.ranks[sid]}위`
-                          : `${STORE_NAME[sid]} 순위 밖`
-                      }
-                    >
-                      {r.ranks[sid] !== undefined ? r.ranks[sid] : "–"}
-                    </span>
-                  ))}
+                <div className="hidden shrink-0 sm:block">
+                  <StoreRankStrip ranks={r.ranks} />
                 </div>
-                <span className="w-12 shrink-0 text-right text-xs text-slate-400 tabular-nums">
+                <span className="w-12 shrink-0 text-right text-xs text-ink-faint tnum">
                   평균 {r.avgRank.toFixed(1)}
                 </span>
               </li>
@@ -207,7 +183,7 @@ export default async function Home({
             right={
               <Link
                 href={`/publishers?${q}`}
-                className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+                className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint"
               >
                 전체 →
               </Link>
@@ -235,7 +211,7 @@ export default async function Home({
             right={
               <Link
                 href={`/authors?${q}`}
-                className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+                className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint"
               >
                 전체 →
               </Link>
@@ -265,7 +241,7 @@ export default async function Home({
           right={
             <Link
               href={`/insights?${q}`}
-              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
+              className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint"
             >
               자세히 →
             </Link>

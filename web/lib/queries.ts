@@ -558,6 +558,10 @@ export type CurrentPlacement = {
   branchName: string;
   rank: number;
   sales: number | null;
+  /** 통합 분야 코드. 'all' 이면 분야가 아니라 '전체(종합)' 목록입니다 */
+  unifiedCode: string | null;
+  /** 전체(종합) 순위인가, 특정 분야 안에서의 순위인가 */
+  isOverall: boolean;
 };
 
 /**
@@ -653,10 +657,19 @@ export async function getBookDetail(bookId: number): Promise<{
       branchName: cat.branch_name,
       rank: r.rank,
       sales: r.sales_point,
+      unifiedCode: cat.unified_code,
+      // 'all' = 그 서점의 '전체/종합' 목록. 분야 순위와 뜻이 완전히 다릅니다.
+      isOverall: cat.unified_code === "all",
     });
   }
+  // 서점 → 전체(종합)를 맨 위로 → 일간 먼저 → 순위 순
+  // (예전에는 서점·순위로만 정렬해서 전체 순위와 분야 순위가 뒤섞였습니다)
   placements.sort(
-    (a, b) => a.storeId - b.storeId || a.rank - b.rank
+    (a, b) =>
+      a.storeId - b.storeId ||
+      Number(b.isOverall) - Number(a.isOverall) ||
+      (a.period === b.period ? 0 : a.period === "daily" ? -1 : 1) ||
+      a.rank - b.rank
   );
 
   const history = [...best.values()].sort((a, b) => a.date.localeCompare(b.date));

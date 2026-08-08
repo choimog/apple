@@ -68,7 +68,7 @@ export default function TrendChart({
 
   if (!dates.length || !series.length) {
     return (
-      <p className="px-4 py-8 text-center text-sm text-slate-500">
+      <p className="px-4 py-8 text-center text-sm text-ink-soft">
         {metric === "rank"
           ? "아직 순위 기록이 없습니다."
           : "판매지수 기록이 없습니다. (교보문고는 판매지수를 제공하지 않습니다)"}
@@ -204,7 +204,7 @@ export default function TrendChart({
         })}
       </svg>
 
-      <div className="mt-1 flex flex-wrap items-center gap-3 px-2 text-xs text-slate-600">
+      <div className="mt-1 flex flex-wrap items-center gap-3 px-2 text-xs text-ink-soft">
         {series.map((s) => (
           <span key={s.storeId} className="inline-flex items-center gap-1.5">
             <span
@@ -214,7 +214,7 @@ export default function TrendChart({
             {STORE_NAME[s.storeId]}
           </span>
         ))}
-        <span className="text-slate-400">
+        <span className="text-ink-faint">
           · 선이 끊긴 곳은 그날 순위권 밖이었거나 수집되지 않았다는 뜻입니다
         </span>
       </div>

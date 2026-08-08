@@ -33,6 +33,11 @@
 CREATE INDEX IF NOT EXISTS idx_rankings_cat_date
     ON rankings(category_id, snapshot_date DESC);
 
+-- 저자 이름으로 검색할 때 쓰는 색인.
+-- 제목·출판사에는 있었는데 저자에만 없어서, 저자 검색이 표 전체를 훑었습니다.
+CREATE INDEX IF NOT EXISTS idx_books_author_trgm
+    ON books USING gin (author gin_trgm_ops);
+
 
 -- ----------------------------------------------------------------------------
 --  2. 수집된 날짜 목록
@@ -391,7 +396,125 @@ $$;
 
 
 -- ----------------------------------------------------------------------------
---  9. 사이트(공개용 열쇠)가 이 기능들을 쓸 수 있게 허용
+--  9. 도서 검색 — 한 책은 한 줄로
+-- ----------------------------------------------------------------------------
+--  【왜 만들었나요? — 2026-08-08 대표님 지적】
+--  "상품 검색하면 하나의 도서가 예스24·알라딘·교보문고로 나뉘어서 나올
+--   필요가 있을까?"
+--  없습니다. 예전 검색은 '서점별 도서' 표를 그대로 보여줘서 같은 책이
+--  세 줄로 나왔습니다. 이제 묶인 책(books) 기준으로 한 줄만 내보내고,
+--  어느 서점에 있는지는 배지로 표시합니다.
+--
+--  돌려주는 값
+--    stores     : 이 책이 있는 서점 번호 배열 (예: {1,2,3})
+--    last_seen  : 마지막으로 순위에 있었던 날
+--    best_rank  : 지금까지 기록한 가장 높은 순위
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.search_books_merged(
+    p_q     text,
+    p_limit int DEFAULT 50
+)
+RETURNS TABLE (
+    book_id    bigint,
+    title      text,
+    author     text,
+    publisher  text,
+    pub_ym     text,
+    cover_url  text,
+    isbn13     text,
+    stores     smallint[],
+    last_seen  date,
+    best_rank  int
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH q AS (SELECT btrim(p_q) AS term),
+    -- MATERIALIZED = 한 번만 계산해서 들고 있기.
+    -- 이게 없으면 아래에서 hit 를 세 번 참조할 때마다 도서 표를 다시 훑습니다.
+    hit AS MATERIALIZED (
+        SELECT b.id, b.title, b.author, b.publisher, b.pub_ym, b.cover_url, b.isbn13
+          FROM books b, q
+         WHERE q.term <> ''
+           AND (b.title     ILIKE '%' || q.term || '%'
+             OR b.author    ILIKE '%' || q.term || '%'
+             OR b.publisher ILIKE '%' || q.term || '%')
+         LIMIT 400
+    ),
+    agg AS (
+        SELECT sb.book_id,
+               array_agg(DISTINCT sb.store_id) AS stores
+          FROM store_books sb
+          JOIN hit ON hit.id = sb.book_id
+         GROUP BY sb.book_id
+    ),
+    seen AS (
+        SELECT sb.book_id,
+               max(r.snapshot_date) AS last_seen,
+               min(r.rank)::int     AS best_rank
+          FROM store_books sb
+          JOIN hit ON hit.id = sb.book_id
+          JOIN rankings r ON r.store_book_id = sb.id
+         GROUP BY sb.book_id
+    )
+    SELECT hit.id, hit.title, hit.author, hit.publisher, hit.pub_ym,
+           hit.cover_url, hit.isbn13,
+           coalesce(agg.stores, '{}'::smallint[]),
+           seen.last_seen, seen.best_rank
+      FROM hit
+      LEFT JOIN agg  ON agg.book_id  = hit.id
+      LEFT JOIN seen ON seen.book_id = hit.id, q
+     -- 제목이 검색어로 '시작' 하는 책을 먼저, 그다음 최근에 순위에 있던 책
+     ORDER BY (hit.title ILIKE q.term || '%') DESC,
+              seen.last_seen DESC NULLS LAST,
+              seen.best_rank ASC NULLS LAST
+     LIMIT greatest(1, least(p_limit, 200));
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  10. 수집 상태 요약 — 서점별로 언제 시작해서 언제 끝났는지
+-- ----------------------------------------------------------------------------
+--  【왜 만들었나요? — 2026-08-08 대표님 지적】
+--  "수집 상태도 분까지는 나왔으면 좋겠고."
+--  예전에는 날짜만 보였습니다. 이제 시작·종료 시각을 분까지 돌려줍니다.
+--  (화면에서 한국시간으로 바꿔 보여줍니다)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.crawl_summary(p_days int DEFAULT 7)
+RETURNS TABLE (
+    snapshot_date date,
+    store_id      smallint,
+    ok_count      int,
+    fail_count    int,
+    items         bigint,
+    started_at    timestamptz,
+    finished_at   timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    SELECT l.snapshot_date,
+           l.store_id,
+           count(*) FILTER (WHERE l.status = 'success')::int,
+           count(*) FILTER (WHERE l.status <> 'success')::int,
+           sum(l.items_collected)::bigint,
+           min(l.started_at),
+           max(coalesce(l.finished_at, l.started_at))
+      FROM crawl_logs l
+     WHERE l.snapshot_date >= (
+             SELECT max(snapshot_date) FROM crawl_logs
+           ) - greatest(0, least(p_days, 90))
+     GROUP BY l.snapshot_date, l.store_id
+     ORDER BY l.snapshot_date DESC, l.store_id;
+$$;
+
+
+-- ----------------------------------------------------------------------------
+--  11. 사이트(공개용 열쇠)가 이 기능들을 쓸 수 있게 허용
 -- ----------------------------------------------------------------------------
 --  둘 다 읽기 전용이고 SECURITY INVOKER 라 보안 잠금을 우회하지 않습니다.
 -- ----------------------------------------------------------------------------
@@ -407,6 +530,10 @@ GRANT EXECUTE ON FUNCTION public.author_ranking(date, text, text, int, int, int)
 GRANT EXECUTE ON FUNCTION public.books_of(text, text, date, text, text, int, int)
     TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.category_share(date, text, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_books_merged(text, int)
+    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.crawl_summary(int)
     TO anon, authenticated;
 
 

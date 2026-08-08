@@ -1,28 +1,92 @@
 /**
- * 화면 곳곳에서 쓰는 기본 조각들.
+ * 화면을 이루는 기본 조각들.
  *
- * 여기 모아 둔 이유: 같은 모양을 페이지마다 따로 만들면 조금씩 달라져서
- * "누더기" 처럼 보입니다. 한 곳에서 만들어 돌려 씁니다.
+ * 같은 모양을 페이지마다 따로 만들면 조금씩 어긋나서 "누더기" 가 됩니다.
+ * 여기서 한 번만 만들고 전부 돌려 씁니다.
  */
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
 
-/* ------------------------------------------------------------------ 카드 */
+/* ═══════════════════════════════════════════════════════════ 페이지 머리 */
+
+/**
+ * 모든 화면 맨 위에 붙는 제목 줄.
+ *
+ * eyebrow(작은 분류 글자)를 반드시 넣게 만들어서, 지금 보고 있는 화면이
+ * '순위' 인지 '분석' 인지 항상 드러나게 합니다.
+ */
+export function PageHead({
+  eyebrow,
+  title,
+  lead,
+  right,
+}: {
+  eyebrow: string;
+  title: ReactNode;
+  lead?: ReactNode;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+      <div className="min-w-0">
+        <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-accent">
+          {eyebrow}
+        </p>
+        <h1 className="mt-1 text-[26px] font-bold leading-tight tracking-[-0.02em] sm:text-3xl">
+          {title}
+        </h1>
+        {lead && (
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">{lead}</p>
+        )}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+/**
+ * "지금 무엇을 보고 있는가" 를 한 줄로 못박는 띠.
+ *
+ * 【왜 만들었나요? — 2026-08-08 대표님 지적】
+ * "지금 순위도 이게 분야 순위인지, 전체 순위인지도 불분명하고."
+ * 순위표만 보면 그 숫자가 무엇 안에서의 순위인지 알 수 없습니다.
+ * 그래서 모든 순위 화면 위에 '범위' 를 문장으로 적어 둡니다.
+ */
+export function ScopeBar({ parts, note }: { parts: ReactNode[]; note?: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface-2 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        {parts.map((p, i) => (
+          <span key={i} className="flex items-center gap-2">
+            {i > 0 && <span className="text-ink-faint">›</span>}
+            {p}
+          </span>
+        ))}
+      </div>
+      {note && <p className="mt-1 text-xs text-ink-soft">{note}</p>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ 카드 */
 
 export function Card({
   children,
   className = "",
+  as: Tag = "section",
 }: {
   children: ReactNode;
   className?: string;
+  as?: "section" | "div" | "article";
 }) {
   return (
-    <section
-      className={`rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}
+    <Tag
+      className={`rounded-2xl border border-line bg-surface shadow-card ${className}`}
     >
       {children}
-    </section>
+    </Tag>
   );
 }
 
@@ -36,32 +100,38 @@ export function CardHead({
   right?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line-soft px-4 py-3.5 sm:px-5">
       <div className="min-w-0">
-        <h2 className="text-[15px] font-bold tracking-tight">{title}</h2>
-        {desc && <p className="mt-0.5 text-xs text-slate-500">{desc}</p>}
+        <h2 className="text-[15px] font-bold tracking-[-0.01em]">{title}</h2>
+        {desc && <p className="mt-0.5 text-xs leading-relaxed text-ink-soft">{desc}</p>}
       </div>
       {right}
     </div>
   );
 }
 
-/* ----------------------------------------------------------- 기간 고르기 */
+/** 카드 안에서 '전체 보기' 같은 작은 버튼 */
+export function GhostLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="shrink-0 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:border-ink-faint hover:text-ink"
+    >
+      {children}
+    </Link>
+  );
+}
 
-/**
- * 일간 / 주간.
- *
- * 【크게 만든 이유 — 2026-08-08 대표님 지적】
- * "주간과 일간 구분도 약하고".
- * 작은 알약 두 개로는 지금 뭘 보고 있는지 눈에 안 들어옵니다.
- * 그래서 큼직한 두 칸으로 만들고, 고른 쪽에 설명까지 붙였습니다.
- */
+/* ═════════════════════════════════════════════════════════ 기간 고르기 */
+
 export function PeriodSwitch({
   period,
   hrefFor,
+  size = "md",
 }: {
   period: "daily" | "weekly";
   hrefFor: (p: "daily" | "weekly") => string;
+  size?: "sm" | "md";
 }) {
   const items = [
     { key: "daily" as const, label: "일간", sub: "어제 하루" },
@@ -69,9 +139,9 @@ export function PeriodSwitch({
   ];
   return (
     <div
-      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1"
+      className="inline-flex rounded-xl border border-line bg-surface-2 p-1"
       role="group"
-      aria-label="집계 기간"
+      aria-label="집계 기간 고르기"
     >
       {items.map((it) => {
         const on = it.key === period;
@@ -80,18 +150,20 @@ export function PeriodSwitch({
             key={it.key}
             href={hrefFor(it.key)}
             aria-current={on ? "true" : undefined}
-            className={`rounded-md px-4 py-1.5 text-center transition-colors ${
+            className={`rounded-lg text-center transition-colors ${
+              size === "sm" ? "px-3 py-1" : "px-4 py-1.5"
+            } ${
               on
-                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                : "text-slate-500 hover:text-slate-800"
+                ? it.key === "weekly"
+                  ? "bg-surface text-weekly shadow-card ring-1 ring-line"
+                  : "bg-surface text-daily shadow-card ring-1 ring-line"
+                : "text-ink-faint hover:text-ink-soft"
             }`}
           >
             <span className="block text-sm font-bold">{it.label}</span>
-            <span
-              className={`block text-[11px] ${on ? "text-slate-500" : "text-slate-400"}`}
-            >
-              {it.sub}
-            </span>
+            {size === "md" && (
+              <span className="block text-2xs opacity-70">{it.sub}</span>
+            )}
           </Link>
         );
       })}
@@ -99,7 +171,32 @@ export function PeriodSwitch({
   );
 }
 
-/* ------------------------------------------------------------------ 알약 */
+/** 일간/주간 배지 — 표·제목 어디에나 붙일 수 있게 */
+export function PeriodBadge({
+  period,
+  withHelp = false,
+}: {
+  period: "daily" | "weekly";
+  withHelp?: boolean;
+}) {
+  const weekly = period === "weekly";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-2xs font-semibold ${
+        weekly ? "bg-weekly-soft text-weekly" : "bg-daily-soft text-daily"
+      }`}
+    >
+      {weekly ? "주간" : "일간"}
+      {withHelp && (
+        <span className="font-normal opacity-80">
+          · {weekly ? "최근 7일 누적" : "어제 하루"}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════ 고르기 */
 
 export function Pill({
   href,
@@ -119,8 +216,8 @@ export function Pill({
       aria-current={active ? "true" : undefined}
       className={`rounded-full border px-3 py-1 text-xs transition-colors ${
         active
-          ? "border-slate-900 bg-slate-900 font-medium text-white"
-          : "border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-900"
+          ? "border-transparent bg-accent font-semibold text-accent-ink"
+          : "border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink"
       }`}
     >
       {children}
@@ -128,102 +225,164 @@ export function Pill({
   );
 }
 
-export function FieldLabel({ children }: { children: ReactNode }) {
+export function FieldLabel({
+  children,
+  hint,
+}: {
+  children: ReactNode;
+  hint?: string;
+}) {
   return (
-    <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+    <h3 className="mb-1.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.1em] text-ink-faint">
       {children}
+      {hint && <span className="normal-case tracking-normal opacity-80">{hint}</span>}
     </h3>
   );
 }
 
-/* -------------------------------------------------------------- 순위 배지 */
+/* ═══════════════════════════════════════════════════════════════ 순위 배지 */
 
-/** 1~3위는 눈에 띄게, 나머지는 담백하게 */
-export function RankBadge({ rank, size = "md" }: { rank: number; size?: "sm" | "md" }) {
-  const medal =
+export function RankBadge({
+  rank,
+  size = "md",
+}: {
+  rank: number;
+  size?: "sm" | "md";
+}) {
+  const top =
     rank === 1
-      ? "bg-amber-100 text-amber-900 ring-amber-200"
+      ? "bg-amber-400/15 text-amber-700 ring-amber-400/40 dark:text-amber-300"
       : rank === 2
-        ? "bg-slate-200 text-slate-700 ring-slate-300"
+        ? "bg-slate-400/15 text-ink-soft ring-slate-400/40 dark:text-ink-faint"
         : rank === 3
-          ? "bg-orange-100 text-orange-900 ring-orange-200"
-          : "bg-white text-slate-700 ring-slate-200";
+          ? "bg-orange-400/15 text-orange-700 ring-orange-400/40 dark:text-orange-300"
+          : "bg-surface-2 text-ink-soft ring-line";
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-lg ring-1 tabular-nums ${medal} ${
-        size === "sm" ? "h-6 min-w-[1.5rem] px-1 text-xs" : "h-8 min-w-[2rem] px-1.5 text-sm"
-      } font-bold`}
+      className={`tnum inline-flex items-center justify-center rounded-lg font-bold ring-1 ${top} ${
+        size === "sm" ? "h-6 min-w-[1.75rem] px-1 text-xs" : "h-8 min-w-[2.25rem] px-1.5 text-sm"
+      }`}
     >
       {rank}
     </span>
   );
 }
 
-/* ------------------------------------------------------------- 통계 타일 */
+/* ═══════════════════════════════════════════════════════════════ 서점 배지 */
+
+export function StoreChip({
+  id,
+  rank,
+  size = "md",
+}: {
+  id: number;
+  rank?: number | null;
+  size?: "sm" | "md";
+}) {
+  const s = store(id);
+  const off = rank === null || rank === undefined;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md font-medium ${
+        size === "sm" ? "px-1.5 py-0.5 text-2xs" : "px-2 py-1 text-xs"
+      } ${off ? "bg-surface-2 text-ink-faint ring-1 ring-line" : s.chip}`}
+      title={off ? `${s.name} 순위 밖` : `${s.name} ${rank}위`}
+    >
+      {s.short}
+      {rank !== undefined && (
+        <span className="tnum font-bold">{off ? "–" : `${rank}`}</span>
+      )}
+    </span>
+  );
+}
+
+/** 3사 순위를 한 줄로 (표·목록에서 자리를 아낄 때) */
+export function StoreRankStrip({ ranks }: { ranks: Record<number, number> }) {
+  return (
+    <span className="flex gap-1">
+      {STORE_ORDER.map((sid: StoreId) => (
+        <StoreChip key={sid} id={sid} rank={ranks[sid] ?? null} size="sm" />
+      ))}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════ 통계 타일 */
 
 export function StatTile({
   label,
   value,
   unit,
   hint,
+  tone = "plain",
 }: {
   label: string;
   value: ReactNode;
   unit?: string;
   hint?: string;
+  tone?: "plain" | "accent";
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3" title={hint}>
-      <div className="text-xs text-slate-500">{label}</div>
+    <div
+      className={`rounded-xl border px-4 py-3 ${
+        tone === "accent"
+          ? "border-transparent bg-accent-soft"
+          : "border-line bg-surface"
+      }`}
+      title={hint}
+    >
+      <div className="text-xs text-ink-soft">{label}</div>
       <div className="mt-1 flex items-baseline gap-1">
-        <span className="text-xl font-bold tabular-nums tracking-tight">{value}</span>
-        {unit && <span className="text-xs text-slate-500">{unit}</span>}
+        <span className="tnum truncate text-xl font-bold tracking-[-0.02em]">
+          {value}
+        </span>
+        {unit && <span className="shrink-0 text-xs text-ink-soft">{unit}</span>}
       </div>
+      {hint && <div className="mt-1 text-2xs leading-snug text-ink-faint">{hint}</div>}
     </div>
   );
 }
 
-/* ------------------------------------------------------------ 가로 막대 */
+/* ═══════════════════════════════════════════════════════════════ 가로 막대 */
 
-/**
- * 크기를 비교해 보여주는 가로 막대 목록.
- *
- * 파이 차트를 쓰지 않은 이유: 항목이 10개가 넘고, 한 책이 여러 분야에
- * 걸치기 때문에 합이 100%가 아닙니다. 파이로 그리면 거짓말이 됩니다.
- * 막대는 '몇 권' 을 그대로 보여주므로 정직합니다.
- */
 export function BarList({
   items,
-  max,
   hrefFor,
+  unit = "",
 }: {
-  items: { key: string; label: string; value: number; note?: string }[];
-  max?: number;
+  items: { key: string; label: string; value: number; sub?: string }[];
   hrefFor?: (key: string) => string;
+  unit?: string;
 }) {
-  const top = max ?? Math.max(1, ...items.map((i) => i.value));
+  const top = Math.max(1, ...items.map((i) => i.value));
   return (
-    <ul className="divide-y divide-slate-100">
-      {items.map((it) => {
+    <ul className="divide-y divide-line-soft">
+      {items.map((it, i) => {
         const pct = Math.max(2, Math.round((it.value / top) * 100));
         const body = (
           <>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="truncate text-sm font-medium text-slate-800">
-                {it.label}
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span className="tnum w-4 shrink-0 text-2xs text-ink-faint">
+                  {i + 1}
+                </span>
+                <span className="truncate text-sm font-medium">{it.label}</span>
               </span>
-              <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900">
+              <span className="tnum shrink-0 text-sm font-bold">
                 {it.value.toLocaleString()}
-                {it.note && (
-                  <span className="ml-1 text-xs font-normal text-slate-400">
-                    {it.note}
+                {unit && (
+                  <span className="ml-0.5 text-2xs font-normal text-ink-faint">
+                    {unit}
                   </span>
                 )}
               </span>
             </div>
-            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            {it.sub && (
+              <p className="ml-6 mt-0.5 truncate text-2xs text-ink-faint">{it.sub}</p>
+            )}
+            <div className="ml-6 mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
               <div
-                className="h-full rounded-full bg-blue-600"
+                className="h-full rounded-full bg-accent"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -232,7 +391,10 @@ export function BarList({
         return (
           <li key={it.key} className="px-4 py-2.5 sm:px-5">
             {hrefFor ? (
-              <Link href={hrefFor(it.key)} className="block hover:opacity-80">
+              <Link
+                href={hrefFor(it.key)}
+                className="block rounded-lg transition-opacity hover:opacity-75"
+              >
                 {body}
               </Link>
             ) : (
@@ -245,15 +407,59 @@ export function BarList({
   );
 }
 
-/* --------------------------------------------------------------- 빈 상태 */
+/* ═══════════════════════════════════════════════════════════════ 빈 상태 */
 
-export function Empty({ children }: { children: ReactNode }) {
+export function Empty({
+  title,
+  children,
+  action,
+}: {
+  title?: string;
+  children?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div className="px-4 py-12 text-center text-sm text-slate-500">{children}</div>
+    <div className="px-4 py-14 text-center">
+      {title && <p className="text-sm font-semibold text-ink-soft">{title}</p>}
+      {children && (
+        <div className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-ink-faint">
+          {children}
+        </div>
+      )}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
   );
 }
 
-/** 값이 없을 때 지어내지 않고 그대로 알립니다 */
-export function NoValue({ label = "없음" }: { label?: string }) {
-  return <span className="text-xs text-slate-400">{label}</span>;
+/** 값이 없을 때 — 지어내지 않고 그대로 알립니다 */
+export function NoValue({ label = "없음", why }: { label?: string; why?: string }) {
+  return (
+    <span className="text-xs text-ink-faint" title={why}>
+      {label}
+    </span>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════ 접기 설명 */
+
+export function Explain({
+  summary,
+  children,
+}: {
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="group rounded-2xl border border-line bg-surface px-4 py-3 sm:px-5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold text-ink-soft">
+        {summary}
+        <span className="text-ink-faint transition-transform group-open:rotate-180">
+          ⌄
+        </span>
+      </summary>
+      <div className="mt-2.5 space-y-1.5 text-sm leading-relaxed text-ink-soft">
+        {children}
+      </div>
+    </details>
+  );
 }

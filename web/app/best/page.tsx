@@ -6,8 +6,10 @@ import {
   CardHead,
   Empty,
   FieldLabel,
+  PeriodBadge,
   PeriodSwitch,
   Pill,
+  ScopeBar,
 } from "@/components/ui";
 import { configError, STORE_NAME } from "@/lib/supabase";
 import {
@@ -19,6 +21,9 @@ import {
   PERIOD_LABEL,
   type Period,
 } from "@/lib/queries";
+import { dayLabel } from "@/lib/format";
+
+export const metadata = { title: "종합 순위" };
 
 export const revalidate = 600;
 
@@ -96,13 +101,28 @@ export default async function BestPage({
             순위 · 종합
           </p>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight">종합 베스트셀러</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-soft">
             교보문고·예스24·알라딘 <strong>3사의 순위를 평균</strong>낸 순위입니다.
             한 서점의 이벤트나 매대 밀어주기에 흔들리지 않습니다.
           </p>
         </div>
         <PeriodSwitch period={period} hrefFor={(p) => href({ period: p, cat: "" })} />
       </div>
+
+      {/* 지금 보고 있는 것이 무엇인지 문장으로 못박습니다 */}
+      <ScopeBar
+        parts={[
+          <span key="a" className="font-semibold">3사 종합</span>,
+          <PeriodBadge key="b" period={period} withHelp />,
+          <span key="c" className="font-semibold">{label}</span>,
+          <span key="d" className="text-ink-soft">{dayLabel(date)}</span>,
+        ]}
+        note={
+          unified === "all"
+            ? "‘전체’ 는 분야를 가리지 않은 종합 순위입니다. 아래 숫자는 3사 순위의 평균으로 매긴 자리입니다."
+            : `‘${label}’ 분야 안에서의 순위입니다. 전체 순위와는 다릅니다.`
+        }
+      />
 
       {!fast && (
         <SetupNotice what="지금은 느린 방식으로 계산하고 있습니다. 자료가 쌓일수록 더 느려집니다." />
@@ -163,15 +183,7 @@ export default async function BestPage({
           title={
             <span className="flex flex-wrap items-center gap-2">
               {label}
-              <span
-                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                  period === "weekly"
-                    ? "bg-violet-100 text-violet-800"
-                    : "bg-sky-100 text-sky-800"
-                }`}
-              >
-                {PERIOD_LABEL[period]} · {PERIOD_HELP[period]}
-              </span>
+              <PeriodBadge period={period} withHelp />
             </span>
           }
           desc={`${date} 기준 · ${rows.length}종 · 각 서점 ${depth}위까지 봄`}
@@ -186,7 +198,7 @@ export default async function BestPage({
             </p>
           </Empty>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line-soft">
             {rows.map((r, i) => (
               <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
             ))}
@@ -195,11 +207,11 @@ export default async function BestPage({
       </Card>
 
       {/* ============ 계산 방법 ============ */}
-      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm sm:px-5">
-        <summary className="cursor-pointer font-semibold text-slate-700">
+      <details className="rounded-xl border border-line bg-surface px-4 py-3 text-sm sm:px-5">
+        <summary className="cursor-pointer font-semibold text-ink-soft">
           이 순위는 어떻게 계산했나요?
         </summary>
-        <ul className="mt-2 space-y-1 text-slate-600">
+        <ul className="mt-2 space-y-1 text-ink-soft">
           <li>
             · 각 서점의 <strong>{depth}위까지</strong>를 가져와, 같은 책으로 묶인
             것끼리 모읍니다.
@@ -222,7 +234,7 @@ export default async function BestPage({
             &lsquo;판매지수&rsquo;와 알라딘 &lsquo;세일즈포인트&rsquo;는 계산식이
             다른 별개의 값이라 섞으면 뜻이 없어집니다.
           </li>
-          <li className="text-slate-500">
+          <li className="text-ink-soft">
             · 이 분야로 쓴 목록:{" "}
             {usedCategories
               .map((c) => `${STORE_NAME[c.store_id]} ${c.name}`)

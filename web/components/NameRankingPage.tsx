@@ -6,6 +6,7 @@ import {
   CardHead,
   Empty,
   FieldLabel,
+  PeriodBadge,
   PeriodSwitch,
   Pill,
   RankBadge,
@@ -84,7 +85,7 @@ export default async function NameRankingPage({
             분석 · {word}
           </p>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{word}별 순위</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-soft">
             3사 평균 순위를 바탕으로 <strong>어느 {word}가 상위권을 많이 차지하고
             있는지</strong> 봅니다. 이름을 누르면 그 {word}의 책 목록이 나옵니다.
           </p>
@@ -124,15 +125,7 @@ export default async function NameRankingPage({
           title={
             <span className="flex flex-wrap items-center gap-2">
               {label} · {word} TOP {rows.length}
-              <span
-                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                  period === "weekly"
-                    ? "bg-violet-100 text-violet-800"
-                    : "bg-sky-100 text-sky-800"
-                }`}
-              >
-                {PERIOD_LABEL[period]} · {PERIOD_HELP[period]}
-              </span>
+              <PeriodBadge period={period} withHelp />
             </span>
           }
           desc={`${date} 기준 · 각 서점 ${depth}위까지 봄`}
@@ -148,7 +141,7 @@ export default async function NameRankingPage({
           <div className="scroll-x">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-xs text-slate-500">
+                <tr className="border-b border-line-soft text-xs text-ink-soft">
                   <th className="w-14 px-4 py-2 text-left">순위</th>
                   <th className="px-3 py-2 text-left">{word}</th>
                   <th className="w-20 px-3 py-2 text-right">올린 책</th>
@@ -160,7 +153,7 @@ export default async function NameRankingPage({
                 {rows.map((r, i) => (
                   <tr
                     key={r.name}
-                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+                    className="border-b border-slate-50 last:border-0 hover:bg-surface-2"
                   >
                     <td className="px-4 py-2.5">
                       <RankBadge rank={i + 1} size="sm" />
@@ -173,20 +166,20 @@ export default async function NameRankingPage({
                         {r.name}
                       </Link>
                       {r.topTitles.length > 0 && (
-                        <p className="mt-0.5 truncate text-xs text-slate-400">
+                        <p className="mt-0.5 truncate text-xs text-ink-faint">
                           {r.topTitles.join(" · ")}
                         </p>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-medium tabular-nums">
+                    <td className="px-3 py-2.5 text-right font-medium tnum">
                       {r.books}
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                    <td className="px-3 py-2.5 text-right tnum text-ink-soft">
                       {r.bestRank.toFixed(1)}위
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
                           <div
                             className="h-full rounded-full bg-blue-600"
                             style={{
@@ -194,7 +187,7 @@ export default async function NameRankingPage({
                             }}
                           />
                         </div>
-                        <span className="w-14 text-right font-bold tabular-nums">
+                        <span className="w-14 text-right font-bold tnum">
                           {r.score.toLocaleString()}
                         </span>
                       </div>
@@ -207,11 +200,11 @@ export default async function NameRankingPage({
         )}
       </Card>
 
-      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm sm:px-5">
-        <summary className="cursor-pointer font-semibold text-slate-700">
+      <details className="rounded-xl border border-line bg-surface px-4 py-3 text-sm sm:px-5">
+        <summary className="cursor-pointer font-semibold text-ink-soft">
           점수는 어떻게 매기나요?
         </summary>
-        <div className="mt-2 space-y-1 text-slate-600">
+        <div className="mt-2 space-y-1 text-ink-soft">
           <p>
             책 한 권마다 <strong>({depth} + 1) − 평균순위</strong> 만큼 점수를 주고,
             그 {word}의 책을 전부 더합니다.
@@ -226,14 +219,14 @@ export default async function NameRankingPage({
             장악력</strong>을 봅니다.
           </p>
           {kind === "publisher" && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-soft">
               ※ 출판사 표기는 서점마다 다릅니다((주)문학동네 / 문학동네).
               &lsquo;(주)·주식회사·㈜&rsquo; 만 떼고 묶습니다. 그 이상은 임의로
               합치지 않습니다. 임프린트도 그대로 둡니다.
             </p>
           )}
           {kind === "author" && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-soft">
               ※ 저자는 서점 목록에 적힌 대표 저자 기준입니다. 공저·번역자는 대표
               1인으로 정리된 값을 씁니다.
             </p>

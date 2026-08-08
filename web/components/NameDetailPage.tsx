@@ -79,13 +79,13 @@ export default async function NameDetailPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-soft">
             <Link href={listHref} className="hover:underline">
               분석 · {word}별 순위
             </Link>
           </p>
           <h1 className="mt-0.5 truncate text-2xl font-bold tracking-tight">{name}</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-soft">
             {date} 기준 · {PERIOD_LABEL[period]}({PERIOD_HELP[period]}) 순위에 올라
             있는 책
           </p>
@@ -129,7 +129,7 @@ export default async function NameDetailPage({
               : "데이터베이스 계산 기능이 켜지면 여기에 목록이 나옵니다."}
           </Empty>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line-soft">
             {rows.map((r, i) => (
               <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
             ))}
@@ -137,7 +137,7 @@ export default async function NameDetailPage({
         )}
       </Card>
 
-      <p className="px-1 text-xs text-slate-500">
+      <p className="px-1 text-xs text-ink-soft">
         ※ 순위 번호는 <strong>이 {word}의 책들 안에서의 차례</strong>입니다.
         전체 순위가 아닙니다. 각 책의 실제 순위는 서점별 칸에 적혀 있습니다.
       </p>

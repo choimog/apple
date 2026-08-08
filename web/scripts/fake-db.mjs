@@ -103,6 +103,31 @@ const RPC = {
   publisher_ranking: (b) => nameRank(Math.min(b?.p_limit ?? 50, 50), pubs),
   author_ranking: (b) => nameRank(Math.min(b?.p_limit ?? 50, 50), auths),
   books_of: () => combined(12),
+  search_books_merged: (b) =>
+    Array.from({ length: Math.min(b?.p_limit ?? 12, 12) }, (_, i) => ({
+      book_id: 1000 + i,
+      title: title(i + 1),
+      author: auths[i % auths.length],
+      publisher: pubs[i % pubs.length],
+      pub_ym: "2026-07",
+      cover_url: null,
+      isbn13: i % 2 ? "9791234567890" : null,
+      stores: i % 3 === 0 ? [1, 2, 3] : i % 3 === 1 ? [2] : [1, 3],
+      last_seen: DATES[i % DATES.length],
+      best_rank: i + 1,
+    })),
+  crawl_summary: () =>
+    DATES.flatMap((d, di) =>
+      STORES.map((s) => ({
+        snapshot_date: d,
+        store_id: s,
+        ok_count: 60 - di,
+        fail_count: di === 1 && s === 1 ? 2 : 0,
+        items: 40000 - di * 300 - s * 100,
+        started_at: `${d}T21:0${s}:00.000Z`,
+        finished_at: `${d}T22:1${s}:00.000Z`,
+      }))
+    ),
   category_share: () =>
     ["소설", "에세이", "경제경영", "인문", "자기계발", "어린이"].map((l, i) => ({
       unified_code: `u${i}`,

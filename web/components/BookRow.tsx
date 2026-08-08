@@ -1,12 +1,9 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import SalesPoint from "@/components/SalesPoint";
-import { RankBadge } from "@/components/ui";
-import { STORE_COLOR, STORE_NAME } from "@/lib/supabase";
+import { NoValue, RankBadge } from "@/components/ui";
+import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
 import type { CombinedRow } from "@/lib/queries";
-
-const STORE_ORDER = [1, 2, 3]; // 교보 · 예스24 · 알라딘
-const SALES_STORES = new Set([2, 3]); // 판매지수를 제공하는 서점
 
 /**
  * 종합 순위 한 줄.
@@ -29,10 +26,10 @@ export default function BookRow({
     <li className="flex items-start gap-3 px-4 py-3.5 sm:px-5">
       <div className="w-11 shrink-0 pt-0.5 text-center">
         <RankBadge rank={position} />
-        <div className="mt-1 text-[10px] leading-tight text-slate-400">
+        <div className="mt-1 text-[10px] leading-tight text-ink-faint">
           평균
           <br />
-          <span className="font-medium text-slate-500 tabular-nums">
+          <span className="font-medium text-ink-soft tnum">
             {row.avgRank.toFixed(1)}위
           </span>
         </div>
@@ -48,60 +45,59 @@ export default function BookRow({
           {row.title}
         </Link>
 
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-soft">
           {row.author ? (
             <Link
               href={`/author/${encodeURIComponent(row.author)}`}
-              className="hover:text-slate-900 hover:underline"
+              className="hover:text-ink hover:underline"
             >
               {row.author}
             </Link>
           ) : (
-            <span className="text-slate-400">저자 정보 없음</span>
+            <span className="text-ink-faint">저자 정보 없음</span>
           )}
           {row.publisher && (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-ink-faint">·</span>
               <Link
                 href={`/publisher/${encodeURIComponent(row.publisher)}`}
-                className="hover:text-slate-900 hover:underline"
+                className="hover:text-ink hover:underline"
               >
                 {row.publisher}
               </Link>
             </>
           )}
-          <span className="text-slate-300">·</span>
+          <span className="text-ink-faint">·</span>
           <span>{row.storeCount}개 서점</span>
         </p>
 
         {/* 3사 순위 + 판매지수 */}
         <div className="mt-2 grid grid-cols-3 gap-1.5">
-          {STORE_ORDER.map((sid) => {
+          {STORE_ORDER.map((sid: StoreId) => {
             const rank = row.ranks[sid];
             const has = rank !== undefined;
+            const s = store(sid);
             return (
               <div
                 key={sid}
                 className={`rounded-lg border px-2 py-1.5 ${
-                  has ? "border-slate-200 bg-white" : "border-dashed border-slate-200 bg-slate-50/60"
+                  has ? "border-line bg-surface" : "border-dashed border-line bg-surface-2"
                 }`}
               >
                 <div className="flex items-baseline justify-between gap-1">
                   <span
-                    className={`rounded px-1 py-px text-[10px] font-medium ${STORE_COLOR[sid]}`}
+                    className={`rounded px-1.5 py-px text-2xs font-medium ${s.chip}`}
                   >
-                    {STORE_NAME[sid]}
+                    {s.short}
                   </span>
-                  <span className="text-[13px] font-bold tabular-nums">
+                  <span className="text-[13px] font-bold tnum">
                     {has ? (
                       `${rank}위`
                     ) : (
-                      <span
-                        className="text-[11px] font-normal text-slate-400"
-                        title={`${depth}위 안에 없습니다`}
-                      >
-                        순위 밖
-                      </span>
+                      <NoValue
+                        label="순위 밖"
+                        why={`${s.name} ${depth}위 안에 없습니다`}
+                      />
                     )}
                   </span>
                 </div>
@@ -109,7 +105,7 @@ export default function BookRow({
                   <div className="mt-0.5">
                     <SalesPoint
                       value={row.sales[sid] ?? null}
-                      storeProvides={SALES_STORES.has(sid)}
+                      storeProvides={s.hasSalesPoint}
                       size="sm"
                     />
                   </div>

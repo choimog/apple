@@ -164,37 +164,64 @@ def split_by_publisher(
     그래서 무리를 다 만든 뒤 마지막으로 한 번 더 확인해서 갈라냅니다.
 
     출판사를 모르는 책은, 점수가 가장 높았던 상대 쪽에 붙입니다.
+
+    【빠르기 — 2026-08-08】
+    처음에는 무리 안의 책을 두 권씩 전부 비교했습니다. 그런데 한 무리가
+    수백 권이 되는 경우가 있어서, 이름 비교(느린 계산)가 수백만 번 돌아
+    매칭이 2분에서 15분 넘게 늘어났습니다.
+    지금은 '책' 이 아니라 '출판사 이름' 끼리 비교합니다. 한 무리에 나오는
+    출판사 이름은 보통 한두 개뿐이라 비교 횟수가 거의 사라집니다.
     """
-    known = [i for i in cluster if by_id[i].get("norm_publisher")]
-    unknown = [i for i in cluster if not by_id[i].get("norm_publisher")]
+    known: dict[str, list[int]] = defaultdict(list)   # 출판사 이름 → 책들
+    unknown: list[int] = []
+    for i in cluster:
+        p = by_id[i].get("norm_publisher")
+        if p:
+            known[p].append(i)
+        else:
+            unknown.append(i)
 
-    # 닮은 출판사끼리 먼저 묶습니다 ((주)민음사 와 민음사는 같은 편)
-    pub_groups = Groups()
-    for i in known:
-        pub_groups.find(i)
-    for x in range(len(known)):
-        for y in range(x + 1, len(known)):
-            a, b = known[x], known[y]
-            if similarity(by_id[a]["norm_publisher"],
-                          by_id[b]["norm_publisher"]) >= floor:
-                pub_groups.union(a, b)
+    names = list(known)
+    if len(names) <= 1:
+        return [cluster]           # 출판사가 하나뿐이거나 전부 모릅니다
 
-    parts = pub_groups.clusters()
-    if len(parts) <= 1:
-        return [cluster]           # 섞이지 않았습니다. 그대로 둡니다.
+    # 닮은 이름끼리 먼저 묶습니다 ((주)민음사 와 민음사는 같은 편).
+    # 비교 대상은 '이름' 이라서 보통 몇 개뿐입니다.
+    name_groups = Groups()
+    for x in range(len(names)):
+        name_groups.find(x)
+        for y in range(x + 1, len(names)):
+            if similarity(names[x], names[y]) >= floor:
+                name_groups.union(x, y)
 
-    # 출판사를 모르는 책을 어느 쪽에 붙일지 정합니다
+    name_parts = name_groups.clusters()
+    if len(name_parts) <= 1:
+        return [cluster]           # 표기만 다른 같은 출판사였습니다
+
+    # 이름 무리 → 책 목록
+    parts: dict[int, list[int]] = {}
+    root_of: dict[int, int] = {}   # 책 id → 이름 무리 대표
+    for root, idxs in name_parts.items():
+        ids: list[int] = []
+        for x in idxs:
+            ids.extend(known[names[x]])
+        parts[root] = ids
+        for i in ids:
+            root_of[i] = root
+
+    # 출판사를 모르는 책을 어느 쪽에 붙일지 정합니다.
+    # 이 무리 안에서 실제로 짝지어진 기록만 봅니다 (없으면 혼자 둡니다).
     for i in unknown:
         best_root, best_score = None, -1.0
-        for j in known:
+        for j, root in root_of.items():
             lo, hi = (i, j) if i < j else (j, i)
-            s = pair_score.get((lo, hi), -1.0)
-            if s > best_score:
-                best_root, best_score = pub_groups.find(j), s
-        if best_root is not None and best_score >= 0:
+            s = pair_score.get((lo, hi))
+            if s is not None and s > best_score:
+                best_root, best_score = root, s
+        if best_root is not None:
             parts[best_root].append(i)
         else:
-            parts.setdefault(i, []).append(i)   # 붙일 곳이 없으면 혼자
+            parts[i] = [i]         # 붙일 근거가 없으면 혼자
 
     return [sorted(p) for p in parts.values()]
 

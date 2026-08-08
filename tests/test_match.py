@@ -248,6 +248,21 @@ parts4 = split_by_publisher([1, 2, 3, 4], by_id4, {}, FLOOR)
 check("출판사 4곳의 싯다르타는 4권으로 갈라진다", len(parts4), 4)
 
 
+# 큰 무리에서도 빨라야 합니다.
+# 【2026-08-08】 처음에는 책을 두 권씩 전부 비교해서, 한 무리가 커지면
+# 매칭이 2분 → 15분 넘게 늘어났습니다. 지금은 '출판사 이름' 끼리만
+# 비교하므로 무리가 커져도 느려지지 않습니다.
+import time as _time                                      # noqa: E402
+big = {}
+for i in range(1, 801):
+    big[i] = sb(i, (i % 3) + 1, "민음사" if i % 2 else "문학동네")
+_t = _time.monotonic()
+big_parts = split_by_publisher(list(big), big, {}, FLOOR)
+_elapsed = _time.monotonic() - _t
+check("800권 무리도 두 출판사로 갈라진다", len(big_parts), 2)
+check(f"800권 무리를 1초 안에 처리한다 ({_elapsed:.2f}초)", _elapsed < 1.0, True)
+
+
 print("\n" + "=" * 60)
 if failures:
     print(f"  ❌ 실패 {len(failures)}건: {', '.join(failures)}")

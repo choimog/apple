@@ -191,7 +191,8 @@ export default async function StorePage({
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <FieldLabel>{tab === "branch" ? "매장" : "분야"}</FieldLabel>
-            <div className="scroll-x flex max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
+            {/* 종합(전체)이 항상 맨 앞에 옵니다 — lib/queries.ts 의 overallFirst */}
+            <div className="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
               {list.map((c) => (
                 <Pill
                   key={c.id}

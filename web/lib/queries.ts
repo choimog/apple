@@ -163,6 +163,28 @@ export type StoreTree = {
 };
 
 /**
+ * 종합(전체) 분야를 맨 앞으로.
+ *
+ * 【왜 필요한가요? — 2026-08-08 대표님 지적】
+ * "자꾸 알라딘 온라인일간에서 종합이 안 보이네."
+ *
+ * 분야 목록은 데이터베이스에 등록된 차례(번호순)로 보여줬습니다. 그런데
+ * 알라딘 종합은 수집 주소가 바뀌면서 나중에 다시 등록돼서, 번호가 다른
+ * 분야보다 훨씬 큽니다. 그래서 목록 맨 끝으로 밀렸고, 목록 상자는 높이가
+ * 정해져 있어 스크롤해야만 보였습니다.
+ *
+ * 번호와 상관없이 '종합' 을 항상 맨 앞에 둡니다. 가장 많이 보는 분야이므로
+ * 첫 번째로 보이는 것이 맞고, 앞으로 주소가 또 바뀌어도 밀리지 않습니다.
+ */
+function overallFirst(list: Category[]): Category[] {
+  return [...list].sort((a, b) => {
+    const ao = a.unified_code === "all" ? 0 : 1;
+    const bo = b.unified_code === "all" ? 0 : 1;
+    return ao !== bo ? ao - bo : a.id - b.id;
+  });
+}
+
+/**
  * 서점 → 기간 → 분야 의 3단계로 고를 수 있게 분류합니다.
  *
  * 예전에는 208개를 한 줄에 전부 늘어놓아서 원하는 분야를 찾을 수 없었습니다.
@@ -173,8 +195,8 @@ export function buildStoreTree(cats: Category[]): StoreTree[] {
     const mine = cats.filter((c) => c.store_id === storeId);
     return {
       storeId,
-      daily: mine.filter((c) => c.kind === "online"),
-      weekly: mine.filter((c) => c.kind === "weekly"),
+      daily: overallFirst(mine.filter((c) => c.kind === "online")),
+      weekly: overallFirst(mine.filter((c) => c.kind === "weekly")),
       branches: mine
         .filter((c) => c.kind === "offline")
         .sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ko")),
@@ -563,8 +585,9 @@ export function unifiedOptions(
     }))
     .sort(
       (a, b) =>
+        // 종합(전체)은 무조건 맨 앞. 가장 많이 보는 분야입니다.
+        (a.code === "all" ? 0 : 1) - (b.code === "all" ? 0 : 1) ||
         b.storeCount - a.storeCount ||
-        (a.code === "all" ? -1 : b.code === "all" ? 1 : 0) ||
         a.label.localeCompare(b.label, "ko")
     );
 }

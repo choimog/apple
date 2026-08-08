@@ -506,6 +506,29 @@ def main() -> int:
                 referer=origin_url,
             )
 
+        # ---- 설정에 있는 분야를 먼저 DB 에 등록합니다 ----
+        # 수집이 실패한 분야도 '설정에 있는 분야' 이므로 여기서 등록해 둡니다.
+        # 그래야 아래 정리 단계에서 실수로 꺼버리지 않습니다.
+        live_ids: set[int] = set()
+        for task in store_tasks:
+            try:
+                live_ids.add(db.sync_category(client, task))
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠️ 분야 등록 실패({task.label()}): {exc}")
+
+        # ---- 설정에서 빠진 분야를 '수집 안 함' 으로 바꿉니다 ----
+        # 지우지 않고 끄기만 합니다. 지난 순위 기록은 그대로 남습니다.
+        if not dry_run:
+            try:
+                turned_off = db.disable_missing_categories(
+                    client, store_tasks[0].store_id, live_ids
+                )
+                if turned_off:
+                    print(f"\n🧹 설정에 없는 분야 {len(turned_off)}개를 껐습니다 "
+                          f"(기록은 남아 있습니다): {', '.join(turned_off[:10])}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠️ 분야 정리 실패(수집에는 영향 없음): {exc}")
+
         with fetcher as http:
             for task in store_tasks:
                 try:

@@ -93,6 +93,42 @@ def sync_category(client: Client, task) -> int:
     return res.data[0]["id"]
 
 
+def disable_missing_categories(
+    client: Client, store_id: int, keep_ids: set[int]
+) -> list[str]:
+    """
+    설정 파일(sources.yaml)에서 빠진 분야를 DB 에서 '수집 안 함' 으로 바꿉니다.
+
+    【왜 필요한가요? — 2026-08-08 발견】
+    설정에서 분야를 지워도 DB 의 그 줄은 켜진 채로 남습니다.
+    그러면 사이트 분야 목록에는 계속 보이는데 눌러도 아무것도 안 나옵니다.
+    실제로 설정 208개인데 DB 에는 209개가 켜져 있었습니다.
+
+    지우지 않고 끄기만 합니다. 지난 순위 기록은 그대로 보존됩니다.
+    (설정에 다시 넣으면 다음 수집 때 자동으로 다시 켜집니다)
+
+    ※ 반드시 '이번에 수집한 서점' 에 대해서만 부르세요.
+      교보만 돌리는 작업에서 전체를 검사하면 예스24·알라딘이 전부 꺼집니다.
+    """
+    rows = _select_all(
+        lambda: client.table("categories")
+        .select("id,name,kind,branch_name")
+        .eq("store_id", store_id)
+        .eq("enabled", True)
+    )
+    stale = [r for r in rows if r["id"] not in keep_ids]
+    if not stale:
+        return []
+
+    client.table("categories").update({"enabled": False}).in_(
+        "id", [r["id"] for r in stale]
+    ).execute()
+    return [
+        f"{r['branch_name'] + '/' if r['branch_name'] else ''}{r['name']}({r['kind']})"
+        for r in stale
+    ]
+
+
 # -----------------------------------------------------------------------------
 #  서점별 도서 저장
 # -----------------------------------------------------------------------------

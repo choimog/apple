@@ -25,9 +25,19 @@ _fake_sb.Client = object
 _fake_sb.create_client = lambda *a, **k: None
 sys.modules.setdefault("supabase", _fake_sb)
 
-# anthropic 은 시험에 필요 없습니다 (부르지 않으므로). 없어도 돌게 둡니다.
-if "anthropic" not in sys.modules:
+# anthropic 은 **있으면 진짜를 씁니다.** (부르지는 않고, 값만 받아주는지 봅니다)
+#
+# 🚨 예전에는 여기서 무조건 가짜를 끼웠습니다. 그래서 시험이 전부 통과했는데도
+#    운영에서 터졌습니다 (2026-08-09). 가짜는 무엇이든 받아주기 때문입니다.
+#    진짜가 깔려 있으면 진짜로 확인해야 합니다.
+try:
+    import anthropic  # noqa: F401
+
+    HAVE_SDK = True
+except ImportError:
+    HAVE_SDK = False
     _fake_an = types.ModuleType("anthropic")
+    _fake_an.__version__ = "(없음)"
     _fake_an.Anthropic = object
     _fake_an.RateLimitError = type("RateLimitError", (Exception,), {})
     _fake_an.APIStatusError = type("APIStatusError", (Exception,), {})
@@ -208,7 +218,37 @@ for name, (i, o) in KNOWN.items():
               (float(row["input"]), float(row["output"])) == (i, o), row)
 
 
-print("\n[8] 부탁하는 말에 '지어내지 말라' 가 들어 있는지")
+print("\n[8] 깔린 라이브러리가 우리가 보내는 값을 받아주는지")
+# 🚨 이 시험이 없어서 실제로 터졌습니다 (2026-08-09).
+#    requirements.txt 에 anthropic==0.71.0 을 고정해 두고 코드는
+#    output_config 를 썼는데, 그 버전에는 그런 값이 없었습니다.
+#    시험 30가지가 전부 통과했는데도 운영에서 죽었습니다 —
+#    시험이 '제가 만든 계산' 만 보고 '라이브러리' 는 안 봤기 때문입니다.
+kw = rr.build_kwargs(conf, "시험용 글")
+check("보낼 값에 model/max_tokens/messages 가 있음",
+      {"model", "max_tokens", "messages"} <= set(kw), sorted(kw))
+check("effort 가 설정대로 들어감",
+      kw.get("output_config", {}).get("effort") == conf.get("effort"), kw.get("output_config"))
+check("생각 끄기가 들어감",
+      kw.get("thinking") == {"type": "disabled"}, kw.get("thinking"))
+
+if HAVE_SDK:
+    import anthropic
+
+    missing = rr.check_sdk(kw)
+    check(
+        f"anthropic {anthropic.__version__} 이(가) 전부 받아줌",
+        missing == [],
+        f"못 받는 값: {missing} — crawler/requirements.txt 의 버전을 올려야 합니다",
+    )
+else:
+    # 여기서 조용히 넘어가면 예전과 똑같은 구멍이 생깁니다. 크게 알립니다.
+    print("  ⚠️ anthropic 라이브러리가 안 깔려 있어 이 확인은 건너뜁니다.")
+    print("     (CI 에서는 반드시 깔린 상태로 돌아갑니다 —"
+          " .github/workflows/report.yml)")
+
+
+print("\n[9] 부탁하는 말에 '지어내지 말라' 가 들어 있는지")
 check("지어내지 말라", "지어내지 마세요" in rr.SYSTEM)
 check("모르면 모른다고", "알 수 없습니다" in rr.SYSTEM)
 check("어제 자료 없을 때 규칙", "어제 자료가 없습니다" in rr.SYSTEM)

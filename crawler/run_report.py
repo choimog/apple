@@ -134,16 +134,16 @@ def build_prompt(digest_text: str) -> str:
     )
 
 
-def ask_claude(conf: dict, prompt: str) -> tuple[str, int, int]:
+def build_kwargs(conf: dict, prompt: str = "") -> dict:
     """
-    AI 를 한 번 부릅니다. (본문, 넣은 토큰, 나온 토큰) 을 돌려줍니다.
-    실패하면 무엇이 문제인지 한국어로 알려주고 멈춥니다.
-    """
-    import anthropic
+    AI 에게 보낼 값을 만듭니다. **여기서는 부르지 않습니다.**
 
-    model = str(conf.get("model", "claude-opus-5"))
+    부르는 것과 값을 만드는 것을 나눠 둔 이유는, 시험이 진짜로 부르지 않고도
+    "이 값들을 라이브러리가 받아주는가" 를 확인할 수 있게 하기 위해서입니다.
+    (아래 check_sdk 참고)
+    """
     kwargs: dict = {
-        "model": model,
+        "model": str(conf.get("model", "claude-opus-5")),
         "max_tokens": int(conf.get("max_tokens", 4000)),
         "system": SYSTEM,
         "messages": [{"role": "user", "content": prompt}],
@@ -152,6 +152,62 @@ def ask_claude(conf: dict, prompt: str) -> tuple[str, int, int]:
     # 생각을 끄면 값이 예측 가능해집니다. (config/report.yaml 의 thinking)
     if not conf.get("thinking", False):
         kwargs["thinking"] = {"type": "disabled"}
+    return kwargs
+
+
+def check_sdk(kwargs: dict) -> list[str]:
+    """
+    지금 깔려 있는 anthropic 라이브러리가 이 값들을 받아주는지 미리 봅니다.
+    받아주지 않는 값의 이름을 돌려줍니다 (빈 목록이면 괜찮습니다).
+
+    🚨 【왜 이걸 만들었나 — 2026-08-09 실제로 터짐】
+       crawler/requirements.txt 에 anthropic==0.71.0 을 고정해 두고
+       코드에서는 output_config(생각 깊이)를 썼습니다. 그 버전에는
+       output_config 가 없어서 **실제 운영에서 터졌습니다.**
+
+       시험 30가지가 전부 통과했는데도 터진 이유는, 시험이 **제가 만든
+       계산만** 확인하고 **라이브러리가 그 값을 받아주는지는 한 번도
+       확인하지 않았기** 때문입니다. 그 구멍을 막는 것이 이 함수입니다.
+
+       이제 tests/test_report.py 가 이걸 부르므로, 버전과 코드가 어긋나면
+       AI 를 부르기 전에(=돈을 쓰기 전에) CI 에서 먼저 빨간불이 납니다.
+    """
+    import inspect
+
+    import anthropic
+
+    try:
+        sig = inspect.signature(anthropic.Anthropic(api_key="x").messages.create)
+    except Exception:  # noqa: BLE001
+        # 서명을 못 읽는 버전이면 확인을 못 합니다. 막지는 않습니다.
+        return []
+
+    allowed = set(sig.parameters)
+    # **kwargs 를 받는 형태면 무엇이든 통과하므로 확인할 것이 없습니다
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return []
+    return [k for k in kwargs if k not in allowed]
+
+
+def ask_claude(conf: dict, prompt: str) -> tuple[str, int, int]:
+    """
+    AI 를 한 번 부릅니다. (본문, 넣은 토큰, 나온 토큰) 을 돌려줍니다.
+    실패하면 무엇이 문제인지 한국어로 알려주고 멈춥니다.
+    """
+    import anthropic
+
+    kwargs = build_kwargs(conf, prompt)
+
+    # 부르기 전에 확인합니다. 부르는 도중에 터지면 원인이 안 보입니다.
+    missing = check_sdk(kwargs)
+    if missing:
+        raise SystemExit(
+            f"❌ 지금 깔린 AI 라이브러리(anthropic {anthropic.__version__})가\n"
+            f"   이 설정을 못 알아듣습니다: {', '.join(missing)}\n"
+            f"   → 제(클로드)가 고쳐야 하는 문제입니다. 이 메시지를 그대로 알려 주세요.\n"
+            f"   (crawler/requirements.txt 의 anthropic 버전을 올리면 됩니다)\n"
+            f"   돈은 나가지 않았습니다. AI 를 부르기 전에 멈췄습니다."
+        )
 
     client = anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY"))
 

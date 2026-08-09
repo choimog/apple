@@ -61,50 +61,70 @@ def env(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
+# 오래된 것을 그냥 지우는 표. {표 이름: (날짜 칸, 사람이 읽을 이름)}
+#
+# ⚠️ capacity.py 의 SLOW_GROW_TABLES 와 같아야 합니다.
+#    한쪽만 고치면 용량 계산이 조용히 틀립니다.
+PRUNE_TABLES = {
+    "crawl_logs": ("snapshot_date", "수집 기록"),
+    "daily_reports": ("report_date", "AI 리포트"),
+}
+
+
 def prune_logs(client_db, log_keep_days: int) -> int:
     """
-    오래된 수집 기록(crawl_logs)을 지웁니다.
+    오래된 수집 기록과 AI 리포트를 지웁니다. 지운 줄 수를 돌려줍니다.
 
     【왜 필요한가요? — 2026-08-09】
-    분야가 208개라 하루 208줄씩 쌓입니다. 1년이면 7만 줄입니다.
-    그런데 이 표는 보관소로도 안 빠지고 아무도 안 지우고 있었습니다.
+    두 표 다 날마다 쌓이는데 보관소로 빠지지 않고 아무도 안 지웠습니다.
+    분야가 208개라 수집 기록만 하루 208줄, 1년이면 7만 줄입니다.
     용량 계산도 이걸 '거의 안 늘어나는 것' 으로 세고 있어서, 예상 최대치가
     실제보다 계속 낮게 나왔습니다. 낮게 나오는 경고는 안 나오는 경고입니다.
 
+    【리포트도 함께 지웁니다 — 2026-08-09 대표님 승인】
+    "리포트도 기록이 지워질 때, 해당 일자에 해당하는 건 함께 지워줘도 돼."
+    같은 날짜 기준을 씁니다. 기록은 남았는데 리포트만 없거나 그 반대인
+    상태를 만들지 않기 위해서입니다.
+
     ⚠️ 순위 자료와 달리 **보관 파일을 만들지 않고 지웁니다.**
-       되살릴 수 없으므로, 화면이 실제로 쓰는 기간(14일)보다 훨씬 넉넉한
-       기본값(180일)을 두고, 그보다 짧게는 아무리 설정해도 안 지웁니다.
+       되살릴 수 없으므로, 화면이 실제로 쓰는 기간(수집 상태 14일)보다
+       훨씬 넉넉한 기본값(180일)을 두고, 그보다 짧게는 아무리 설정해도
+       안 지웁니다.
     """
     keep = max(ABSOLUTE_MIN_LOG_KEEP_DAYS, int(log_keep_days or 180))
     cutoff = (date.today() - timedelta(days=keep)).isoformat()
+    total = 0
 
-    try:
-        # 몇 줄이 지워지는지 먼저 셉니다. "지웠습니다" 만 적고 실제로는
-        # 0줄인 경우를 구분하기 위해서입니다.
-        got = (
-            client_db.table("crawl_logs")
-            .select("id", count="exact", head=True)
-            .lt("snapshot_date", cutoff)
-            .execute()
-        )
-        n = got.count or 0
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ⚠️ 수집 기록을 세지 못했습니다(정리 건너뜀): {exc}")
-        return 0
+    for table, (col, label) in sorted(PRUNE_TABLES.items()):
+        try:
+            # 몇 줄이 지워지는지 먼저 셉니다. "지웠습니다" 만 적고 실제로는
+            # 0줄인 경우를 구분하기 위해서입니다.
+            got = (
+                client_db.table(table)
+                .select("*", count="exact", head=True)
+                .lt(col, cutoff)
+                .execute()
+            )
+            n = got.count or 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠️ {label}을(를) 세지 못했습니다(정리 건너뜀): {exc}")
+            continue
 
-    if n == 0:
-        print(f"  수집 기록: {cutoff} 이전이 없습니다 (최근 {keep}일치 유지)")
-        return 0
+        if n == 0:
+            print(f"  {label}: {cutoff} 이전이 없습니다 (최근 {keep}일치 유지)")
+            continue
 
-    try:
-        client_db.table("crawl_logs").delete().lt("snapshot_date", cutoff).execute()
-    except Exception as exc:  # noqa: BLE001
-        # 정리에 실패했다고 보관 작업 전체를 실패로 만들지 않습니다.
-        print(f"  ⚠️ 수집 기록을 지우지 못했습니다: {exc}")
-        return 0
+        try:
+            client_db.table(table).delete().lt(col, cutoff).execute()
+        except Exception as exc:  # noqa: BLE001
+            # 정리에 실패했다고 보관 작업 전체를 실패로 만들지 않습니다.
+            print(f"  ⚠️ {label}을(를) 지우지 못했습니다: {exc}")
+            continue
 
-    print(f"  수집 기록: {cutoff} 이전 {n:,}줄 정리 (최근 {keep}일치 유지)")
-    return n
+        print(f"  {label}: {cutoff} 이전 {n:,}줄 정리 (최근 {keep}일치 유지)")
+        total += n
+
+    return total
 
 
 def make_client():
@@ -577,9 +597,8 @@ def main() -> int:
 
         if args.commit:
             print("\n[3단계] 내려받은 파일을 검사하고 DB 를 정리합니다")
-            # 순위 자료를 정리하는 김에 오래된 수집 기록도 함께 지웁니다.
-            # (보관소로 옮기지 않고 그냥 지웁니다 — 운영 기록이라 다시 볼
-            #  일이 없고, 화면은 최근 14일치만 씁니다)
+            # 순위 자료를 정리하는 김에 오래된 수집 기록과 AI 리포트도
+            # 함께 지웁니다. (보관소로 옮기지 않고 그냥 지웁니다)
             prune_logs(client_db, int(acfg.get("log_keep_days", 180)))
             return do_commit(
                 client_db,

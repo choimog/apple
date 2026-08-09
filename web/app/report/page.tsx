@@ -5,7 +5,7 @@ import Markdown from "@/components/Markdown";
 import { Card, CardHead, Empty, PageHead } from "@/components/ui";
 import { configError } from "@/lib/supabase";
 import { dayLabel, kstDateTime, num } from "@/lib/format";
-import { getReport, monthCost, reportDates } from "@/lib/report";
+import { getReport, monthCost, REPORT_KEEP_DAYS, reportDates } from "@/lib/report";
 
 export const metadata = { title: "오늘의 리포트" };
 
@@ -105,19 +105,31 @@ export default async function ReportPage({
             그래서 다른 화면과 **똑같은** 날짜 고르개를 씁니다.
             ‹ › 로 하루씩, 목록에서 아무 날이나.
           */}
-          {dates.length > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {dates.length > 1 ? (
               <DatePicker
                 dates={dates}
                 value={report.date}
                 basePath="/report"
                 label="리포트 날짜"
               />
-              <span className="text-xs text-ink-faint">
-                리포트 {num(dates.length)}일치
-              </span>
-            </div>
-          )}
+            ) : (
+              /*
+                ⚠️ 하루치뿐일 때 아무것도 안 보여주면 안 됩니다.
+                   실제로 "날짜 선택이 안 나오는 건 1일치만 있어서 그런가?"
+                   라는 질문을 받았습니다 (2026-08-09). 고장인지 아닌지
+                   화면만 봐서는 알 수 없었던 것입니다.
+                   그래서 '왜 없는지' 를 그 자리에 적습니다.
+              */
+              <p className="text-xs text-ink-faint">
+                아직 하루치뿐이라 고를 날짜가 없습니다. 내일 리포트가 쌓이면
+                여기에 날짜 고르개가 생깁니다.
+              </p>
+            )}
+            <span className="text-xs text-ink-faint">
+              리포트 {num(dates.length)}일치 · 최근 {REPORT_KEEP_DAYS}일치만 남깁니다
+            </span>
+          </div>
 
           <Card>
             <CardHead

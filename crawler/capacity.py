@@ -71,12 +71,18 @@ PER_DAY_TABLES = {"rankings", "book_meta"}
 #  낮게 나오는 경고는 안 나오는 경고와 같습니다.
 SLOW_GROW_TABLES = {"crawl_logs", "daily_reports"}
 
-# 이 중 crawl_logs 는 이제 정리합니다 (archive.py 의 prune_logs).
-# daily_reports 는 지우지 않습니다 — 지난 리포트를 계속 보셔야 하고,
-# 하루 한 줄이라 1년에 1MB 남짓이기 때문입니다.
-NEVER_PRUNED = {"daily_reports"}
+# 이 중 지우지 않고 영원히 쌓아 두는 표.
+#
+# 【2026-08-09 대표님 승인으로 비었습니다】
+# "리포트도 기록이 지워질 때, 해당 일자에 해당하는 건 함께 지워줘도 돼."
+# 그래서 지금은 둘 다 archive.py 의 prune_logs 가 정리합니다.
+#
+# ⚠️ 비었다고 이 개념을 지우지 마세요. 나중에 '안 지우는 표' 가 하나라도
+#    생기면, 그것을 여기 넣지 않는 순간 용량 계산이 다시 조용히 틀립니다.
+#    (바로 그 잘못을 2026-08-09 에 찾아서 고쳤습니다)
+NEVER_PRUNED: set[str] = set()
 
-# daily_reports 처럼 안 지우는 표는 '몇 년 뒤' 를 봐야 합니다.
+# 안 지우는 표는 '몇 년 뒤' 를 봐야 합니다.
 # 1년으로 잡습니다. 그보다 멀리 보면 숫자가 공상에 가까워집니다.
 HORIZON_DAYS = 365
 

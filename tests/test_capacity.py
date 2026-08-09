@@ -45,6 +45,12 @@ def check(name: str, ok: bool, got=None) -> None:
 
 MB = 1_000_000
 
+# 설정 파일과 화면 코드를 그대로 읽어 둡니다 (베끼면 한쪽만 고쳐집니다)
+import yaml  # noqa: E402
+
+cfg_yaml = yaml.safe_load((ROOT / "config" / "archive.yaml").read_text(encoding="utf-8"))
+ts_src = (ROOT / "web" / "lib" / "report.ts").read_text(encoding="utf-8")
+
 
 def t(name: str, total_mb: float) -> dict:
     return {"table_name": name, "total_bytes": total_mb * MB}
@@ -129,26 +135,44 @@ check("최소 보관 일수가 같다",
 # 보관소로 빠지는 표와 '안 빠지는데 늘어나는 표' 가 겹치면 두 번 셉니다
 check("두 분류가 겹치지 않는다",
       not (PER_DAY_TABLES & SLOW_GROW_TABLES), PER_DAY_TABLES & SLOW_GROW_TABLES)
-check("실제로 지우는 표는 archive.py 가 지운다",
-      "crawl_logs" in (SLOW_GROW_TABLES - NEVER_PRUNED)
-      and hasattr(archive, "prune_logs"))
-check("리포트는 안 지운다 (지난 리포트를 계속 보셔야 합니다)",
-      NEVER_PRUNED == {"daily_reports"}, NEVER_PRUNED)
+# 🚨 두 파일이 서로 다른 표를 지우면 계산이 조용히 틀립니다.
+#    (capacity 는 '지워진다' 고 세는데 archive 는 안 지우는 경우)
+check("정리하는 표 목록이 archive.py 와 같다",
+      SLOW_GROW_TABLES == set(archive.PRUNE_TABLES),
+      (SLOW_GROW_TABLES, set(archive.PRUNE_TABLES)))
+check("리포트도 정리 대상 (2026-08-09 대표님 승인)",
+      "daily_reports" in archive.PRUNE_TABLES)
+check("안 지우는 표는 지금 없다", NEVER_PRUNED == set(), NEVER_PRUNED)
 
-print("\n[6-1] 안 지우는 표는 '1년 뒤' 로 본다")
-# daily_reports 는 하루 한 줄이라 양은 적지만 영원히 쌓입니다.
-# 지금 크기 그대로 두면 몇 년 뒤에 조용히 넘칩니다.
-only_report = [t("books", 100), t("rankings", 10), t("daily_reports", 1)]
-r1 = project(only_report, 10, 14)          # 하루 0.1MB
-check("리포트 증가분이 1년치로 들어간다",
-      abs(r1["steady"] - (100 + 1 * 14 + 0.1 * HORIZON_DAYS)) < 0.01, r1["steady"])
+print("\n[6-1] 나중에 '안 지우는 표' 가 생겨도 1년 뒤로 본다")
+# 지금은 비어 있지만, 개념을 지우면 안 됩니다. 안 지우는 표를 여기
+# 안 넣는 순간 용량 계산이 다시 조용히 틀립니다.
 check("1년은 365일", HORIZON_DAYS == 365, HORIZON_DAYS)
+never = [t("books", 100), t("rankings", 10)]
+r1 = project(never, 10, 14)
+check("안 지우는 표가 없으면 그만큼만 센다",
+      abs(r1["steady"] - (100 + 1 * 14)) < 0.01, r1["steady"])
 
 print("\n[6-2] 기록 보관 일수를 줄이면 예상치가 줄어든다")
 short_logs = project(real, 2, 14, log_keep=30)
 check("180일 → 30일 로 줄이면 예상 최대가 준다",
       short_logs["steady"] < p["steady"], (short_logs["steady"], p["steady"]))
 check("얼마나 남기는지 알려준다", short_logs["log_keep"] == 30, short_logs["log_keep"])
+
+print("\n[6-3] 설정과 화면이 같은 숫자를 말하는지")
+# 화면에 "최근 180일치만 남깁니다" 라고 적어 두고 실제로는 30일에 지우면
+# 화면이 거짓말을 합니다. 두 숫자가 어긋나면 여기서 잡습니다.
+import re  # noqa: E402
+
+acfg_days = int(
+    cfg_yaml.get("log_keep_days", 0)
+)
+m = re.search(r"REPORT_KEEP_DAYS\s*=\s*(\d+)", ts_src)
+check("web/lib/report.ts 에 REPORT_KEEP_DAYS 가 있다", m is not None)
+if m:
+    check(f"설정({acfg_days}일) 과 화면({m.group(1)}일) 이 같다",
+          int(m.group(1)) == acfg_days, (acfg_days, m.group(1)))
+
 
 print("\n[7] 이상한 값이 들어와도 안 터진다")
 check("빈 목록", project([], 0, 14)["total"] == 0)

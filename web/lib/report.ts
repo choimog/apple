@@ -8,6 +8,18 @@
 
 import { db } from "@/lib/supabase";
 
+/**
+ * 리포트를 며칠치 남기는지.
+ *
+ * 【2026-08-09 대표님 승인】
+ * "리포트도 기록이 지워질 때, 해당 일자에 해당하는 건 함께 지워줘도 돼."
+ * 매주 보관 작업이 이보다 오래된 리포트를 지웁니다.
+ *
+ * ⚠️ config/archive.yaml 의 log_keep_days 와 같아야 합니다.
+ *    여기 숫자만 고치면 화면이 거짓말을 합니다 (실제로는 그대로 지워짐).
+ */
+export const REPORT_KEEP_DAYS = 180;
+
 export type Report = {
   date: string;
   model: string;
@@ -31,7 +43,7 @@ function shape(r: Record<string, unknown>): Report {
 }
 
 /** 리포트가 있는 날짜들 (최근 순) */
-export async function reportDates(limit = 60): Promise<string[]> {
+export async function reportDates(limit = 400): Promise<string[]> {
   const { data, error } = await db()
     .from("daily_reports")
     .select("report_date")

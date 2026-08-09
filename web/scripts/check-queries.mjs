@@ -10,7 +10,9 @@
  *   배포되는 사이트에는 포함되지 않고, 열쇠도 브라우저로 나가지 않습니다.
  */
 
+import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { describe, MIN_KEEP_DAYS, project } from "./capacity.mjs";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -287,8 +289,42 @@ await step("분야별 수집 날짜 (category_dates)", async () => {
 
 // ---- 13. 용량 ----
 //     무료 요금제는 500MB 가 한도입니다. 차면 수집이 실패하고 사이트가 멈춥니다.
-//     언제 찰지 미리 알아야 대비할 수 있으므로 매번 확인합니다.
-const FREE_LIMIT_MB = 500;
+//
+//     【2026-08-09 계산을 고쳤습니다 — 그 전 숫자는 틀렸습니다】
+//     예전에는 "전체 용량 ÷ 수집한 날짜 수" 로 하루 증가량을 냈습니다.
+//     이 방식은 2일치만 모였을 때 '하루 95.9MB, 3일 뒤 꽉 참' 이라고
+//     알려 왔는데, 실제와 4배 넘게 차이 납니다.
+//
+//     이유: 표는 성격이 두 가지인데 하나로 뭉뚱그렸기 때문입니다.
+//
+//       · 날마다 쌓이는 것   rankings, book_meta
+//                            하루치씩 정직하게 늘고, 보관소로 빠져나갑니다
+//       · 도서 목록          books, store_books, book_matches …
+//                            '처음 보는 책' 이 나올 때만 늘어납니다.
+//                            첫날에는 7만 권이 전부 처음이라 폭발하고,
+//                            그 뒤로는 거의 안 늘어납니다. 보관소로도 안 빠집니다.
+//
+//     첫날의 목록 구축 비용을 '매일 드는 비용' 으로 세면 당연히 과장됩니다.
+//     그래서 지금은 둘을 나눠서 계산하고, 도달할 최대치를 함께 봅니다.
+//
+//         예상 최대치 = 도서 목록 + (하루 순위 용량 × 보관 일수)
+//
+//     ⚠️ 틀린 경고는 그냥 틀린 것으로 끝나지 않습니다. 이 검사가 매번
+//        빨간불이면 진짜 고장도 같이 묻힙니다. 실제로 그랬습니다.
+/** config/archive.yaml 의 보관 일수를 읽습니다. 못 읽으면 코드에 박힌 최소값. */
+function keepDays() {
+  try {
+    const text = readFileSync(
+      new URL("../../config/archive.yaml", import.meta.url), "utf8",
+    );
+    const m = text.match(/^keep_days:\s*(\d+)/m);
+    if (m) return Number(m[1]);
+  } catch {
+    /* 설정을 못 읽어도 검사는 계속합니다 */
+  }
+  return MIN_KEEP_DAYS;
+}
+
 await step("데이터베이스 용량", async () => {
   const { data, error } = await db.rpc("table_sizes");
   if (error) {
@@ -299,7 +335,6 @@ await step("데이터베이스 용량", async () => {
   }
   const rows = data ?? [];
   const mb = (b) => Number(b ?? 0) / 1_000_000;
-  const total = rows.reduce((a, r) => a + mb(r.total_bytes), 0);
 
   const top = rows
     .slice(0, 3)
@@ -307,24 +342,12 @@ await step("데이터베이스 용량", async () => {
                 `(자료 ${mb(r.data_bytes).toFixed(0)} + 색인 ${mb(r.index_bytes).toFixed(0)})`)
     .join(" · ");
 
-  // 날짜 수로 나눠서 하루 평균을 냅니다 (몇 밀리초면 됩니다)
   const { data: days } = await db.rpc("snapshot_dates", { n: 400 });
-  const nDays = Math.max(1, (days ?? []).length);
-  const perDay = total / nDays;
-  const left = Math.max(0, FREE_LIMIT_MB - total);
-  const daysLeft = perDay > 0 ? Math.floor(left / perDay) : 999;
+  const p = project(rows, (days ?? []).length, keepDays());
+  const line = describe(p, top);
 
-  const line =
-    `${total.toFixed(0)}MB / ${FREE_LIMIT_MB}MB · ` +
-    `${nDays}일치 · 하루 약 ${perDay.toFixed(1)}MB · ` +
-    `남은 여유 약 ${daysLeft}일\n       ${top}`;
-
-  // 2주 밑으로 떨어지면 실패로 표시해서 메일이 가게 합니다
-  if (daysLeft < 14) {
-    throw new Error(
-      `용량이 ${daysLeft}일 뒤 찹니다. 보관소(R2) 설정을 서두르세요.\n       ${line}`
-    );
-  }
+  // 문제가 있으면 실패로 표시합니다 (실패해야 메일이 갑니다)
+  if (p.problem) throw new Error(`${p.problem}\n       ${line}`);
   return line;
 });
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
+import ReportPopup from "@/components/ReportPopup";
 import SetupNotice from "@/components/SetupNotice";
 import {
   BarList,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
 import { StoreRankStrip } from "@/components/ui";
+import { getReport } from "@/lib/report";
 import {
   getCategoryShare,
   getCombinedBest,
@@ -66,12 +68,31 @@ export default async function Home({
     getCategoryShare(date, period, 100),
   ]);
 
+  // 하루 한 번 뜨는 리포트 창에 넣을 글.
+  //
+  // ⚠️ 리포트를 못 읽는다고 홈 화면 전체가 깨지면 안 됩니다.
+  //    리포트는 '있으면 좋은 것' 이지 홈의 본체가 아닙니다.
+  let report = null;
+  try {
+    report = await getReport();
+  } catch {
+    report = null;
+  }
+
   const needSetup = !best.fast || !pubs.ok || !authors.ok || !share.ok;
   const href = (p: Period) => `/?period=${p}&date=${date}`;
   const q = `period=${period}&date=${date}`;
 
   return (
     <div className="space-y-5">
+      {/*
+        하루 한 번 뜨는 리포트 창.
+        아직 리포트가 없는 날에는 아무것도 뜨지 않습니다.
+      */}
+      {report && (
+        <ReportPopup date={report.date} body={report.body} model={report.model} />
+      )}
+
       {/* ================= 머리말 ================= */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>

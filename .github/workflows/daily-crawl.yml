@@ -117,6 +117,7 @@ jobs:
         run: |
           python tests/test_dedupe_ranks.py
           python tests/test_fail_alert.py
+          python tests/test_schedule.py
 
       - name: 브라우저(크로미움) 설치
         # 교보문고만 '화면 없는 브라우저' 로 읽습니다.

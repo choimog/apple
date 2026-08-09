@@ -297,6 +297,65 @@ await step("분야별 수집 날짜 (category_dates)", async () => {
 // 같은 계산을 두 군데 두면 반드시 어긋나므로 여기서는 지웠습니다.
 // 한쪽만 고치게 되니까요.
 
+// ---- 14. 회원 전용 설정이 살아 있는가 ----
+//
+// 【왜 필요한가요? — 2026-08-09】
+// 회원 전용은 Supabase 화면에서 손으로 켜는 부분이 있습니다. 손으로 하는
+// 것은 언젠가 빠집니다. 특히 이 둘은 빠져도 아무 표시가 안 납니다.
+//
+//   · 관리자가 0명   → [매칭 검토] 메뉴가 아무에게도 안 보입니다
+//   · 계정이 0개     → 아무도 사이트에 못 들어갑니다
+//
+// 대표님 브라우저는 로그인이 되어 있으니 늘 정상으로 보입니다.
+// 그래서 기계가 봅니다. (이 확인은 관리자 열쇠로 하므로 잠금과 무관합니다)
+await step("회원 전용 설정", async () => {
+  const { data, error } = await db.from("profiles").select("id,role");
+  if (error) {
+    if (/profiles|does not exist|schema cache/i.test(error.message)) {
+      return "건너뜀 — 아직 회원 전용을 켜지 않았습니다 (docs/login-setup.md)";
+    }
+    throw new Error(error.message);
+  }
+  const rows = data ?? [];
+  const admins = rows.filter((r) => r.role === "admin").length;
+
+  if (!rows.length) {
+    throw new Error(
+      "계정이 하나도 없습니다. 이대로 잠그면 아무도 못 들어갑니다.\n" +
+        "       Supabase → Authentication → Users → Add user"
+    );
+  }
+  if (!admins) {
+    throw new Error(
+      "관리자가 0명입니다. [매칭 검토] 화면이 아무에게도 안 보입니다.\n" +
+        "       db/auth.sql 의 3번에 적힌 이메일이 실제 계정과 같은지 확인하세요."
+    );
+  }
+  return `회원 ${rows.length}명 (관리자 ${admins}명)`;
+});
+
+// ---- 15. 검토 화면이 쓸 준비가 됐는가 ----
+await step("매칭 검토 화면 준비", async () => {
+  const { error } = await db
+    .from("book_matches")
+    .select("id,auto_decision")
+    .limit(1);
+  if (error) {
+    if (/auto_decision|column/i.test(error.message)) {
+      throw new Error(
+        "book_matches 에 auto_decision 칸이 없습니다. '되돌리기' 가 안 됩니다.\n" +
+          "       Supabase → SQL Editor 에서 db/auth.sql 을 한 번 더 실행하세요."
+      );
+    }
+    throw new Error(error.message);
+  }
+  const { count: pending } = await db
+    .from("book_matches")
+    .select("id", { count: "exact", head: true })
+    .eq("decision", "auto_low");
+  return `검토 대기 ${(pending ?? 0).toLocaleString()}쌍`;
+});
+
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 화면이 빈 채로 뜰 수 있습니다.`);

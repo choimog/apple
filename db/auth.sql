@@ -86,8 +86,8 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON profiles FROM anon, authenticated;
 --  3. 관리자 지정 (대표님 계정)
 -- ---------------------------------------------------------------------------
 --  아래 이메일을 대표님 것으로 바꾸고 실행하세요.
---  지금은 관리자만 할 수 있는 기능이 아직 없지만(매칭 검토 화면은 다음
---  단계입니다), 미리 지정해 두면 그때 바로 쓸 수 있습니다.
+--  관리자만 [매칭 검토] 화면에서 '같은 책 / 다른 책' 을 고칠 수 있습니다.
+--  나머지 회원은 순위를 보기만 합니다.
 -- ---------------------------------------------------------------------------
 UPDATE profiles SET role = 'admin'
 WHERE email = 'hssh8159@gmail.com';
@@ -137,7 +137,80 @@ END $$;
 
 
 -- ---------------------------------------------------------------------------
---  5. 제대로 잠겼는지 확인
+--  5. 관리자만 '같은 책 / 다른 책' 을 고칠 수 있게
+-- ---------------------------------------------------------------------------
+--  매칭 검토 화면(/review)이 쓰는 권한입니다.
+--
+--  【왜 필요한가요?】
+--  같은 책 묶기는 애매한 경우를 '검토 필요' 로 표시만 하고 넘어갑니다.
+--  그런데 사람이 그 결정을 내릴 방법이 없었습니다.
+--  코드는 "사람이 내린 결정이 최우선" 이라고 되어 있는데, 정작 결정할
+--  화면이 없어서 **잘못 묶인 책을 발견해도 고칠 수가 없었습니다.**
+--
+--  【열어주는 범위를 최대한 좁혔습니다】
+--    · book_matches 표 하나만
+--    · 그중에서도 칸 3개만 (decision / decided_by / decided_at)
+--    · 그중에서도 role='admin' 인 사람만
+--    · 새 줄을 만들거나 지우는 것은 여전히 못 합니다
+--  이렇게 하면 보기 전용 회원이 순위 자료를 건드릴 방법이 없습니다.
+-- ---------------------------------------------------------------------------
+
+-- 자동으로 내려졌던 판단을 남겨 둡니다.
+-- 이게 없으면 사람이 한 번 누른 뒤에는 '되돌리기' 를 할 수 없습니다.
+-- (원래 뭐였는지 모르니까요)
+ALTER TABLE book_matches ADD COLUMN IF NOT EXISTS auto_decision text;
+
+COMMENT ON COLUMN book_matches.auto_decision IS
+    '사람이 고치기 전, 자동으로 내려졌던 판단. 되돌리기에 씁니다';
+
+-- 지금 있는 줄들의 원래 판단을 채워 둡니다 (자동 판단만)
+UPDATE book_matches
+   SET auto_decision = decision
+ WHERE auto_decision IS NULL
+   AND decision IN ('auto_high', 'auto_low', 'rejected');
+
+-- 관리자인지 확인하는 함수.
+-- profiles 는 '내 것만 읽기' 라 정책 안에서 직접 못 봅니다. 그래서
+-- SECURITY DEFINER 로 만들되, 하는 일은 '예/아니오' 하나뿐입니다.
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    );
+$$;
+
+GRANT EXECUTE ON FUNCTION is_admin() TO authenticated;
+
+-- 칸 3개에만 쓰기를 허용합니다 (표 전체가 아닙니다)
+GRANT UPDATE (decision, decided_by, decided_at) ON book_matches TO authenticated;
+
+DROP POLICY IF EXISTS "관리자만 판단 고치기" ON book_matches;
+CREATE POLICY "관리자만 판단 고치기" ON book_matches
+    FOR UPDATE TO authenticated
+    USING (is_admin())
+    -- ⚠️ '누가 결정했는지' 를 남의 이름으로 적지 못하게 막습니다.
+    --    화면에서 보내는 값을 그대로 믿으면 안 됩니다.
+    --
+    --    NULL 을 함께 허용하는 것은 '되돌리기' 때문입니다. 되돌리면
+    --    그건 더 이상 사람이 내린 결정이 아니므로 이름을 지웁니다.
+    --    (처음에 = auth.uid() 만 적었다가, 되돌리기가 막히는 것을
+    --     발견하고 고쳤습니다 — 2026-08-09)
+    WITH CHECK (
+        is_admin() AND (decided_by IS NULL OR decided_by = auth.uid())
+    );
+
+-- ⚠️ db/rls.sql 을 나중에 다시 실행하시면, 그 안의 REVOKE 때문에 위
+--    GRANT 가 사라집니다. 그러면 검토 화면에서 버튼을 눌러도
+--    "권한이 없습니다" 가 뜹니다. 그때는 이 파일을 한 번 더 실행하세요.
+
+
+-- ---------------------------------------------------------------------------
+--  6. 제대로 잠겼는지 확인
 -- ---------------------------------------------------------------------------
 --  아래 표가 나옵니다. 읽어야 할 곳은 딱 두 칸입니다.
 --
@@ -169,3 +242,21 @@ WHERE n.nspname = 'public'
   )
 GROUP BY c.relname, c.relrowsecurity
 ORDER BY c.relname;
+
+
+-- ---------------------------------------------------------------------------
+--  7. 검토 화면 권한이 살아 있는지 확인
+-- ---------------------------------------------------------------------------
+--  아래 두 줄이 나와야 정상입니다. 안 나오면 검토 화면의 버튼이
+--  "권한이 없습니다" 로 실패합니다.
+--
+--    decision / decided_by / decided_at  → 3줄
+-- ---------------------------------------------------------------------------
+SELECT
+    column_name AS "고칠 수 있는 칸",
+    privilege_type AS "권한"
+FROM information_schema.column_privileges
+WHERE table_schema = 'public'
+  AND table_name = 'book_matches'
+  AND grantee = 'authenticated'
+ORDER BY column_name;

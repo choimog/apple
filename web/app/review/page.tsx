@@ -1,0 +1,401 @@
+import Link from "next/link";
+import Cover from "@/components/Cover";
+import DataError from "@/components/DataError";
+import { Card, CardHead, Empty } from "@/components/ui";
+import { configError, currentRole } from "@/lib/supabase";
+import { store } from "@/lib/stores";
+import { num } from "@/lib/format";
+import {
+  getReviewCounts,
+  getReviewPairs,
+  isReviewTab,
+  reasonText,
+  REVIEW_PAGE_SIZE,
+  TAB_HELP,
+  TAB_LABEL,
+  type Reason,
+  type ReviewBook,
+  type ReviewPair,
+  type ReviewTab,
+} from "@/lib/review";
+
+export const metadata = { title: "매칭 검토" };
+
+/**
+ * 매칭 검토 화면 — 관리자 전용.
+ *
+ * 【왜 만들었나요?】
+ * 같은 책 묶기는 애매한 경우를 '검토 필요' 로 표시만 하고 넘어갑니다.
+ * 코드에는 "사람이 내린 결정이 최우선" 이라고 되어 있는데, 정작 사람이
+ * 결정할 화면이 없었습니다. **잘못 묶인 책을 발견해도 고칠 방법이
+ * 없는 상태였습니다.**
+ */
+export default async function ReviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; page?: string; msg?: string }>;
+}) {
+  if (configError) {
+    return (
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
+        {configError}
+      </div>
+    );
+  }
+
+  const params = await searchParams;
+  const tab: ReviewTab = isReviewTab(params.tab) ? params.tab : "pending";
+  const page = Math.max(0, Number(params.page ?? 0) || 0);
+
+  const role = await currentRole();
+  if (role !== "admin") {
+    return (
+      <Card className="p-6">
+        <h1 className="text-lg font-bold">매칭 검토</h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          이 화면은 관리자만 볼 수 있습니다. 순위를 보시는 데에는 지장이
+          없습니다.
+        </p>
+        <p className="mt-3 text-xs text-ink-faint">
+          관리자 권한이 필요하시면 운영자에게 말씀해 주세요.
+        </p>
+      </Card>
+    );
+  }
+
+  let counts, result;
+  try {
+    [counts, result] = await Promise.all([
+      getReviewCounts(),
+      getReviewPairs(tab, page),
+    ]);
+  } catch (e) {
+    return <DataError detail={String(e)} />;
+  }
+
+  const lastPage = Math.max(0, Math.ceil(result.total / REVIEW_PAGE_SIZE) - 1);
+  const here = `/review?tab=${tab}&page=${page}`;
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">매칭 검토</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          서점마다 제목·저자 표기가 조금씩 달라서, 같은 책인지 기계가
+          확신하지 못하는 경우가 있습니다. 여기서 대표님이 정해 주시면
+          그 결정이 항상 우선합니다.
+        </p>
+      </div>
+
+      {params.msg && <Message code={params.msg} />}
+
+      {/* ---------- 탭 ---------- */}
+      <div className="scroll-x flex gap-1.5">
+        {(Object.keys(TAB_LABEL) as ReviewTab[]).map((t) => (
+          <Link
+            key={t}
+            href={`/review?tab=${t}`}
+            aria-current={t === tab ? "page" : undefined}
+            className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm transition-colors ${
+              t === tab
+                ? "bg-accent font-semibold text-accent-ink"
+                : "border border-line text-ink-soft hover:bg-surface-2 hover:text-ink"
+            }`}
+          >
+            {TAB_LABEL[t]}
+            <span className="tnum ml-1.5 text-xs opacity-70">
+              {num(counts[t])}
+            </span>
+          </Link>
+        ))}
+      </div>
+
+      <p className="text-xs leading-relaxed text-ink-faint">{TAB_HELP[tab]}</p>
+
+      {/* ---------- 목록 ---------- */}
+      {!result.ok ? (
+        <Card className="p-6">
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+            아직 준비가 안 됐습니다
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            Supabase → SQL Editor 에서 <code>db/auth.sql</code> 을 한 번
+            실행해 주세요. 검토 결정을 저장할 칸이 아직 없습니다.
+          </p>
+        </Card>
+      ) : result.rows.length === 0 ? (
+        <Empty
+          title={
+            tab === "pending"
+              ? "검토할 것이 없습니다"
+              : tab === "mine"
+                ? "아직 직접 내리신 결정이 없습니다"
+                : "자동으로 묶인 짝이 없습니다"
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {result.rows.map((p) => (
+            <PairCard key={p.id} pair={p} tab={tab} back={here} />
+          ))}
+        </div>
+      )}
+
+      {/* ---------- 쪽 넘기기 ---------- */}
+      {lastPage > 0 && (
+        <div className="flex items-center justify-between text-sm">
+          <PageLink tab={tab} page={page - 1} disabled={page === 0}>
+            ← 이전
+          </PageLink>
+          <span className="tnum text-xs text-ink-faint">
+            {page + 1} / {lastPage + 1}쪽 · 전체 {num(result.total)}쌍
+          </span>
+          <PageLink tab={tab} page={page + 1} disabled={page >= lastPage}>
+            다음 →
+          </PageLink>
+        </div>
+      )}
+
+      {/* ---------- 언제 반영되는지 ---------- */}
+      <Card>
+        <CardHead
+          title="누른 결정은 언제 반영되나요?"
+          desc="바로 순위 화면이 바뀌지는 않습니다. 이유를 적어 둡니다."
+        />
+        <div className="px-4 py-3.5 text-sm leading-relaxed text-ink-soft sm:px-5">
+          <p>
+            결정은 <strong>지금 바로 저장</strong>됩니다. 다만 책을 실제로
+            묶고 푸는 계산은 <strong>매일 새벽 수집이 끝난 뒤</strong> 한꺼번에
+            돌아갑니다. 그래서 순위 화면에 반영되는 것은 다음 날 아침입니다.
+          </p>
+          <p className="mt-2 text-xs text-ink-faint">
+            한 짝을 고치면 그 책이 속한 무리 전체를 다시 계산해야 해서,
+            누를 때마다 돌리면 몇 분씩 걸립니다. 그래서 모아서 합니다.
+          </p>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+
+function PageLink({
+  tab,
+  page,
+  disabled,
+  children,
+}: {
+  tab: ReviewTab;
+  page: number;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  if (disabled) {
+    return <span className="text-ink-faint opacity-40">{children}</span>;
+  }
+  return (
+    <Link
+      href={`/review?tab=${tab}&page=${page}`}
+      className="rounded-lg border border-line px-3 py-1.5 hover:border-ink-faint"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function PairCard({
+  pair,
+  tab,
+  back,
+}: {
+  pair: ReviewPair;
+  tab: ReviewTab;
+  back: string;
+}) {
+  const reasons = reasonText(pair.reasons);
+  const isMine = tab === "mine";
+  const same = pair.decision === "manual_merge";
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line-soft px-4 py-2.5 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="tnum rounded-md bg-surface-2 px-2 py-0.5 text-xs font-semibold">
+            {pair.score}점
+          </span>
+          {reasons.map((r, i) => (
+            <ReasonChip key={i} reason={r} />
+          ))}
+        </div>
+        {isMine && (
+          <span
+            className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+              same
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                : "bg-red-500/10 text-red-700 dark:text-red-400"
+            }`}
+          >
+            {same ? "같은 책이라고 하심" : "다른 책이라고 하심"}
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-2 sm:px-5">
+        <BookSide book={pair.a} other={pair.b} />
+        <BookSide book={pair.b} other={pair.a} />
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-t border-line-soft px-4 py-3 sm:px-5">
+        {isMine ? (
+          <DecideButton id={pair.id} action="undo" back={back} tone="plain">
+            되돌리기
+          </DecideButton>
+        ) : (
+          <>
+            <DecideButton id={pair.id} action="merge" back={back} tone="good">
+              같은 책입니다
+            </DecideButton>
+            <DecideButton id={pair.id} action="split" back={back} tone="bad">
+              다른 책입니다
+            </DecideButton>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function ReasonChip({ reason }: { reason: Reason }) {
+  const tone =
+    reason.tone === "good"
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+      : reason.tone === "bad"
+        ? "bg-red-500/10 text-red-700 dark:text-red-400"
+        : "bg-surface-2 text-ink-soft";
+  return (
+    <span className={`rounded-md px-2 py-0.5 text-xs ${tone}`}>
+      {reason.label}
+    </span>
+  );
+}
+
+/**
+ * 한쪽 책.
+ *
+ * 다른 쪽과 값이 다른 칸은 굵게 표시합니다.
+ * 눈으로 두 줄을 비교하는 것보다, 다른 곳만 눈에 띄는 편이 훨씬 빠릅니다.
+ */
+function BookSide({ book, other }: { book: ReviewBook; other: ReviewBook }) {
+  const s = store(book.storeId);
+  const diff = (a: string | null, b: string | null) =>
+    (a ?? "") !== (b ?? "") ? "font-semibold text-ink" : "text-ink-soft";
+
+  return (
+    <div className="flex gap-3 rounded-xl border border-line-soft p-3">
+      <Cover url={book.coverUrl} alt={book.title} className="h-24 w-16" />
+      <div className="min-w-0 space-y-1 text-xs">
+        <span className={`inline-block rounded-md px-2 py-0.5 text-2xs ${s.chip}`}>
+          {s.name}
+        </span>
+        <p className={`text-sm leading-snug ${diff(book.title, other.title)}`}>
+          {book.title}
+        </p>
+        <p className={diff(book.author, other.author)}>
+          저자 {book.author || <NoValue />}
+        </p>
+        <p className={diff(book.publisher, other.publisher)}>
+          출판사 {book.publisher || <NoValue />}
+        </p>
+        <p className={diff(book.pubYm, other.pubYm)}>
+          출간 {book.pubYm || <NoValue />}
+        </p>
+        <p className={`tnum ${diff(book.isbn13, other.isbn13)}`}>
+          ISBN {book.isbn13 || <NoValue />}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** 값이 없는 것과 0 은 다릅니다. 지어내지 않고 '없음' 이라고 적습니다. */
+function NoValue() {
+  return <span className="text-ink-faint">없음</span>;
+}
+
+function DecideButton({
+  id,
+  action,
+  back,
+  tone,
+  children,
+}: {
+  id: number;
+  action: "merge" | "split" | "undo";
+  back: string;
+  tone: "good" | "bad" | "plain";
+  children: React.ReactNode;
+}) {
+  const cls =
+    tone === "good"
+      ? "border-emerald-400 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+      : tone === "bad"
+        ? "border-red-400 text-red-700 hover:bg-red-500/10 dark:text-red-400"
+        : "border-line text-ink-soft hover:bg-surface-2";
+
+  return (
+    // 자료를 바꾸는 일이라 링크가 아니라 버튼(POST)입니다.
+    // 링크로 두면 남이 보낸 주소를 눌렀을 때 나도 모르게 눌리게 됩니다.
+    <form action="/review/decide" method="post">
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="action" value={action} />
+      <input type="hidden" name="back" value={back} />
+      <button
+        type="submit"
+        className={`rounded-xl border px-3.5 py-2 text-sm font-medium ${cls}`}
+      >
+        {children}
+      </button>
+    </form>
+  );
+}
+
+/** 버튼을 누르고 돌아왔을 때 뜨는 한 줄 */
+function Message({ code }: { code: string }) {
+  const map: Record<string, { text: string; bad?: boolean }> = {
+    merged: { text: "✅ 같은 책으로 저장했습니다. 내일 아침 순위에 반영됩니다." },
+    split: { text: "✅ 다른 책으로 저장했습니다. 내일 아침 순위에 반영됩니다." },
+    undone: { text: "✅ 되돌렸습니다. 기계의 판단으로 돌아갑니다." },
+    notadmin: { text: "권한이 없습니다. 관리자만 고칠 수 있습니다.", bad: true },
+    needsql: {
+      text: "아직 준비가 안 됐습니다. Supabase 에서 db/auth.sql 을 실행해 주세요.",
+      bad: true,
+    },
+    noauto: {
+      text: "원래 판단이 기록돼 있지 않아 되돌릴 수 없습니다. (db/auth.sql 실행 전에 내린 결정)",
+      bad: true,
+    },
+    nochange: {
+      text: "아무것도 바뀌지 않았습니다. 권한이 없거나 이미 지워진 짝입니다.",
+      bad: true,
+    },
+    dberror: { text: "저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요.", bad: true },
+    badid: { text: "잘못된 요청입니다.", bad: true },
+    badaction: { text: "잘못된 요청입니다.", bad: true },
+  };
+  const m = map[code];
+  if (!m) return null;
+
+  return (
+    <p
+      role="status"
+      className={`rounded-xl border px-3 py-2.5 text-sm ${
+        m.bad
+          ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          : "border-line bg-surface-2 text-ink-soft"
+      }`}
+    >
+      {m.text}
+    </p>
+  );
+}

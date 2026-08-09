@@ -53,7 +53,9 @@ jobs:
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
       - name: 규칙 시험 (규칙이 깨졌으면 여기서 멈춤)
-        run: python tests/test_match.py
+        run: |
+          python tests/test_match.py
+          python tests/test_manual_split.py
 
       - name: 매칭 실행
         env:

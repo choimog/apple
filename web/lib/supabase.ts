@@ -81,6 +81,33 @@ export async function currentUser() {
   return data.user ?? null;
 }
 
+/**
+ * 지금 로그인한 사람의 이메일과 권한을 한 번에.
+ *
+ * 위쪽 메뉴가 쓰는 값입니다. currentUser() 와 currentRole() 을 따로
+ * 부르면 같은 것을 두 번 물어보게 되어, 화면마다 왕복이 하나 더 늡니다.
+ */
+export async function me(): Promise<{
+  email: string | null;
+  role: "admin" | "viewer" | null;
+}> {
+  const supabase = db();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return { email: null, role: null };
+
+  const { data } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", auth.user.id)
+    .maybeSingle();
+
+  return {
+    email: auth.user.email ?? null,
+    // 계정은 있는데 권한 줄이 없으면 가장 낮은 권한으로 봅니다.
+    role: data?.role === "admin" ? "admin" : "viewer",
+  };
+}
+
 /** 지금 로그인한 사람의 권한. 'admin' | 'viewer' | null(로그인 안 함) */
 export async function currentRole(): Promise<"admin" | "viewer" | null> {
   const supabase = db();

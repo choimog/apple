@@ -30,7 +30,16 @@ const GROUPS: { href: string; label: string }[][] = [
   ],
 ];
 
-export default function Nav({ email }: { email: string | null }) {
+/** 관리자에게만 보이는 메뉴 */
+const ADMIN_ITEM = { href: "/review", label: "매칭 검토" };
+
+export default function Nav({
+  email,
+  isAdmin,
+}: {
+  email: string | null;
+  isAdmin: boolean;
+}) {
   const path = usePathname();
 
   /**
@@ -49,6 +58,10 @@ export default function Nav({ email }: { email: string | null }) {
       </header>
     );
   }
+
+  // 관리자에게만 [매칭 검토] 를 붙입니다.
+  // 보기 전용 회원에게 보여봐야 눌러도 "권한이 없습니다" 만 뜹니다.
+  const groups = isAdmin ? [...GROUPS, [ADMIN_ITEM]] : GROUPS;
 
   const isOn = (href: string) => {
     if (href === "/best") return path === "/best";
@@ -72,7 +85,7 @@ export default function Nav({ email }: { email: string | null }) {
           </Link>
 
           <nav aria-label="주요 메뉴" className="scroll-x flex min-w-0 flex-1 items-center gap-2">
-            {GROUPS.map((items, gi) => (
+            {groups.map((items, gi) => (
               <div key={gi} className="flex items-center gap-1">
                 {gi > 0 && <span aria-hidden className="mx-1.5 h-5 w-px shrink-0 bg-line" />}
                 {items.map((it) => {

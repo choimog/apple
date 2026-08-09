@@ -141,6 +141,77 @@ def pick_representative(rows: list[dict]) -> dict:
 
 
 # -----------------------------------------------------------------------------
+#  사람이 '다른 책' 이라고 한 짝을 갈라내기
+# -----------------------------------------------------------------------------
+def split_by_manual(
+    cluster: list[int],
+    edges: list[tuple[float, int, int]],
+    forbidden: set[tuple[int, int]],
+    max_members: int = 60,
+) -> list[list[int]]:
+    """
+    사람이 '다른 책' 이라고 한 짝이 한 무리에 들어 있으면 갈라냅니다.
+
+    【왜 필요한가요? — 2026-08-09 검토 화면을 만들면서】
+    검토 화면에서 [다른 책입니다] 를 누르면 그 짝은 더 이상 직접 이어지지
+    않습니다. 그런데 무리는 이어진 것을 계속 따라가므로, 다른 책을 다리
+    삼아 도로 한 무리가 될 수 있습니다.
+
+        A ─ C ─ B        (A-B 는 '다른 책' 이라고 눌렀는데도 한 무리)
+
+    예전 코드는 이걸 **경고만** 하고 넘어갔습니다. 그러면 대표님은 버튼을
+    눌렀고 '저장했습니다' 도 봤는데 화면은 그대로입니다.
+    버튼이 거짓말을 하는 셈이라 실제로 갈라내도록 했습니다.
+
+    【어떻게 갈라내나요?】
+    무리를 지우고 처음부터 다시 잇습니다. 이을 때 **점수가 높은 짝부터**
+    이어 붙이되, 이으면 '다른 책' 인 짝이 한 무리가 되어 버리는 연결은
+    건너뜁니다. 즉 확신이 약한 연결이 먼저 끊깁니다.
+
+    ※ 사람이 [같은 책] 이라고 누른 짝은 점수를 무한대로 줍니다.
+      사람 결정이 기계 점수보다 항상 먼저입니다.
+    """
+    if len(cluster) < 2 or not forbidden:
+        return [cluster]
+
+    inside = set(cluster)
+    mine = {(a, b) for a, b in forbidden if a in inside and b in inside}
+    if not mine:
+        return [cluster]
+
+    # 너무 큰 무리는 건드리지 않습니다. 아래 비교가 무리 크기의 제곱으로
+    # 늘어나서, 수백 권짜리 무리에서 갑자기 느려질 수 있습니다.
+    # 조용히 느려지느니 손대지 않고 알리는 편이 낫습니다.
+    if len(cluster) > max_members:
+        return [cluster]
+
+    g = Groups()
+    for i in cluster:
+        g.find(i)
+    members: dict[int, set[int]] = {i: {i} for i in cluster}
+
+    for _score, a, b in sorted(edges, key=lambda e: -e[0]):
+        if a not in inside or b not in inside:
+            continue
+        ra, rb = g.find(a), g.find(b)
+        if ra == rb:
+            continue
+        ma, mb = members[ra], members[rb]
+        # 이 둘을 이으면 '다른 책' 인 짝이 한 무리가 되나?
+        if any((x, y) in mine or (y, x) in mine for x in ma for y in mb):
+            continue
+        g.union(a, b)
+        root = g.find(a)
+        merged = ma | mb
+        members[root] = merged
+        for dead in (ra, rb):
+            if dead != root:
+                members.pop(dead, None)
+
+    return [sorted(v) for v in g.clusters().values()]
+
+
+# -----------------------------------------------------------------------------
 #  무리 안에 출판사가 섞였으면 갈라내기 (마지막 안전장치)
 # -----------------------------------------------------------------------------
 def split_by_publisher(
@@ -323,6 +394,10 @@ def main() -> int:
                     "score": result.score,
                     "reasons": result.reasons,
                     "decision": result.decision,
+                    # 검토 화면의 '되돌리기' 가 쓰는 값입니다.
+                    # 사람이 고친 뒤에도 "원래 기계는 뭐라고 했는지" 를
+                    # 알 수 있어야 되돌릴 수 있습니다.
+                    "auto_decision": result.decision,
                 })
 
     print(f"  자동병합 {counts['auto_high']:,}쌍 "
@@ -338,16 +413,42 @@ def main() -> int:
                   for m in match_rows}
     clusters: dict[int, list[int]] = {}
     split_count = 0
+
+    # 사람이 누른 결정을 다시 적용하기 위한 재료 (아래 split_by_manual 설명)
+    forbidden = {p for p, d in manual.items() if d == "manual_split"}
+    edges: list[tuple[float, int, int]] = [
+        (float(m["score"]), m["store_book_a"], m["store_book_b"])
+        for m in match_rows
+    ]
+    # 사람이 '같은 책' 이라고 한 짝은 점수를 무한대로 줍니다.
+    # 기계 점수보다 사람 결정이 항상 먼저입니다.
+    edges += [(float("inf"), a, b)
+              for (a, b), d in manual.items() if d == "manual_merge"]
+    manual_split_count = 0
+
     for cluster in raw_clusters.values():
         parts = ([cluster] if len(cluster) < 2
                  else split_by_publisher(cluster, by_id, pair_score, floor))
         if len(parts) > 1:
             split_count += 1
+
+        # 출판사로 가른 뒤, 사람이 '다른 책' 이라고 한 짝을 마저 갈라냅니다
+        final_parts: list[list[int]] = []
         for part in parts:
+            pieces = split_by_manual(part, edges, forbidden)
+            if len(pieces) > 1:
+                manual_split_count += 1
+            final_parts.extend(pieces)
+
+        for part in final_parts:
             clusters[min(part)] = sorted(part)
+
     if split_count:
         print(f"  ⚠️ 출판사가 섞여 있어 갈라낸 무리 {split_count:,}종 "
               f"→ 출판사별로 따로 셉니다.")
+    if manual_split_count:
+        print(f"  ✂️ 사람이 '다른 책' 이라고 한 짝 때문에 갈라낸 무리 "
+              f"{manual_split_count:,}종.")
 
     # 갈라낸 뒤의 소속을 다시 계산합니다 (아래 경고에서 씁니다)
     owner = {i: root for root, part in clusters.items() for i in part}
@@ -372,14 +473,20 @@ def main() -> int:
         print(f"  ⚠️ 같은 서점 상품이 2개 이상 섞인 무리 {len(dup_store):,}종 "
               f"→ '검토 필요' 로 표시합니다 (다른 판형일 가능성).")
 
-    # 사람이 "아님" 이라고 한 짝이 다른 책을 거쳐 한 무리가 된 경우 경고
+    # 위에서 갈라냈는데도 여전히 한 무리인 짝이 있는지 확인합니다.
+    #
+    # 【왜 또 보나요?】
+    # split_by_manual 은 너무 큰 무리(60권 초과)에는 손대지 않습니다.
+    # 그런 경우 대표님이 [다른 책] 을 눌렀는데도 화면은 그대로입니다.
+    # 조용히 넘어가면 버튼이 거짓말을 한 것이 되므로 반드시 알립니다.
     warned = 0
     for (lo, hi), d in manual.items():
         if d == "manual_split" and owner.get(lo, lo) == owner.get(hi, hi):
             warned += 1
     if warned:
-        print(f"  ⚠️ 사람이 '아님' 이라고 한 짝 {warned}건이 다른 책을 거쳐 "
-              f"한 무리가 됐습니다. 검토 화면에서 확인이 필요합니다.")
+        print(f"  🚨 사람이 '다른 책' 이라고 한 짝 {warned}건을 갈라내지 "
+              f"못했습니다. 무리가 너무 커서 손대지 않은 경우입니다.")
+        print(f"     그 짝은 검토 화면에서 눌러도 순위에 반영되지 않습니다.")
 
     # ---- 예시 보여주기 ----
     print("\n  ── 묶인 예시 (최대 5건) ──")

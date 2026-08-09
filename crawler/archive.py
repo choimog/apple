@@ -146,6 +146,48 @@ def already_archived(client_db) -> set[tuple[str, str]]:
 # =============================================================================
 
 
+def archives_ready(client_db) -> str:
+    """
+    보관 기록표가 준비됐는지 먼저 확인합니다.
+
+    【왜 필요한가요? — 2026-08-09】
+    표가 없는 상태로 그냥 진행했더니 파이썬 오류 화면이 그대로 떴습니다.
+    개발 지식이 없으면 그 화면만 봐서는 무엇을 해야 할지 알 수 없습니다.
+    (예전 R2 방식은 접속 정보가 없으면 먼저 안내하고 멈췄는데, GitHub 방식은
+     접속 정보라는 게 없어서 그 안내를 지나쳐 버렸습니다)
+
+    돌려주는 값: "" 면 정상, 아니면 사람이 읽을 수 있는 안내문
+    """
+    try:
+        client_db.table("archives").select(
+            "snapshot_date,storage,expires_at,run_url"
+        ).limit(1).execute()
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+
+    # ⚠️ 칸이 없을 때를 '표가 없을 때' 보다 먼저 봅니다.
+    #    "column archives.expires_at does not exist" 안에는 'archives' 와
+    #    'does not exist' 가 둘 다 들어 있어서, 차례가 반대면 엉뚱한 안내가
+    #    나갑니다. (2026-08-09 시험에서 실제로 걸렸습니다)
+    if "column" in msg and (
+        "storage" in msg or "expires_at" in msg or "run_url" in msg
+    ):
+        return (
+            "보관 기록표에 칸이 몇 개 없습니다 (storage / expires_at / run_url).\n"
+            "  Supabase → SQL Editor → New query 에\n"
+            "  db/archive_schema.sql 을 한 번 더 붙여넣고 Run 해주세요.\n"
+            "  이미 있는 자료는 그대로 두고 칸만 더합니다."
+        )
+    if "archives" in msg and ("not find" in msg or "does not exist" in msg):
+        return (
+            "보관 기록표(archives)가 아직 없습니다.\n"
+            "  Supabase → SQL Editor → New query 에\n"
+            "  db/archive_schema.sql 전체를 붙여넣고 Run 해주세요. (1분)"
+        )
+    return f"보관 기록표를 읽지 못했습니다: {msg}"
+
+
 def pick_dates(client_db, keep_days: int, max_dates: int) -> list[date]:
     """옮길 날짜를 고릅니다. (R2·GitHub 공통)"""
     cutoff = date.today() - timedelta(days=keep_days)
@@ -313,6 +355,18 @@ def main() -> int:
     # ---- GitHub 보관 (두 단계) ----
     if storage == "github" or args.export or args.commit:
         client_db = db.connect()
+
+        # 표가 없으면 오류 화면 대신 무엇을 해야 하는지 알려줍니다
+        problem = archives_ready(client_db)
+        if problem:
+            print(f"\nℹ️ 아직 준비가 안 됐습니다.\n\n  {problem}\n")
+            print("  자세한 설명: docs/archive-setup.md")
+            print("  (준비될 때까지 자료는 그대로 쌓입니다. 지워지지 않습니다)")
+            if args.export:
+                out = Path(args.export)
+                out.mkdir(parents=True, exist_ok=True)
+                (out / "manifest.json").write_text("[]")
+            return 0
 
         if args.commit:
             print("\n[3단계] 내려받은 파일을 검사하고 DB 를 정리합니다")

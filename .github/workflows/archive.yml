@@ -53,6 +53,7 @@ jobs:
         run: |
           python tests/test_archive_roundtrip.py
           python tests/test_archive_commit.py
+          python tests/test_archive_preflight.py
 
       # ---------- 1단계 ----------
       - name: 뽑아내기 (DB 는 손대지 않습니다)

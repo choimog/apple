@@ -285,6 +285,49 @@ await step("분야별 수집 날짜 (category_dates)", async () => {
   return `${firstCategory.name}: ${(data ?? []).length}일`;
 });
 
+// ---- 13. 용량 ----
+//     무료 요금제는 500MB 가 한도입니다. 차면 수집이 실패하고 사이트가 멈춥니다.
+//     언제 찰지 미리 알아야 대비할 수 있으므로 매번 확인합니다.
+const FREE_LIMIT_MB = 500;
+await step("데이터베이스 용량", async () => {
+  const { data, error } = await db.rpc("table_sizes");
+  if (error) {
+    if (/function|does not exist|schema cache/i.test(error.message)) {
+      return "건너뜀 — db/perf.sql 을 아직 실행하지 않았습니다";
+    }
+    throw new Error(error.message);
+  }
+  const rows = data ?? [];
+  const mb = (b) => Number(b ?? 0) / 1_000_000;
+  const total = rows.reduce((a, r) => a + mb(r.total_bytes), 0);
+
+  const top = rows
+    .slice(0, 3)
+    .map((r) => `${r.table_name} ${mb(r.total_bytes).toFixed(0)}MB` +
+                `(자료 ${mb(r.data_bytes).toFixed(0)} + 색인 ${mb(r.index_bytes).toFixed(0)})`)
+    .join(" · ");
+
+  // 날짜 수로 나눠서 하루 평균을 냅니다 (몇 밀리초면 됩니다)
+  const { data: days } = await db.rpc("snapshot_dates", { n: 400 });
+  const nDays = Math.max(1, (days ?? []).length);
+  const perDay = total / nDays;
+  const left = Math.max(0, FREE_LIMIT_MB - total);
+  const daysLeft = perDay > 0 ? Math.floor(left / perDay) : 999;
+
+  const line =
+    `${total.toFixed(0)}MB / ${FREE_LIMIT_MB}MB · ` +
+    `${nDays}일치 · 하루 약 ${perDay.toFixed(1)}MB · ` +
+    `남은 여유 약 ${daysLeft}일\n       ${top}`;
+
+  // 2주 밑으로 떨어지면 실패로 표시해서 메일이 가게 합니다
+  if (daysLeft < 14) {
+    throw new Error(
+      `용량이 ${daysLeft}일 뒤 찹니다. 보관소(R2) 설정을 서두르세요.\n       ${line}`
+    );
+  }
+  return line;
+});
+
 console.log("=".repeat(60));
 if (failed) {
   console.log(`❌ 실패 ${failed}건 — 화면이 빈 채로 뜰 수 있습니다.`);

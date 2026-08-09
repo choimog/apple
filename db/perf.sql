@@ -85,6 +85,62 @@ CREATE INDEX IF NOT EXISTS idx_books_author_trgm
 
 
 -- ----------------------------------------------------------------------------
+--  1-2. 용량 다이어트 — 기본키와 겹치는 색인 지우기
+-- ----------------------------------------------------------------------------
+--  【왜? — 2026-08-08 대표님 질문 "정보는 유지하면서 용량만 줄일 수 없나"】
+--
+--  순위표에는 색인이 네 개 걸려 있었습니다. 그중 하나가 기본키와 완전히
+--  겹칩니다.
+--
+--      기본키              (snapshot_date, category_id, rank)
+--      idx_rankings_date   (snapshot_date, category_id)   ← 기본키의 앞부분
+--
+--  앞부분이 같으면 기본키 하나로 다 처리됩니다. 데이터베이스는 색인을
+--  거꾸로도 읽을 수 있어서 DESC 여부도 상관없습니다.
+--
+--  즉 이 색인은 **아무 일도 더 해주지 않으면서 자리만 차지**하고 있었습니다.
+--  지워도 느려지는 조회가 없습니다. 정보도 하나도 안 없어집니다.
+--
+--  ⚠️ 나머지 색인은 지우면 안 됩니다. 하는 일이 다릅니다.
+--     idx_rankings_book      (store_book_id, …)  ← 도서 상세의 추이 그래프
+--     idx_rankings_cat_date  (category_id, …)    ← 등락 계산·분야별 날짜 목록
+-- ----------------------------------------------------------------------------
+DROP INDEX IF EXISTS idx_rankings_date;
+
+
+-- ----------------------------------------------------------------------------
+--  1-3. 지금 용량이 얼마나 되는지 (진단용)
+-- ----------------------------------------------------------------------------
+--  무료 요금제는 500MB 가 한도입니다. 언제 찰지 알아야 대비할 수 있습니다.
+--  사이트 [수집 상태] 와 자동 점검에서 이 값을 읽습니다.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.table_sizes()
+RETURNS TABLE (
+    table_name text,
+    row_count  bigint,
+    data_bytes bigint,
+    index_bytes bigint,
+    total_bytes bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    SELECT c.relname::text,
+           c.reltuples::bigint,
+           pg_table_size(c.oid),
+           pg_indexes_size(c.oid),
+           pg_total_relation_size(c.oid)
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relkind = 'r'
+     ORDER BY pg_total_relation_size(c.oid) DESC;
+$$;
+
+
+-- ----------------------------------------------------------------------------
 --  2. 수집된 날짜 목록
 -- ----------------------------------------------------------------------------
 --  【왜 이렇게 복잡하게 쓰나요?】

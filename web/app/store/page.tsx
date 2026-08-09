@@ -22,7 +22,6 @@ import { dayLabel } from "@/lib/format";
 
 export const metadata = { title: "서점별 순위" };
 
-export const revalidate = 600;
 
 /** 한 번에 보여주는 권수. 200개를 한꺼번에 그리면 화면이 버벅입니다. */
 const PAGE_SIZE = 50;

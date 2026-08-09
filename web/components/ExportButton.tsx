@@ -1,7 +1,7 @@
 "use client";
 
 import type { RankingRow } from "@/lib/queries";
-import { STORE_NAME } from "@/lib/supabase";
+import { STORE_NAME } from "@/lib/stores";
 import { toCsv, downloadCsv, safeFileName } from "@/lib/csv";
 
 /**

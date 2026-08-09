@@ -45,6 +45,41 @@ const PAGES = [
   ["/status", ["수집 상태", "날짜별 · 서점별 수집 기록"]],
 ];
 
+/**
+ * 로그인 표(쿠키) 보관함.
+ *
+ * 【2026-08-09 회원 전용이 되면서 필요해졌습니다】
+ * 이제 모든 화면이 로그인을 요구합니다. 그래서 검사 프로그램도 회원처럼
+ * 로그인한 다음에 화면을 열어야 합니다. 안 그러면 전부 로그인 화면으로
+ * 튕겨서, 화면이 깨졌는지 아닌지 알 수 없습니다.
+ */
+const jar = new Map();
+
+function saveCookies(res) {
+  const list = res.headers.getSetCookie?.() ?? [];
+  for (const line of list) {
+    const [pair] = line.split(";");
+    const i = pair.indexOf("=");
+    if (i < 0) continue;
+    const name = pair.slice(0, i).trim();
+    const value = pair.slice(i + 1).trim();
+    if (value === "" || /expires=Thu, 01 Jan 1970/i.test(line)) jar.delete(name);
+    else jar.set(name, value);
+  }
+}
+
+function cookieHeader() {
+  return [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+}
+
+/** 로그인 표를 붙여서 여는 fetch */
+function get(path, init = {}) {
+  return fetch(BASE + path, {
+    ...init,
+    headers: { ...(init.headers ?? {}), cookie: cookieHeader() },
+  });
+}
+
 const server = spawn("npx", ["next", "start", "-p", PORT], {
   stdio: ["ignore", "pipe", "pipe"],
   env: process.env,
@@ -81,10 +116,102 @@ if (!(await waitForServer())) {
   process.exit(1);
 }
 
+/* ---------------------------------------------------------------------------
+   회원 전용 문지기가 실제로 서 있는지.
+
+   ⚠️ 이건 로그인 계정이 없어도 반드시 확인합니다.
+      문지기가 사라진 걸 모르고 지나가면, 사이트가 통째로 열린 채로
+      운영됩니다. 눈으로는 알아챌 수 없습니다 — 대표님 브라우저는
+      로그인이 되어 있어서 늘 정상으로 보입니다.
+--------------------------------------------------------------------------- */
+console.log("\n[회원 전용] 로그인 안 하면 못 들어가는지");
+for (const path of ["/", "/best", "/status", "/book/1"]) {
+  try {
+    const res = await fetch(BASE + path, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    });
+    const to = res.headers.get("location") ?? "";
+    if (res.status >= 300 && res.status < 400 && to.includes("/login")) {
+      ok(`${path} → 로그인 화면으로 보냄`);
+    } else {
+      bad(
+        `🚨 ${path} 이(가) 로그인 없이 열립니다`,
+        `HTTP ${res.status}${to ? ` → ${to}` : ""} · 문지기(middleware.ts)를 확인하세요`
+      );
+    }
+  } catch (e) {
+    bad(path, String(e?.message ?? e));
+  }
+}
+{
+  const res = await fetch(BASE + "/login", { signal: AbortSignal.timeout(30000) });
+  const html = await res.text();
+  if (res.status === 200 && html.includes("회원만 볼 수 있습니다")) ok("/login 이 열림");
+  else bad("/login", `HTTP ${res.status} — 로그인 화면이 안 뜨면 아무도 못 들어옵니다`);
+}
+
+/* ---------------------------------------------------------------------------
+   회원으로 로그인해서 화면을 열어봅니다.
+
+   계정이 없으면 여기서 멈춥니다. 그래도 위 문지기 확인은 이미 했습니다.
+--------------------------------------------------------------------------- */
+const SMOKE_EMAIL = process.env.SMOKE_EMAIL;
+const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD;
+let loggedIn = false;
+
+if (SMOKE_EMAIL && SMOKE_PASSWORD) {
+  console.log("\n[로그인] 검사용 계정으로 들어가기");
+  try {
+    const body = new URLSearchParams({
+      email: SMOKE_EMAIL,
+      password: SMOKE_PASSWORD,
+      next: "/",
+    });
+    const res = await fetch(BASE + "/auth/login", {
+      method: "POST",
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    });
+    saveCookies(res);
+    const to = res.headers.get("location") ?? "";
+    if (to.includes("error=")) {
+      bad("로그인", `거절당했습니다 → ${to}`);
+    } else if (!jar.size) {
+      bad("로그인", "로그인 표(쿠키)를 못 받았습니다");
+    } else {
+      loggedIn = true;
+      ok("로그인", SMOKE_EMAIL);
+    }
+  } catch (e) {
+    bad("로그인", String(e?.message ?? e));
+  }
+}
+
+if (!loggedIn) {
+  console.log(
+    "\n⏭️ 화면 내용 확인은 건너뜁니다.\n" +
+      "   회원 전용이라 로그인해야 화면을 볼 수 있습니다.\n" +
+      "   GitHub → Settings → Secrets → Actions 에 검사용 계정을 넣으면 켜집니다.\n" +
+      "     SMOKE_EMAIL / SMOKE_PASSWORD\n" +
+      "   (Supabase 에서 검사 전용 계정을 하나 만들어 쓰세요. 보기 전용이면 충분합니다)"
+  );
+  console.log("=".repeat(60));
+  if (failed) {
+    console.log(`❌ 실패 ${failed}건`);
+    console.log("\n--- 사이트 로그 (마지막 부분) ---\n" + serverLog.slice(-3000));
+    await shutdown(1);
+  }
+  console.log("✅ 문지기는 제대로 서 있습니다");
+  await shutdown(0);
+}
+
+console.log("\n[화면] 실제 데이터로 하나씩 열어보기");
 for (const [path, musts] of PAGES) {
   const started = Date.now();
   try {
-    const res = await fetch(BASE + path, { signal: AbortSignal.timeout(30000) });
+    const res = await get(path, { signal: AbortSignal.timeout(30000) });
     // React 는 서버에서 그릴 때 "{word}별 순위" 처럼 값이 끼어든 문구 사이에
     // <!-- --> 주석을 넣습니다. 사람 눈에는 안 보이지만 문자열 검사는 실패합니다.
     // 그래서 주석을 지우고 비교합니다.
@@ -123,13 +250,13 @@ for (const [path, musts] of PAGES) {
 await (async () => {
   const name = "/status?date=… (하루치 리포트)";
   try {
-    const html = await (await fetch(BASE + "/status")).text();
+    const html = await (await get("/status")).text();
     const m = html.match(/\/status\?date=(\d{4}-\d{2}-\d{2})/);
     if (!m) {
       console.log(`  ⏭️ ${name} — 아직 수집 기록이 없어 건너뜁니다`);
       return;
     }
-    const res = await fetch(`${BASE}/status?date=${m[1]}`, {
+    const res = await get(`/status?date=${m[1]}`, {
       signal: AbortSignal.timeout(30000),
     });
     const body = (await res.text()).replaceAll("<!-- -->", "");

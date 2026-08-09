@@ -30,8 +30,25 @@ const GROUPS: { href: string; label: string }[][] = [
   ],
 ];
 
-export default function Nav() {
+export default function Nav({ email }: { email: string | null }) {
   const path = usePathname();
+
+  /**
+   * 로그인 전에는 메뉴를 감춥니다.
+   * 눌러도 어차피 로그인 화면으로 되돌아오므로, 보여줄 이유가 없습니다.
+   */
+  if (!email) {
+    return (
+      <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+          <span className="text-[15px] font-bold tracking-[-0.01em]">
+            <span aria-hidden>📚</span> 베스트셀러 트래커
+          </span>
+          <ThemeToggle />
+        </div>
+      </header>
+    );
+  }
 
   const isOn = (href: string) => {
     if (href === "/best") return path === "/best";
@@ -80,6 +97,20 @@ export default function Nav() {
           </nav>
 
           <ThemeToggle />
+
+          {/*
+            로그아웃은 링크가 아니라 버튼입니다.
+            링크로 두면 남이 보낸 주소를 눌렀을 때 나도 모르게 로그아웃됩니다.
+          */}
+          <form action="/auth/signout" method="post" className="shrink-0">
+            <button
+              type="submit"
+              title={email}
+              className="rounded-lg px-2.5 py-1.5 text-sm text-ink-soft hover:bg-surface-2 hover:text-ink"
+            >
+              로그아웃
+            </button>
+          </form>
         </div>
       </div>
     </header>

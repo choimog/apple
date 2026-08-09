@@ -24,7 +24,6 @@ import {
   type Period,
 } from "@/lib/queries";
 
-export const revalidate = 600;
 
 export default async function Home({
   searchParams,

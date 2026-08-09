@@ -16,7 +16,7 @@
  *     지금 값이 얼마인지 보입니다.
  */
 
-import { STORE_NAME } from "@/lib/supabase";
+import { STORE_NAME } from "@/lib/stores";
 import type { HistoryPoint, Period } from "@/lib/queries";
 
 const LINE_COLOR: Record<number, string> = {

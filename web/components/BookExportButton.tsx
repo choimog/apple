@@ -20,7 +20,8 @@
  */
 
 import { store } from "@/lib/stores";
-import { PERIOD_LABEL, type HistoryPoint } from "@/lib/queries";
+import { PERIOD_LABEL } from "@/lib/period";
+import type { HistoryPoint } from "@/lib/queries";
 import { toCsv, downloadCsv, safeFileName } from "@/lib/csv";
 
 export default function BookExportButton({

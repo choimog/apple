@@ -22,7 +22,6 @@ import {
 
 export const metadata = { title: "분야 분석" };
 
-export const revalidate = 600;
 
 const TOP_CHOICES = [50, 100, 200];
 

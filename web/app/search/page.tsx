@@ -16,7 +16,6 @@ import { dayLabel } from "@/lib/format";
 
 export const metadata = { title: "도서 검색" };
 
-export const revalidate = 600;
 
 const EXAMPLES = ["코스모스", "히가시노 게이고", "문학동네", "오디세이아"];
 

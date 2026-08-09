@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import { THEME_BOOT } from "@/components/ThemeToggle";
+import { currentUser } from "@/lib/supabase";
 
 export const metadata: Metadata = {
   title: {
@@ -15,7 +16,18 @@ export const metadata: Metadata = {
 // 주소창 색. 기본이 밝은 화면이므로 밝은 색 하나만 씁니다.
 export const viewport: Viewport = { themeColor: "#faf9f7" };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  /**
+   * 로그인한 사람. 못 읽어도 화면은 떠야 합니다 —
+   * 접속 정보가 없을 때 로그인 화면 자체가 안 뜨면 안내조차 못 합니다.
+   */
+  let email: string | null = null;
+  try {
+    email = (await currentUser())?.email ?? null;
+  } catch {
+    email = null;
+  }
+
   return (
     <html lang="ko">
       <head>
@@ -31,7 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           본문으로 건너뛰기
         </a>
 
-        <Nav />
+        <Nav email={email} />
 
         <main id="main" className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
           {children}

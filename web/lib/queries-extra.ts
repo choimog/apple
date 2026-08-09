@@ -3,7 +3,7 @@
  * 기능이 아직 안 켜졌으면 ok:false 를 돌려주고, 화면이 그 사실을 알립니다.
  */
 
-import { supabase } from "./supabase";
+import { db } from "./supabase";
 
 /* ------------------------------------------------------------- 도서 검색 */
 
@@ -38,7 +38,7 @@ export async function searchMerged(
   const term = q.trim();
   if (!term) return { rows: [], ok: true };
 
-  const { data, error } = await supabase.rpc("search_books_merged", {
+  const { data, error } = await db().rpc("search_books_merged", {
     p_q: term,
     p_limit: limit,
   });
@@ -101,7 +101,7 @@ export type CrawlDetailRow = {
  * ※ 데이터베이스 계산 기능(perf.sql)이 없어도 동작합니다.
  */
 export async function getCrawlDetail(date: string): Promise<CrawlDetailRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("crawl_logs")
     .select(
       `store_id, category_id, status, items_collected, items_expected,
@@ -156,7 +156,7 @@ export type CrawlDay = {
 export async function getCrawlSummary(
   days = 7
 ): Promise<{ rows: CrawlDay[]; ok: boolean }> {
-  const { data, error } = await supabase.rpc("crawl_summary", { p_days: days });
+  const { data, error } = await db().rpc("crawl_summary", { p_days: days });
   if (error || !data) return { rows: [], ok: false };
   return {
     ok: true,

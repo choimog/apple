@@ -9,8 +9,15 @@ import { dayLabel, duration, kstTime, num } from "@/lib/format";
 
 export const metadata = { title: "수집 상태" };
 
-// 수집 상태는 자주 바뀌므로 1분마다 다시 읽습니다.
-export const revalidate = 60;
+/**
+ * 【2026-08-09 회원 전용으로 바꾸면서 화면 저장(캐시)을 뺐습니다】
+ * 예전에는 화면을 잠깐 저장해 두고 여러 사람에게 그대로 보여줬습니다.
+ * 이제는 접속마다 그 사람이 회원인지 확인해야 하므로 저장할 수 없습니다.
+ * (Next.js 도 쿠키를 읽는 화면은 자동으로 저장하지 않습니다)
+ *
+ * 대신 화면을 열 때마다 데이터베이스를 읽습니다. 보는 사람이 몇 분이라
+ * 속도 문제는 없습니다.
+ */
 
 export default async function StatusPage({
   searchParams,

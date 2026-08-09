@@ -23,7 +23,6 @@ import { dayLabel } from "@/lib/format";
 
 export const metadata = { title: "종합 순위" };
 
-export const revalidate = 600;
 
 export default async function BestPage({
   searchParams,

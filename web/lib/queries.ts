@@ -11,11 +11,14 @@
  * 아래 selectAll() 이 그 처리를 대신합니다.
  */
 
-import { supabase } from "./supabase";
+import { db } from "./supabase";
 
-/** 집계 기간. DB 의 categories.kind 값과 맞춥니다. */
-export type Period = "daily" | "weekly";
+// 글자만 있는 값들은 따로 두고, 여기서 다시 내보냅니다.
+// (예전처럼 "@/lib/queries" 에서 가져다 쓰는 코드가 그대로 돌게)
+import { periodOf, type Period } from "./period";
+export * from "./period";
 
+/** 분야(카테고리). DB 의 categories 표 한 줄. */
 export type Category = {
   id: number;
   store_id: number;
@@ -50,30 +53,6 @@ export type RankingRow = {
 };
 
 /**
- * 이 분야가 '최근 7일 누적(주간)' 인지.
- *
- * 일간과 주간은 분야 이름이 똑같아서(둘 다 '전체'), 표시로 구분하지 않으면
- * 화면에서 어느 쪽을 보고 있는지 알 수 없습니다.
- */
-export function isWeekly(c: { kind: string }): boolean {
-  return c.kind === "weekly";
-}
-
-export function periodOf(c: { kind: string }): Period {
-  return c.kind === "weekly" ? "weekly" : "daily";
-}
-
-export const PERIOD_LABEL: Record<Period, string> = {
-  daily: "일간",
-  weekly: "주간",
-};
-
-export const PERIOD_HELP: Record<Period, string> = {
-  daily: "어제 하루 판매 순위",
-  weekly: "최근 7일 누적 판매 순위",
-};
-
-/**
  * 1,000행 제한을 넘겨 전부 읽어옵니다.
  * maxRows 를 넘으면 거기서 멈춥니다 (화면이 감당 못 할 양을 막는 안전장치).
  */
@@ -103,7 +82,7 @@ async function selectAll<T>(
 export async function getSnapshotDates(limit = 60): Promise<string[]> {
   // ---- 빠른 길: 데이터베이스가 날짜만 뽑아 줍니다 (db/perf.sql) ----
   // 순위표가 아무리 커져도 날짜 개수만큼만 봅니다.
-  const fast = await supabase.rpc("snapshot_dates", { n: limit });
+  const fast = await db().rpc("snapshot_dates", { n: limit });
   if (!fast.error && fast.data) {
     return (fast.data as { snapshot_date: string }[]).map((r) => r.snapshot_date);
   }
@@ -119,7 +98,7 @@ export async function getSnapshotDates(limit = 60): Promise<string[]> {
   // 예전엔 40번이었는데, 하루 11만 줄이 쌓이면서 그것만으로 화면이
   // 10초 넘게 멈췄습니다. (2026-08-08)
   for (let page = 0; page < 10 && seen.size < limit; page += 1) {
-    const { data, error } = await supabase
+    const { data, error } = await db()
       .from("rankings")
       .select("snapshot_date")
       .order("snapshot_date", { ascending: false })
@@ -136,7 +115,7 @@ export async function getSnapshotDates(limit = 60): Promise<string[]> {
 }
 
 export async function getCategories(): Promise<Category[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("categories")
     .select("id,store_id,name,kind,branch_name,branch_code,code,unified_code")
     .eq("enabled", true)
@@ -219,7 +198,7 @@ export async function getRankings(
   limit = 50,
   offset = 0
 ): Promise<RankingRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("rankings")
     .select(RANKING_COLUMNS)
     .eq("category_id", categoryId)
@@ -239,7 +218,7 @@ export async function getRankings(
   const prevDate = await getPreviousDate(categoryId, date);
   const prevRank = new Map<number, number>();
   if (prevDate && rows.length) {
-    const { data: prev } = await supabase
+    const { data: prev } = await db()
       .from("rankings")
       .select("rank, store_book_id")
       .eq("category_id", categoryId)
@@ -269,7 +248,7 @@ export async function countRankings(
   categoryId: number,
   date: string
 ): Promise<number> {
-  const { count, error } = await supabase
+  const { count, error } = await db()
     .from("rankings")
     .select("rank", { count: "exact", head: true })
     .eq("category_id", categoryId)
@@ -283,7 +262,7 @@ export async function getPreviousDate(
   categoryId: number,
   date: string
 ): Promise<string | null> {
-  const { data } = await supabase
+  const { data } = await db()
     .from("rankings")
     .select("snapshot_date")
     .eq("category_id", categoryId)
@@ -313,7 +292,7 @@ export async function getCategoryDates(
   limit = 400
 ): Promise<string[]> {
   // ---- 빠른 길: 데이터베이스가 날짜만 뽑아 줍니다 (db/perf.sql) ----
-  const fast = await supabase.rpc("category_dates", {
+  const fast = await db().rpc("category_dates", {
     p_category_id: categoryId,
     n: limit,
   });
@@ -327,7 +306,7 @@ export async function getCategoryDates(
   const seen = new Set<string>();
   const step = 1000;
   for (let page = 0; page < 12 && seen.size < limit; page += 1) {
-    const { data, error } = await supabase
+    const { data, error } = await db()
       .from("rankings")
       .select("snapshot_date")
       .eq("category_id", categoryId)
@@ -413,7 +392,7 @@ export async function getCombinedBest(
 
   // ---- 빠른 길: 데이터베이스가 계산해서 100줄만 보내줍니다 (db/perf.sql) ----
   // 예전에는 순위 6,000줄을 받아와 사이트에서 직접 계산했습니다.
-  const rpc = await supabase.rpc("combined_best", {
+  const rpc = await db().rpc("combined_best", {
     p_date: date,
     p_period: period,
     p_unified: unifiedCode,
@@ -449,7 +428,7 @@ export async function getCombinedBest(
     store_book: StoreBook;
   }>(
     (from, to) =>
-      supabase
+      db()
         .from("rankings")
         // ⚠️ RANKING_COLUMNS 를 그대로 붙이면 rank·sales_point 가 두 번 들어갑니다.
         //    필요한 열만 명시적으로 적습니다.
@@ -550,7 +529,7 @@ function numberMap(src: Record<string, number> | null): Record<number, number> {
 async function usedIn(cats: Category[], date: string): Promise<Category[]> {
   const checks = await Promise.all(
     cats.map(async (c) => {
-      const { count } = await supabase
+      const { count } = await db()
         .from("rankings")
         .select("rank", { count: "exact", head: true })
         .eq("category_id", c.id)
@@ -601,7 +580,7 @@ export async function searchBooks(q: string, limit = 60) {
   const term = q.trim();
   if (!term) return [];
   const like = `%${term}%`;
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("store_books")
     .select(
       "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13,book_id"
@@ -650,7 +629,7 @@ export async function getBookDetail(bookId: number): Promise<{
   placements: CurrentPlacement[];
   latestDate: string | null;
 }> {
-  const { data: sbs, error } = await supabase
+  const { data: sbs, error } = await db()
     .from("store_books")
     .select(
       "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13,book_id"
@@ -674,7 +653,7 @@ export async function getBookDetail(bookId: number): Promise<{
       category_id: number;
     }>(
       (from, to) =>
-        supabase
+        db()
           .from("rankings")
           .select("snapshot_date,rank,sales_point,store_book_id,category_id")
           .in("store_book_id", ids)
@@ -752,7 +731,7 @@ export async function getBookDetail(bookId: number): Promise<{
 
 /** 최근 수집이 잘 됐는지 (화면 상단에 정직하게 표시하기 위함) */
 export async function getRecentCrawlStatus(limit = 12) {
-  const { data } = await supabase
+  const { data } = await db()
     .from("crawl_logs")
     .select("snapshot_date,store_id,status,items_collected,error_message")
     .order("id", { ascending: false })
@@ -783,7 +762,7 @@ export async function getArchivedRange(): Promise<{
   /** 사라짐이 있는 보관 방식인지 (github) */
   expiring: boolean;
 } | null> {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("archives")
     .select("snapshot_date,row_count,storage,expires_at,run_url,saved_at")
     .eq("table_name", "rankings")
@@ -866,7 +845,7 @@ export async function getNameRanking(
   opts: { depth?: number; minStores?: number; limit?: number } = {}
 ): Promise<{ rows: NameRank[]; ok: boolean; depth: number }> {
   const depth = opts.depth ?? 300;
-  const { data, error } = await supabase.rpc(
+  const { data, error } = await db().rpc(
     kind === "publisher" ? "publisher_ranking" : "author_ranking",
     {
       p_date: date,
@@ -905,7 +884,7 @@ export async function getBooksOf(
   unified = "all",
   opts: { depth?: number; limit?: number } = {}
 ): Promise<{ rows: CombinedRow[]; ok: boolean }> {
-  const { data, error } = await supabase.rpc("books_of", {
+  const { data, error } = await db().rpc("books_of", {
     p_field: kind,
     p_name: name,
     p_date: date,
@@ -942,7 +921,7 @@ export async function getCategoryShare(
   period: Period,
   top = 100
 ): Promise<{ rows: CategoryShare[]; ok: boolean; top: number }> {
-  const { data, error } = await supabase.rpc("category_share", {
+  const { data, error } = await db().rpc("category_share", {
     p_date: date,
     p_period: period,
     p_top: top,

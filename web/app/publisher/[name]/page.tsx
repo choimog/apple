@@ -1,6 +1,5 @@
 import NameDetailPage from "@/components/NameDetailPage";
 
-export const revalidate = 600;
 
 export default function Page(props: {
   params: Promise<{ name: string }>;

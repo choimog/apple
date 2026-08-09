@@ -44,12 +44,6 @@ jobs:
         # 칸이 통째로 밀리는데 파일은 정상적으로 열립니다. 여기서 잡습니다.
         run: node scripts/test-csv.mjs
 
-      - name: 용량 예측 규칙 시험
-        # 이 계산이 실제로 거짓말을 했습니다 (2026-08-09). 2일치만 모인
-        # 상태에서 "3일 뒤 꽉 참" 이라고 해서 검사가 매번 빨간불이 됐고,
-        # 그러면 진짜 고장까지 같이 묻힙니다.
-        run: node scripts/test-capacity.mjs
-
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

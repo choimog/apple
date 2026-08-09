@@ -10,9 +10,7 @@
  *   배포되는 사이트에는 포함되지 않고, 열쇠도 브라우저로 나가지 않습니다.
  */
 
-import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { describe, MIN_KEEP_DAYS, project } from "./capacity.mjs";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -288,68 +286,16 @@ await step("분야별 수집 날짜 (category_dates)", async () => {
 });
 
 // ---- 13. 용량 ----
-//     무료 요금제는 500MB 가 한도입니다. 차면 수집이 실패하고 사이트가 멈춥니다.
 //
-//     【2026-08-09 계산을 고쳤습니다 — 그 전 숫자는 틀렸습니다】
-//     예전에는 "전체 용량 ÷ 수집한 날짜 수" 로 하루 증가량을 냈습니다.
-//     이 방식은 2일치만 모였을 때 '하루 95.9MB, 3일 뒤 꽉 참' 이라고
-//     알려 왔는데, 실제와 4배 넘게 차이 납니다.
+// 【2026-08-09 이 확인은 파이썬 쪽으로 옮겼습니다】
+// crawler/capacity.py 로 갔고, **매일 수집이 끝난 뒤** 돕니다.
 //
-//     이유: 표는 성격이 두 가지인데 하나로 뭉뚱그렸기 때문입니다.
+// 여기 있을 때는 제가 코드를 고쳐서 올릴 때만 확인했습니다. 제가 손을
+// 떼면 아무도 안 보게 됩니다. 용량이 차면 수집이 멈추고 사이트도 멈추는데,
+// 그걸 몇 주 뒤에 알게 되는 구조였습니다.
 //
-//       · 날마다 쌓이는 것   rankings, book_meta
-//                            하루치씩 정직하게 늘고, 보관소로 빠져나갑니다
-//       · 도서 목록          books, store_books, book_matches …
-//                            '처음 보는 책' 이 나올 때만 늘어납니다.
-//                            첫날에는 7만 권이 전부 처음이라 폭발하고,
-//                            그 뒤로는 거의 안 늘어납니다. 보관소로도 안 빠집니다.
-//
-//     첫날의 목록 구축 비용을 '매일 드는 비용' 으로 세면 당연히 과장됩니다.
-//     그래서 지금은 둘을 나눠서 계산하고, 도달할 최대치를 함께 봅니다.
-//
-//         예상 최대치 = 도서 목록 + (하루 순위 용량 × 보관 일수)
-//
-//     ⚠️ 틀린 경고는 그냥 틀린 것으로 끝나지 않습니다. 이 검사가 매번
-//        빨간불이면 진짜 고장도 같이 묻힙니다. 실제로 그랬습니다.
-/** config/archive.yaml 의 보관 일수를 읽습니다. 못 읽으면 코드에 박힌 최소값. */
-function keepDays() {
-  try {
-    const text = readFileSync(
-      new URL("../../config/archive.yaml", import.meta.url), "utf8",
-    );
-    const m = text.match(/^keep_days:\s*(\d+)/m);
-    if (m) return Number(m[1]);
-  } catch {
-    /* 설정을 못 읽어도 검사는 계속합니다 */
-  }
-  return MIN_KEEP_DAYS;
-}
-
-await step("데이터베이스 용량", async () => {
-  const { data, error } = await db.rpc("table_sizes");
-  if (error) {
-    if (/function|does not exist|schema cache/i.test(error.message)) {
-      return "건너뜀 — db/perf.sql 을 아직 실행하지 않았습니다";
-    }
-    throw new Error(error.message);
-  }
-  const rows = data ?? [];
-  const mb = (b) => Number(b ?? 0) / 1_000_000;
-
-  const top = rows
-    .slice(0, 3)
-    .map((r) => `${r.table_name} ${mb(r.total_bytes).toFixed(0)}MB` +
-                `(자료 ${mb(r.data_bytes).toFixed(0)} + 색인 ${mb(r.index_bytes).toFixed(0)})`)
-    .join(" · ");
-
-  const { data: days } = await db.rpc("snapshot_dates", { n: 400 });
-  const p = project(rows, (days ?? []).length, keepDays());
-  const line = describe(p, top);
-
-  // 문제가 있으면 실패로 표시합니다 (실패해야 메일이 갑니다)
-  if (p.problem) throw new Error(`${p.problem}\n       ${line}`);
-  return line;
-});
+// 같은 계산을 두 군데 두면 반드시 어긋나므로 여기서는 지웠습니다.
+// 한쪽만 고치게 되니까요.
 
 console.log("=".repeat(60));
 if (failed) {

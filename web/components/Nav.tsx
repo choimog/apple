@@ -31,7 +31,10 @@ const GROUPS: { href: string; label: string }[][] = [
 ];
 
 /** 관리자에게만 보이는 메뉴 */
-const ADMIN_ITEM = { href: "/review", label: "매칭 검토" };
+const ADMIN_ITEMS = [
+  { href: "/review", label: "매칭 검토" },
+  { href: "/share", label: "공유 링크" },
+];
 
 export default function Nav({
   email,
@@ -61,7 +64,7 @@ export default function Nav({
 
   // 관리자에게만 [매칭 검토] 를 붙입니다.
   // 보기 전용 회원에게 보여봐야 눌러도 "권한이 없습니다" 만 뜹니다.
-  const groups = isAdmin ? [...GROUPS, [ADMIN_ITEM]] : GROUPS;
+  const groups = isAdmin ? [...GROUPS, ADMIN_ITEMS] : GROUPS;
 
   const isOn = (href: string) => {
     if (href === "/best") return path === "/best";

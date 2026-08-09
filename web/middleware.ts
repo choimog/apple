@@ -21,8 +21,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/** 로그인 없이 열 수 있는 곳 */
-const PUBLIC_PATHS = ["/login", "/auth"];
+/**
+ * 로그인 없이 열 수 있는 곳
+ *
+ * ⚠️ 여기에 주소를 더할 때는 반드시 "그 화면이 무엇을 보여주는지" 를
+ *    확인하세요. 하나 잘못 넣으면 그 화면만 통째로 공개됩니다.
+ *
+ *    /s/…  공유 링크. 주소값(64글자)을 아는 사람만 열 수 있고,
+ *          그 안에서도 db/share.sql 의 함수가 한 번 더 확인합니다.
+ *          여기만 열어 두는 것으로는 아무 자료도 안 나옵니다.
+ */
+const PUBLIC_PATHS = ["/login", "/auth", "/s"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

@@ -41,6 +41,12 @@ fi
 
 DATA=$(mktemp -d /var/tmp/authtest.XXXXXX)
 SOCK=/var/tmp
+
+# ⚠️ 포트를 따로 잡습니다.
+#    처음에는 기본 포트를 그대로 썼는데, 그러면 이 컴퓨터에 이미 돌고 있는
+#    다른 PostgreSQL 에 붙어 버립니다. 실제로 그래서 시험이 엉뚱한 곳을
+#    보고 "역할이 이미 있습니다" 로 무너졌습니다. (2026-08-09)
+PORT=$(( 15432 + (RANDOM % 2000) ))
 chmod 777 "$DATA"
 [ -n "$RUN" ] && chown postgres "$DATA"
 
@@ -54,16 +60,16 @@ trap cleanup EXIT
 
 run "initdb -D $DATA -U postgres --auth=trust" >/dev/null 2>&1 || {
   echo "ℹ️ 시험용 데이터베이스를 만들지 못해 건너뜁니다."; exit 0; }
-run "pg_ctl -D $DATA -o '-k $SOCK -h \"\"' -l $DATA/log start" >/dev/null 2>&1
+run "pg_ctl -D $DATA -o '-k $SOCK -p $PORT -h \"\"' -l $DATA/log start" >/dev/null 2>&1
 sleep 1
-run "psql -h $SOCK -U postgres -tAc 'select 1'" >/dev/null 2>&1 || {
+run "psql -h $SOCK -p $PORT -U postgres -tAc 'select 1'" >/dev/null 2>&1 || {
   echo "ℹ️ 시험용 데이터베이스가 뜨지 않아 건너뜁니다."; exit 0; }
 
-psqlq() { run "psql -h $SOCK -U postgres -q -f $1" 2>&1; }
+psqlq() { run "psql -h $SOCK -p $PORT -U postgres -q -f $1" 2>&1; }
 
 # ⚠️ SET ROLE 같은 명령도 'SET' 을 한 줄 찍습니다. 마지막 줄만 봐야
 #    숫자가 'SET0' 처럼 붙어 나오지 않습니다. (2026-08-09 실제로 겪음)
-ask()   { run "psql -h $SOCK -U postgres -tAc \"$1\"" 2>&1 | tail -1 | tr -d '[:space:]'; }
+ask()   { run "psql -h $SOCK -p $PORT -U postgres -tAc \"$1\"" 2>&1 | tail -1 | tr -d '[:space:]'; }
 
 # ---- Supabase 를 흉내 냅니다 (역할·auth 스키마) ----
 cat > "$DATA/fake-supabase.sql" <<'SQL'
@@ -91,7 +97,7 @@ chmod 644 "$DATA/fake-supabase.sql"
 psqlq "$DATA/fake-supabase.sql" | grep -v NOTICE | grep -i error && {
   echo "❌ 흉내 내기 실패"; exit 1; }
 
-cp "$ROOT/db/schema.sql" "$ROOT/db/rls.sql" "$ROOT/db/auth.sql" "$DATA/"
+cp "$ROOT/db/schema.sql" "$ROOT/db/rls.sql" "$ROOT/db/auth.sql" "$ROOT/db/share.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 psqlq "$DATA/schema.sql" >/dev/null
 psqlq "$DATA/rls.sql"    >/dev/null
@@ -102,12 +108,23 @@ INSERT INTO auth.users(id, email) VALUES
   ('00000000-0000-0000-0000-000000000001', 'boss@example.com'),
   ('00000000-0000-0000-0000-000000000002', 'friend@example.com');
 
-INSERT INTO stores(id, name, code) VALUES (1, '교보문고', 'kyobo');
+-- stores 는 schema.sql 이 이미 넣어 둡니다 (여기서 또 넣으면 중복 오류)
 INSERT INTO store_books(id, store_id, store_book_key, raw_title, norm_title)
 VALUES (1, 1, 'a', '싯다르타', '싯다르타'),
        (2, 1, 'b', '싯다르타', '싯다르타');
 INSERT INTO book_matches(id, store_book_a, store_book_b, score, reasons, decision)
 VALUES (1, 1, 2, 88, '{}'::jsonb, 'auto_low');
+
+-- 공유 링크 시험용: 분야 둘과 순위 몇 줄
+-- ⚠️ url_template 은 NOT NULL 입니다. 빠뜨리면 이 줄만 조용히 안 들어가고,
+--    공유 링크 시험이 '읽을 게 없어서' 실패합니다. (2026-08-09 실제로 겪음)
+INSERT INTO categories(id, store_id, name, kind, code, url_template, enabled)
+VALUES (10, 1, '소설', 'online', 'novel', 'https://example.test/{page}', true),
+       (20, 1, '경제', 'online', 'econ',  'https://example.test/{page}', true);
+INSERT INTO rankings(snapshot_date, category_id, rank, store_book_id, sales_point)
+VALUES ('2026-08-09', 10, 1, 1, 100),
+       ('2026-08-09', 10, 2, 2, 90),
+       ('2026-08-09', 20, 1, 2, 80);
 SQL
 chmod 644 "$DATA/people.sql"
 psqlq "$DATA/people.sql" >/dev/null
@@ -115,6 +132,7 @@ psqlq "$DATA/people.sql" >/dev/null
 # auth.sql 의 관리자 이메일을 시험용으로 바꿔서 실행합니다
 sed -i "s/hssh8159@gmail.com/boss@example.com/" "$DATA/auth.sql"
 psqlq "$DATA/auth.sql" > "$DATA/authout.txt"
+psqlq "$DATA/share.sql" > "$DATA/shareout.txt"
 
 FAILED=0
 check() {   # check "이름" "기대" "실제"
@@ -140,7 +158,7 @@ FRIEND="00000000-0000-0000-0000-000000000002"
 # 돌려주는 값: ok(실제로 바뀜) | blocked(오류 또는 0줄)
 try() {  # try <사용자uuid> <SQL>
   local out
-  out=$(run "psql -h $SOCK -U postgres -tAc \"
+  out=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
       SET ROLE authenticated;
       SET request.jwt.claim.sub = '$1';
       $2\"" 2>&1)
@@ -199,9 +217,70 @@ check "순위는 못 고친다" "blocked" \
   "$(try "$BOSS" "UPDATE store_books SET raw_title='바뀜' WHERE id=1;")"
 
 echo ""
-echo "[5] 수집 작업(service_role)은 계속 돌아야 한다"
+echo "[5] 공유 링크 — 로그인 없이 순위표 하나만"
+
+# 관리자인 척하고 링크를 하나 만듭니다
+TOKEN=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated;
+    SET request.jwt.claim.sub = '$BOSS';
+    SELECT create_share_link('ranking','10','소설 일간',NULL);\"" 2>&1 | tail -1 | tr -d '[:space:]')
+
+
+# ⚠️ 길이를 정확히 봅니다. 만들기가 실패하면 오류 메시지가 TOKEN 에 담기는데,
+#    그것도 길어서 "32글자 이상" 같은 느슨한 검사는 통과해 버립니다.
+#    실제로 그래서 '됐다' 고 나왔는데 링크는 없었습니다. (2026-08-09)
+check "링크가 만들어졌다 (주소값 64글자)" "yes" \
+  "$(if [ ${#TOKEN} = 64 ]; then echo yes; else echo "no(${#TOKEN}글자: ${TOKEN:0:60})"; fi)"
+
+check "보기 전용 회원은 못 만든다" "blocked" \
+  "$(try "$FRIEND" "SELECT create_share_link('ranking','10','몰래',NULL);")"
+
+check "로그인 없이 그 순위표를 읽을 수 있다" "2" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 100);")"
+check "분야 이름도 나온다" "소설" \
+  "$(ask "SET ROLE anon; SELECT category_name FROM share_meta('$TOKEN');")"
+
+# ⚠️ 여기가 핵심입니다. 주소값 하나로 '그 분야만' 열려야 합니다.
+check "그 주소로 다른 분야는 못 본다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN',100) WHERE sales_point=80;")"
+
+check "없는 주소값은 빈 결과" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('없는주소값', 100);")"
+
+# 주소값 자체가 새면 안 됩니다. 표는 계속 잠겨 있어야 합니다.
+check "로그인 없이 주소값 목록을 못 본다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM public_links;")"
+check "보기 전용 회원도 주소값 목록을 못 본다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM public_links;")"
+check "보기 전용 회원은 목록 함수도 못 쓴다" "blocked" \
+  "$(try "$FRIEND" "SELECT count(*) FROM my_share_links();")"
+
+# 끄면 즉시 막혀야 합니다
+run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated; SET request.jwt.claim.sub = '$BOSS';
+    SELECT set_share_link('$TOKEN', false);\"" >/dev/null 2>&1
+check "끄면 바로 안 보인다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 100);")"
+check "끈 뒤에는 이름도 안 나온다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_meta('$TOKEN');")"
+
+# 기한이 지난 링크
+run "psql -h $SOCK -p $PORT -U postgres -q -c \"
+    UPDATE public_links SET enabled=true, expires_at=now()-interval '1 day'
+    WHERE token='$TOKEN';\"" >/dev/null 2>&1
+check "기한이 지나면 안 보인다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 100);")"
+
+# 한 번에 퍼갈 수 있는 양에 상한이 있어야 합니다
+run "psql -h $SOCK -p $PORT -U postgres -q -c \"
+    UPDATE public_links SET enabled=true, expires_at=NULL WHERE token='$TOKEN';\"" >/dev/null 2>&1
+check "한 번에 300줄까지만" "2" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 999999);")"
+
+echo ""
+echo "[6] 수집 작업(service_role)은 계속 돌아야 한다"
 check "관리자 열쇠는 순위를 쓸 수 있다" "ok" \
-  "$(run "psql -h $SOCK -U postgres -tAc \"SET ROLE service_role; UPDATE store_books SET raw_title='수집갱신' WHERE id=1;\"" >/dev/null 2>&1 && echo ok || echo blocked)"
+  "$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SET ROLE service_role; UPDATE store_books SET raw_title='수집갱신' WHERE id=1;\"" >/dev/null 2>&1 && echo ok || echo blocked)"
 
 echo ""
 echo "=================================================================="

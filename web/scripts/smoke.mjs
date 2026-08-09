@@ -45,6 +45,7 @@ const PAGES = [
   ["/status", ["수집 상태", "날짜별 · 서점별 수집 기록"]],
   // 관리자가 아니면 "관리자만 볼 수 있습니다" 가 뜹니다. 둘 다 제목은 같습니다.
   ["/review", ["매칭 검토"]],
+  ["/share", ["공유 링크"]],
 ];
 
 /**
@@ -127,7 +128,7 @@ if (!(await waitForServer())) {
       로그인이 되어 있어서 늘 정상으로 보입니다.
 --------------------------------------------------------------------------- */
 console.log("\n[회원 전용] 로그인 안 하면 못 들어가는지");
-for (const path of ["/", "/best", "/status", "/book/1", "/review"]) {
+for (const path of ["/", "/best", "/status", "/book/1", "/review", "/share"]) {
   try {
     const res = await fetch(BASE + path, {
       redirect: "manual",
@@ -144,6 +145,21 @@ for (const path of ["/", "/best", "/status", "/book/1", "/review"]) {
     }
   } catch (e) {
     bad(path, String(e?.message ?? e));
+  }
+}
+/*
+   공유 링크는 로그인 없이 열려야 합니다. 다만 **아무 주소나** 열리면 안 됩니다.
+   엉터리 주소값에는 자료가 한 줄도 나오면 안 됩니다.
+*/
+{
+  const res = await fetch(BASE + "/s/이건없는주소값", {
+    signal: AbortSignal.timeout(30000),
+  });
+  const html = (await res.text()).replaceAll("<!-- -->", "");
+  if (res.status === 200 && html.includes("열 수 없는 주소입니다")) {
+    ok("/s/<엉터리> → 열 수 없다고 나옴 (로그인 화면으로 안 튕김)");
+  } else {
+    bad("/s/<엉터리>", `HTTP ${res.status} — 공유 링크가 로그인 화면으로 튕기면 못 씁니다`);
   }
 }
 {

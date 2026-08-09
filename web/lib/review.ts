@@ -40,6 +40,89 @@ export function isReviewTab(v: string | undefined): v is ReviewTab {
   return v === "pending" || v === "merged" || v === "mine";
 }
 
+/* ══════════════════════════════════════════════════ 점수 구간 (5점 단위) */
+
+/**
+ * 【왜 5점 단위인가요? — 2026-08-09 대표님 요청】
+ * "5점 단위? 1점 단위? 뭐든 구분하는 버튼이나 필터를 만들어줬으면"
+ *
+ * 점수는 0~100점입니다. 그런데 화면에 실제로 나오는 범위는 좁습니다.
+ *   · 검토 대기      65~84점  (85점부터는 자동으로 묶여서 여기 없음)
+ *   · 자동으로 묶은 것 85~100점
+ *
+ * 1점 단위로 하면 '검토 대기' 만 버튼이 20개가 됩니다. 휴대폰에서는
+ * 버튼을 찾는 게 일이 됩니다. 5점 단위면 각 4~5개로 딱 떨어집니다.
+ *
+ * ⚠️ 여기 숫자를 config/matching.yaml 의 기준점(auto_high 85 · auto_low 65)과
+ *    **똑같이 적어 두지 않았습니다.** 그 설정은 나중에 바뀔 수 있고, 화면이
+ *    옛 숫자를 붙들고 있으면 있지도 않은 구간 버튼이 남습니다.
+ *    대신 **실제로 몇 건 있는지 세어 보고, 0건인 구간은 아예 안 보여줍니다.**
+ *    설정을 바꾸시면 버튼도 저절로 따라 바뀝니다.
+ */
+export const BAND_STEP = 5;
+
+/** 60점부터 5점씩. 마지막 칸(95)만 100점을 포함합니다. */
+export const BAND_STARTS = [60, 65, 70, 75, 80, 85, 90, 95] as const;
+
+export type ScoreBand = { start: number; end: number; label: string };
+
+export function bandRange(start: number): { lo: number; hiExclusive: number } {
+  // 마지막 칸은 100점(ISBN 이 같아 확정된 짝)까지 담아야 합니다.
+  const last = start === BAND_STARTS[BAND_STARTS.length - 1];
+  return { lo: start, hiExclusive: last ? 101 : start + BAND_STEP };
+}
+
+export function bandLabel(start: number): string {
+  const { hiExclusive } = bandRange(start);
+  return `${start}~${hiExclusive - 1}점`;
+}
+
+/** 주소에 적힌 band 값이 우리가 아는 구간인지 */
+export function parseBand(v: string | undefined): number | null {
+  if (!v) return null;
+  const n = Number(v);
+  return (BAND_STARTS as readonly number[]).includes(n) ? n : null;
+}
+
+/**
+ * 이 탭에서 구간마다 몇 건인지.
+ *
+ * ⚠️ 0건인 구간은 돌려주지 않습니다. 화면에 '0' 짜리 버튼이 줄줄이
+ *    있으면 누를 것과 못 누를 것이 섞여서 오히려 느려집니다.
+ */
+export async function getScoreBands(
+  tab: ReviewTab
+): Promise<{ bands: (ScoreBand & { count: number })[]; ok: boolean }> {
+  const supabase = db();
+  const decisions = TAB_DECISIONS[tab];
+
+  try {
+    const counted = await Promise.all(
+      BAND_STARTS.map(async (start) => {
+        const { lo, hiExclusive } = bandRange(start);
+        const { count, error } = await supabase
+          .from("book_matches")
+          .select("id", { count: "exact", head: true })
+          .in("decision", decisions)
+          .gte("score", lo)
+          .lt("score", hiExclusive);
+        if (error) throw new Error(error.message);
+        return {
+          start,
+          end: hiExclusive - 1,
+          label: bandLabel(start),
+          count: count ?? 0,
+        };
+      })
+    );
+    return { bands: counted.filter((b) => b.count > 0), ok: true };
+  } catch {
+    // 구간을 못 세었다고 검토 화면 전체가 막히면 안 됩니다.
+    // 필터만 감추고 목록은 그대로 보여줍니다.
+    return { bands: [], ok: false };
+  }
+}
+
 export type ReviewBook = {
   id: number;
   storeId: number;
@@ -75,25 +158,37 @@ const PAGE_SIZE = 20;
  */
 export async function getReviewPairs(
   tab: ReviewTab,
-  page = 0
+  page = 0,
+  band: number | null = null
 ): Promise<{ rows: ReviewPair[]; total: number; ok: boolean }> {
   const supabase = db();
   const decisions = TAB_DECISIONS[tab];
 
-  const { count } = await supabase
+  // 점수 구간을 고르셨으면 **세는 것도 그 구간만** 세야 합니다.
+  // 전체 건수로 세면 "3쪽" 이라고 해 놓고 2쪽에서 빈 화면이 나옵니다.
+  const range = band === null ? null : bandRange(band);
+
+  let countQuery = supabase
     .from("book_matches")
     .select("id", { count: "exact", head: true })
     .in("decision", decisions);
+  if (range) {
+    countQuery = countQuery.gte("score", range.lo).lt("score", range.hiExclusive);
+  }
+  const { count } = await countQuery;
 
   const from = page * PAGE_SIZE;
-  const { data, error } = await supabase
+  let listQuery = supabase
     .from("book_matches")
     .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
     // 내가 내린 결정은 최근에 누른 것부터, 나머지는 점수가 높은 것부터.
     // 점수가 높은 쪽이 '맞다' 고 누르기 쉬워서 빨리 줄어듭니다.
     .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
-    .in("decision", decisions)
-    .range(from, from + PAGE_SIZE - 1);
+    .in("decision", decisions);
+  if (range) {
+    listQuery = listQuery.gte("score", range.lo).lt("score", range.hiExclusive);
+  }
+  const { data, error } = await listQuery.range(from, from + PAGE_SIZE - 1);
 
   if (error) {
     // auto_decision 칸이 없으면 아직 db/auth.sql 을 실행하지 않은 것입니다.

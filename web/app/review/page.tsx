@@ -6,9 +6,12 @@ import { configError, currentRole } from "@/lib/supabase";
 import { store } from "@/lib/stores";
 import { num } from "@/lib/format";
 import {
+  bandLabel,
   getReviewCounts,
   getReviewPairs,
+  getScoreBands,
   isReviewTab,
+  parseBand,
   reasonText,
   REVIEW_PAGE_SIZE,
   TAB_HELP,
@@ -33,7 +36,7 @@ export const metadata = { title: "매칭 검토" };
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; page?: string; msg?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string; msg?: string; band?: string }>;
 }) {
   if (configError) {
     return (
@@ -46,6 +49,8 @@ export default async function ReviewPage({
   const params = await searchParams;
   const tab: ReviewTab = isReviewTab(params.tab) ? params.tab : "pending";
   const page = Math.max(0, Number(params.page ?? 0) || 0);
+  // 모르는 값이 주소에 들어오면 '전체' 로 봅니다 (엉뚱한 빈 화면 방지)
+  const band = parseBand(params.band);
 
   const role = await currentRole();
   if (role !== "admin") {
@@ -63,18 +68,20 @@ export default async function ReviewPage({
     );
   }
 
-  let counts, result;
+  let counts, result, scoreBands;
   try {
-    [counts, result] = await Promise.all([
+    [counts, result, scoreBands] = await Promise.all([
       getReviewCounts(),
-      getReviewPairs(tab, page),
+      getReviewPairs(tab, page, band),
+      getScoreBands(tab),
     ]);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
 
   const lastPage = Math.max(0, Math.ceil(result.total / REVIEW_PAGE_SIZE) - 1);
-  const here = `/review?tab=${tab}&page=${page}`;
+  const bandQ = band === null ? "" : `&band=${band}`;
+  const here = `/review?tab=${tab}&page=${page}${bandQ}`;
 
   return (
     <div className="space-y-5">
@@ -112,6 +119,41 @@ export default async function ReviewPage({
 
       <p className="text-xs leading-relaxed text-ink-faint">{TAB_HELP[tab]}</p>
 
+      {/* ---------- 점수 구간 고르기 ---------- */}
+      {scoreBands.bands.length > 0 && (
+        <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="shrink-0 text-xs font-semibold text-ink-soft">
+              점수로 좁혀 보기
+            </span>
+            <div className="scroll-x flex items-center gap-1.5">
+              <BandChip tab={tab} band={null} on={band === null} count={result.ok ? counts[tab] : null}>
+                전체
+              </BandChip>
+              {scoreBands.bands.map((b) => (
+                <BandChip
+                  key={b.start}
+                  tab={tab}
+                  band={b.start}
+                  on={band === b.start}
+                  count={b.count}
+                >
+                  {b.label}
+                </BandChip>
+              ))}
+            </div>
+          </div>
+          <p className="mt-2 text-2xs leading-relaxed text-ink-faint">
+            점수가 낮을수록 기계가 덜 확신한 짝입니다.
+            {tab === "pending"
+              ? " 낮은 점수부터 보시면 잘못 묶인 것을 빨리 찾을 수 있습니다."
+              : tab === "merged"
+                ? " 자동으로 묶은 것 중에서는 85~89점이 가장 위험합니다."
+                : ""}
+          </p>
+        </div>
+      )}
+
       {/* ---------- 목록 ---------- */}
       {!result.ok ? (
         <Card className="p-6">
@@ -126,11 +168,23 @@ export default async function ReviewPage({
       ) : result.rows.length === 0 ? (
         <Empty
           title={
-            tab === "pending"
-              ? "검토할 것이 없습니다"
-              : tab === "mine"
-                ? "아직 직접 내리신 결정이 없습니다"
-                : "자동으로 묶인 짝이 없습니다"
+            band !== null
+              ? `${bandLabel(band)} 짝이 없습니다`
+              : tab === "pending"
+                ? "검토할 것이 없습니다"
+                : tab === "mine"
+                  ? "아직 직접 내리신 결정이 없습니다"
+                  : "자동으로 묶인 짝이 없습니다"
+          }
+          action={
+            band !== null ? (
+              <Link
+                href={`/review?tab=${tab}`}
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint hover:text-ink"
+              >
+                전체 보기
+              </Link>
+            ) : undefined
           }
         />
       ) : (
@@ -144,13 +198,14 @@ export default async function ReviewPage({
       {/* ---------- 쪽 넘기기 ---------- */}
       {lastPage > 0 && (
         <div className="flex items-center justify-between text-sm">
-          <PageLink tab={tab} page={page - 1} disabled={page === 0}>
+          <PageLink tab={tab} band={band} page={page - 1} disabled={page === 0}>
             ← 이전
           </PageLink>
           <span className="tnum text-xs text-ink-faint">
-            {page + 1} / {lastPage + 1}쪽 · 전체 {num(result.total)}쌍
+            {page + 1} / {lastPage + 1}쪽 ·{" "}
+            {band === null ? "전체" : bandLabel(band)} {num(result.total)}쌍
           </span>
-          <PageLink tab={tab} page={page + 1} disabled={page >= lastPage}>
+          <PageLink tab={tab} band={band} page={page + 1} disabled={page >= lastPage}>
             다음 →
           </PageLink>
         </div>
@@ -182,11 +237,13 @@ export default async function ReviewPage({
 
 function PageLink({
   tab,
+  band,
   page,
   disabled,
   children,
 }: {
   tab: ReviewTab;
+  band: number | null;
   page: number;
   disabled: boolean;
   children: React.ReactNode;
@@ -194,12 +251,51 @@ function PageLink({
   if (disabled) {
     return <span className="text-ink-faint opacity-40">{children}</span>;
   }
+  // 쪽을 넘겨도 고른 점수 구간은 그대로 유지합니다
+  const q = band === null ? "" : `&band=${band}`;
   return (
     <Link
-      href={`/review?tab=${tab}&page=${page}`}
+      href={`/review?tab=${tab}&page=${page}${q}`}
       className="rounded-lg border border-line px-3 py-1.5 hover:border-ink-faint"
     >
       {children}
+    </Link>
+  );
+}
+
+/**
+ * 점수 구간 버튼.
+ *
+ * ⚠️ 구간을 바꾸면 **1쪽으로 돌아갑니다** (page 를 안 붙입니다).
+ *    3쪽을 보다가 구간을 좁히면 그 구간에는 3쪽이 없어서 빈 화면이 뜹니다.
+ */
+function BandChip({
+  tab,
+  band,
+  on,
+  count,
+  children,
+}: {
+  tab: ReviewTab;
+  band: number | null;
+  on: boolean;
+  count: number | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={band === null ? `/review?tab=${tab}` : `/review?tab=${tab}&band=${band}`}
+      aria-current={on ? "true" : undefined}
+      className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
+        on
+          ? "bg-accent font-semibold text-accent-ink"
+          : "border border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink"
+      }`}
+    >
+      {children}
+      {count !== null && (
+        <span className="tnum ml-1.5 opacity-70">{num(count)}</span>
+      )}
     </Link>
   );
 }

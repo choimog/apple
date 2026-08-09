@@ -1,0 +1,54 @@
+# =============================================================================
+#  백업에서 되돌리기 — 사고가 났을 때 쓰는 마지막 수단
+# =============================================================================
+#  ⚠️ 평소에는 쓸 일이 없어야 정상입니다.
+#     지금 데이터를 덮어씁니다. 꼭 필요한 때만 쓰세요.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/backup-restore.yml
+# =============================================================================
+
+name: 백업에서 되돌리기
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_key:
+        description: "되돌릴 백업 파일 (비우면 가장 최근 것)"
+        required: false
+        default: ""
+      confirm:
+        description: "true 여야 실제로 넣습니다. false 면 확인만 합니다."
+        required: false
+        default: "false"
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    name: 백업에서 되돌리기
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 되돌리기 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          BACKUP_KEY: ${{ inputs.backup_key }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: python crawler/backup_restore.py

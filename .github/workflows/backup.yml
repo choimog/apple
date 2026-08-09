@@ -1,0 +1,53 @@
+# =============================================================================
+#  백업 — 데이터베이스 전체를 보관소(R2)에 복사
+# =============================================================================
+#  무료 요금제에는 자동 백업이 없어서, 이 작업이 그 자리를 대신합니다.
+#  아무것도 지우지 않습니다. 읽어서 복사만 합니다. 비용 0원.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/backup.yml
+# =============================================================================
+
+name: 백업
+
+on:
+  schedule:
+    # 매주 월요일 UTC 20:00 = 화요일 한국시간 05:00
+    # 수집(06:00)·정리(월 08:00) 와 겹치지 않는 시각으로 잡았습니다.
+    - cron: "0 20 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true 로 두면 담기만 하고 올리지 않습니다"
+        required: false
+        default: "false"
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: 백업
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 백업 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python crawler/backup.py

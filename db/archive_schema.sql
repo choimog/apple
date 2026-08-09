@@ -32,6 +32,33 @@ CREATE TABLE IF NOT EXISTS archives (
 CREATE INDEX IF NOT EXISTS idx_archives_date ON archives(snapshot_date DESC);
 
 
+-- ----------------------------------------------------------------------------
+--  2026-08-08 추가 — GitHub 보관을 쓸 때 필요한 칸
+-- ----------------------------------------------------------------------------
+--  대표님이 카드 등록 없이 GitHub 에 보관하기로 하셨습니다.
+--  R2 와 결정적으로 다른 점이 있습니다.
+--
+--      R2      올려두면 영구 보관
+--      GitHub  기한이 지나면 자동으로 사라집니다
+--
+--  그래서 '언제 사라지는지' 를 반드시 기록해 둬야 합니다. 이 값이 없으면
+--  대표님이 언제까지 내려받아야 하는지 알 수 없습니다.
+--
+--  ※ 이미 만들어진 표에도 안전하게 더해집니다. 여러 번 실행해도 됩니다.
+-- ----------------------------------------------------------------------------
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS storage    text NOT NULL DEFAULT 'r2';
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS expires_at date;
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS run_url    text;
+
+COMMENT ON COLUMN archives.storage    IS 'r2 | github — 어디에 보관했는지';
+COMMENT ON COLUMN archives.expires_at IS 'GitHub 보관일 때 파일이 사라지는 날';
+COMMENT ON COLUMN archives.run_url    IS '파일을 내려받을 수 있는 주소';
+
+-- 곧 사라지는 것부터 찾기 위한 색인
+CREATE INDEX IF NOT EXISTS idx_archives_expiry ON archives(expires_at)
+    WHERE expires_at IS NOT NULL;
+
+
 -- ---------------------------------------------------------------------------
 --  보안: 이 표도 읽기만 허용합니다 (db/rls.sql 과 같은 원칙)
 -- ---------------------------------------------------------------------------

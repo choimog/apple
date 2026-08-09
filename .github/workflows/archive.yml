@@ -1,29 +1,31 @@
 # =============================================================================
-#  보관소로 옮기기 — 오래된 순위 기록을 Cloudflare R2 로
+#  보관소로 옮기기 — 오래된 순위를 파일로 빼고 DB 를 비웁니다
 # =============================================================================
-#  Supabase 무료 용량(500MB)이 차지 않도록 오래된 날짜를 옮깁니다.
-#  데이터를 버리는 게 아니라 옮기는 것입니다.
+#  【2026-08-08 대표님 결정】
+#  카드 등록 없이 GitHub 에 보관합니다.
 #
-#  【언제 돌아가나요?】
-#  매주 월요일 한국시간 오전 8시 (수집·매칭이 끝난 뒤)
+#  R2 와 결정적으로 다른 점: **GitHub 은 기한이 지나면 파일을 지웁니다.**
+#  그래서 "올렸다" 는 말만 믿고 DB 에서 지우면 안 됩니다.
+#  아래처럼 **실제로 다시 내려받아 확인한 것만** 지웁니다.
 #
-#  ※ 보관소 접속 정보(Secrets)가 없으면 아무것도 하지 않고 넘어갑니다.
-#    설정 방법: docs/archive-setup.md
+#     1단계 뽑아내기   파일로 만들기만 함 (DB 는 손도 안 댐)
+#     2단계 올리기     GitHub 에 보관
+#     3단계 내려받기   방금 올린 것을 실제로 다시 받아옴
+#     4단계 확인·정리  지문·줄 수가 맞는 것만 DB 에서 지움
 #
-#  손으로 돌리기:
-#  https://github.com/choimog/apple/actions/workflows/archive.yml
+#  실행: https://github.com/choimog/apple/actions/workflows/archive.yml
 # =============================================================================
 
 name: 보관소로 옮기기
 
 on:
   schedule:
-    # UTC 23:00 (일) = 한국시간 월요일 08:00
-    - cron: "0 23 * * 0"
+    # 매주 월요일 UTC 23:00 = 화요일 한국시간 08:00
+    - cron: "0 23 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "true 로 두면 무엇을 옮길지 보여주기만 합니다"
+        description: "true 면 무엇을 옮길지 보여주기만 합니다"
         required: false
         default: "true"
 
@@ -33,7 +35,7 @@ concurrency:
 
 jobs:
   archive:
-    name: 오래된 기록 옮기기
+    name: 보관소로 옮기기
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -48,15 +50,72 @@ jobs:
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
       - name: 담기·풀기 시험 (파일이 깨지면 되돌릴 수 없습니다)
-        run: python tests/test_archive_roundtrip.py
+        run: |
+          python tests/test_archive_roundtrip.py
+          python tests/test_archive_commit.py
 
-      - name: 옮기기
+      # ---------- 1단계 ----------
+      - name: 뽑아내기 (DB 는 손대지 않습니다)
+        id: export
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python crawler/archive.py
+        run: |
+          python crawler/archive.py --export out
+          # 뽑아낸 게 있는지 다음 단계가 알 수 있게 표시해 둡니다
+          if [ -s out/manifest.json ] && [ "$(cat out/manifest.json)" != "[]" ]; then
+            echo "has_data=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_data=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---------- 2단계 ----------
+      - name: 올리기
+        if: steps.export.outputs.has_data == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ github.run_id }}
+          path: out/
+          # 공개 저장소는 최대 400일. 저장소 설정이 더 짧으면 그쪽을 따릅니다.
+          retention-days: 400
+          if-no-files-found: error
+          compression-level: 0   # 이미 gzip 이라 다시 압축할 필요 없습니다
+
+      # ---------- 3단계 ----------
+      #  방금 올린 것을 '실제로' 다시 받아옵니다.
+      #  이게 없으면 올라갔는지 확인할 방법이 없습니다.
+      - name: 내려받아 확인 준비
+        if: steps.export.outputs.has_data == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: archive-${{ github.run_id }}
+          path: verify/
+
+      # ---------- 4단계 ----------
+      - name: 확인하고 DB 정리
+        if: steps.export.outputs.has_data == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python crawler/archive.py \
+            --commit verify \
+            --manifest out/manifest.json
+
+      - name: 내려받는 곳 안내
+        if: steps.export.outputs.has_data == 'true'
+        run: |
+          {
+            echo "## 📦 보관 파일을 내려받으세요"
+            echo ""
+            echo "이 실행의 맨 아래 **Artifacts** 에서 받을 수 있습니다."
+            echo ""
+            echo "- 파일 이름: \`archive-${{ github.run_id }}\`"
+            echo "- 주소: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo "> ⚠️ GitHub 보관은 **기한이 지나면 자동으로 사라집니다.**"
+            echo "> 사이트 [수집 상태] 화면에서 남은 날짜를 확인할 수 있습니다."
+            echo "> 사라지기 전에 내려받아 PC 나 구글 드라이브에 두세요."
+          } >> "$GITHUB_STEP_SUMMARY"

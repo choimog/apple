@@ -774,10 +774,18 @@ export async function getArchivedRange(): Promise<{
   to: string;
   days: number;
   rows: number;
+  /** GitHub 보관일 때, 가장 먼저 사라지는 날 */
+  expiresAt: string | null;
+  /** 그때까지 남은 날 수 */
+  daysLeft: number | null;
+  /** 그 파일을 내려받을 수 있는 주소 */
+  runUrl: string | null;
+  /** 사라짐이 있는 보관 방식인지 (github) */
+  expiring: boolean;
 } | null> {
   const { data, error } = await supabase
     .from("archives")
-    .select("snapshot_date,row_count")
+    .select("snapshot_date,row_count,storage,expires_at,run_url")
     .eq("table_name", "rankings")
     .eq("deleted_from_db", true)
     .order("snapshot_date");
@@ -785,12 +793,41 @@ export async function getArchivedRange(): Promise<{
   // archives 표가 아직 없으면(설정 전) 조용히 넘어갑니다
   if (error || !data?.length) return null;
 
-  const dates = data.map((r) => r.snapshot_date as string);
+  type Row = {
+    snapshot_date: string;
+    row_count: number | null;
+    storage?: string | null;
+    expires_at?: string | null;
+    run_url?: string | null;
+  };
+  const rows = data as unknown as Row[];
+  const dates = rows.map((r) => r.snapshot_date);
+
+  /**
+   * 【2026-08-08 GitHub 보관을 쓰기로 함】
+   * R2 는 올려두면 영구 보관이지만, GitHub 은 기한이 지나면 파일이
+   * 사라집니다. 가장 먼저 사라지는 것을 찾아 화면에 띄웁니다.
+   * 이게 안 보이면 대표님이 모르는 사이에 자료가 없어집니다.
+   */
+  const withExpiry = rows.filter((r) => r.expires_at);
+  withExpiry.sort((a, b) => (a.expires_at! < b.expires_at! ? -1 : 1));
+  const first = withExpiry[0] ?? null;
+
+  let daysLeft: number | null = null;
+  if (first?.expires_at) {
+    const ms = new Date(`${first.expires_at}T00:00:00+09:00`).getTime() - Date.now();
+    daysLeft = Math.max(0, Math.ceil(ms / 86_400_000));
+  }
+
   return {
     from: dates[0],
     to: dates[dates.length - 1],
     days: new Set(dates).size,
-    rows: data.reduce((a, r) => a + ((r.row_count as number) ?? 0), 0),
+    rows: rows.reduce((a, r) => a + (r.row_count ?? 0), 0),
+    expiresAt: first?.expires_at ?? null,
+    daysLeft,
+    runUrl: first?.run_url ?? null,
+    expiring: rows.some((r) => r.storage === "github"),
   };
 }
 

@@ -212,6 +212,44 @@ export default async function StatusPage({
               <strong>{archived.from}</strong> ~ <strong>{archived.to}</strong> (
               {archived.days}일 · {num(archived.rows)}건)
             </p>
+            <p className="mt-1 text-xs text-ink-faint">
+              이 기간을 다시 보려면 GitHub → Actions → <strong>보관소에서 불러오기</strong>
+              에서 날짜를 지정하세요.
+            </p>
+
+            {/*
+              GitHub 보관은 기한이 지나면 파일이 사라집니다.
+              이게 안 보이면 모르는 사이에 자료가 없어집니다.
+            */}
+            {archived.expiring && archived.expiresAt && (
+              <div
+                className={`mt-3 rounded-xl border px-3 py-2.5 ${
+                  (archived.daysLeft ?? 999) <= 30
+                    ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                    : "border-line bg-surface-2"
+                }`}
+              >
+                <p className="text-sm font-semibold">
+                  {(archived.daysLeft ?? 999) <= 30 ? "🚨" : "⏳"} 보관 파일이{" "}
+                  <strong>{archived.expiresAt}</strong> 에 사라집니다
+                  {archived.daysLeft !== null && ` (${archived.daysLeft}일 남음)`}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+                  GitHub 보관은 기한이 있습니다. 그 전에 파일을 내려받아 PC 나
+                  구글 드라이브에 두세요. 한 번 사라지면 되살릴 수 없습니다.
+                </p>
+                {archived.runUrl && (
+                  <a
+                    href={archived.runUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium hover:border-ink-faint"
+                  >
+                    → 내려받으러 가기
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Card>

@@ -52,3 +52,17 @@ max_dates_per_run: 14
 # -----------------------------------------------------------------------------
 #  예: rankings/2026/01/rankings_2026-01-15.jsonl.gz
 key_template: "{table}/{yyyy}/{mm}/{table}_{date}.jsonl.gz"
+
+# 어디에 보관할지
+#   github  GitHub 에 파일로 보관 (카드 불필요, 기한이 지나면 사라짐)
+#   r2      Cloudflare R2 (카드 필요, 영구 보관)
+#
+# 【2026-08-08 대표님 결정】
+# 카드 등록이 부담스러워 GitHub 으로 시작합니다.
+# 운영해 보고 괜찮으면 나중에 r2 로 바꿉니다. 값만 바꾸면 됩니다.
+storage: github
+
+# GitHub 이 파일을 며칠 보관할지.
+# 공개 저장소는 최대 400일까지 됩니다. 저장소 설정이 더 짧으면 그쪽을 따릅니다.
+# (GitHub → Settings → Actions → General → Artifact and log retention)
+github_retention_days: 400

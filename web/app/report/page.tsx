@@ -1,5 +1,6 @@
 import Link from "next/link";
 import DataError from "@/components/DataError";
+import DatePicker from "@/components/DatePicker";
 import Markdown from "@/components/Markdown";
 import { Card, CardHead, Empty, PageHead } from "@/components/ui";
 import { configError } from "@/lib/supabase";
@@ -35,7 +36,7 @@ export default async function ReportPage({
 
   let dates: string[];
   try {
-    dates = await reportDates(60);
+    dates = await reportDates(400);
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
@@ -78,7 +79,7 @@ export default async function ReportPage({
       {!report ? (
         <Card>
           <Empty title="아직 리포트가 없습니다">
-            매일 아침 10시 30분에 자동으로 만들어집니다.
+            매일 아침 수집·매칭이 끝나면 자동으로 만들어집니다 (보통 7시 30분쯤).
             <br />
             아직 안 켜셨다면{" "}
             <code className="rounded bg-surface-2 px-1 py-0.5">
@@ -93,25 +94,28 @@ export default async function ReportPage({
         </Card>
       ) : (
         <>
+          {/*
+            【2026-08-09 대표님 요청】
+            "지난 리포트에도 다른 카테고리에 있는 날짜를 선택할 수 있는
+             기능이 있었으면"
+
+            예전에는 최근 21개만 알약 버튼으로 늘어놓았습니다. 그런데
+            리포트는 하루에 하나씩 늘어나므로 1년이면 365개가 됩니다.
+            (2026-08-08 에 순위 화면에서 이미 지적하신 문제입니다)
+            그래서 다른 화면과 **똑같은** 날짜 고르개를 씁니다.
+            ‹ › 로 하루씩, 목록에서 아무 날이나.
+          */}
           {dates.length > 1 && (
-            <div className="scroll-x flex items-center gap-1.5">
-              {dates.slice(0, 21).map((d) => {
-                const on = d === report.date;
-                return (
-                  <Link
-                    key={d}
-                    href={`/report?date=${d}`}
-                    aria-current={on ? "page" : undefined}
-                    className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
-                      on
-                        ? "bg-accent font-semibold text-accent-ink"
-                        : "text-ink-soft hover:bg-surface-2 hover:text-ink"
-                    }`}
-                  >
-                    {d.slice(5)}
-                  </Link>
-                );
-              })}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <DatePicker
+                dates={dates}
+                value={report.date}
+                basePath="/report"
+                label="리포트 날짜"
+              />
+              <span className="text-xs text-ink-faint">
+                리포트 {num(dates.length)}일치
+              </span>
             </div>
           )}
 

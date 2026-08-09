@@ -1,0 +1,60 @@
+# =============================================================================
+#  구글 시트 내보내기 — 순위표를 구글 시트에 매일 쌓기
+# =============================================================================
+#  【무엇을 하나요?】
+#  config/sheets.yaml 에 적어 둔 순위표를 구글 시트에 붙여 넣습니다.
+#  덮어쓰지 않고 날짜별로 아래에 쌓으므로, 시트에서 바로 흐름을 볼 수 있습니다.
+#
+#  【켜는 법】 docs/sheets-setup.md 를 한 번 따라 하시면 됩니다 (약 10분).
+#  아직 안 하셨다면 이 작업은 "할 일이 없습니다" 하고 조용히 끝납니다.
+#  (빨간 X 를 매일 띄우면 진짜 고장까지 같이 묻히기 때문입니다)
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/export-sheets.yml
+# =============================================================================
+
+name: 구글 시트 내보내기
+
+on:
+  schedule:
+    # UTC 01:00 = 한국시간 10:00
+    #
+    # 매칭(09:00)이 끝난 뒤에 돌아야 합니다.
+    # '종합 순위' 는 세 서점의 같은 책을 하나로 묶은 결과라서,
+    # 매칭 전에 돌리면 그날 책이 서점 수만큼 따로 세어집니다.
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: export-sheets
+  cancel-in-progress: false
+
+jobs:
+  export:
+    name: 시트에 쌓기
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        # ※ cache: pip 를 쓰지 마세요. --no-cache-dir 과 충돌해 작업이
+        #   성공했는데도 실패로 표시됩니다 (2026-08-07 실제로 겪음).
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 규칙 시험 (설정이 깨졌으면 여기서 멈춤)
+        run: python tests/test_sheets.py
+
+      - name: 시트에 쌓기
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # 이 두 개는 docs/sheets-setup.md 대로 등록하시면 생깁니다.
+          # 없으면 아무 일도 하지 않고 성공으로 끝납니다.
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: python crawler/export_sheets.py

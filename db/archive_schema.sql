@@ -50,9 +50,22 @@ ALTER TABLE archives ADD COLUMN IF NOT EXISTS storage    text NOT NULL DEFAULT '
 ALTER TABLE archives ADD COLUMN IF NOT EXISTS expires_at date;
 ALTER TABLE archives ADD COLUMN IF NOT EXISTS run_url    text;
 
+-- ----------------------------------------------------------------------------
+--  2026-08-09 추가 — '내려받아 두었다' 는 표시
+-- ----------------------------------------------------------------------------
+--  GitHub 보관 기간의 최대값은 90일입니다 (400일이라고 적어 두었던 것은
+--  제 착오였고, 설정 화면에서 'Duration must be 90 or less' 가 뜹니다).
+--
+--  90일이면 두세 달에 한 번은 내려받으셔야 합니다. 그래서 사라지기 전에
+--  메일로 알려 드리는데, 이미 내려받으신 뒤에도 계속 알림이 가면 안 됩니다.
+--  이 칸이 채워져 있으면 그 파일에 대한 알림을 멈춥니다.
+-- ----------------------------------------------------------------------------
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS saved_at timestamptz;
+
 COMMENT ON COLUMN archives.storage    IS 'r2 | github — 어디에 보관했는지';
 COMMENT ON COLUMN archives.expires_at IS 'GitHub 보관일 때 파일이 사라지는 날';
 COMMENT ON COLUMN archives.run_url    IS '파일을 내려받을 수 있는 주소';
+COMMENT ON COLUMN archives.saved_at   IS '대표님이 PC 로 내려받아 두신 시각 (비어 있으면 알림이 갑니다)';
 
 -- 곧 사라지는 것부터 찾기 위한 색인
 CREATE INDEX IF NOT EXISTS idx_archives_expiry ON archives(expires_at)

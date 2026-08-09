@@ -160,7 +160,7 @@ def archives_ready(client_db) -> str:
     """
     try:
         client_db.table("archives").select(
-            "snapshot_date,storage,expires_at,run_url"
+            "snapshot_date,storage,expires_at,run_url,saved_at"
         ).limit(1).execute()
         return ""
     except Exception as exc:  # noqa: BLE001
@@ -171,10 +171,12 @@ def archives_ready(client_db) -> str:
     #    'does not exist' 가 둘 다 들어 있어서, 차례가 반대면 엉뚱한 안내가
     #    나갑니다. (2026-08-09 시험에서 실제로 걸렸습니다)
     if "column" in msg and (
-        "storage" in msg or "expires_at" in msg or "run_url" in msg
+        "storage" in msg or "expires_at" in msg
+        or "run_url" in msg or "saved_at" in msg
     ):
         return (
-            "보관 기록표에 칸이 몇 개 없습니다 (storage / expires_at / run_url).\n"
+            "보관 기록표에 칸이 몇 개 없습니다 "
+            "(storage / expires_at / run_url / saved_at).\n"
             "  Supabase → SQL Editor → New query 에\n"
             "  db/archive_schema.sql 을 한 번 더 붙여넣고 Run 해주세요.\n"
             "  이미 있는 자료는 그대로 두고 칸만 더합니다."
@@ -319,6 +321,140 @@ def do_commit(client_db, manifest_path: Path, verify_dir: Path,
     return 0
 
 
+# =============================================================================
+#  사라지기 전에 알려주기
+# =============================================================================
+#  【왜 필요한가요? — 2026-08-09】
+#  GitHub 보관 기간의 최대값은 90일입니다. 사이트 [수집 상태] 화면에도
+#  남은 날짜가 뜨지만, 그 화면을 매주 들여다보실 리가 없습니다.
+#
+#  그래서 이 작업은 **일부러 실패로 끝냅니다.** GitHub 은 작업이 실패하면
+#  메일을 보내주기 때문입니다. 알림을 따로 만들 필요 없이,
+#  실패 = 메일 이라는 이미 있는 길을 씁니다.
+#
+#  이미 내려받으신 뒤에도 계속 메일이 가면 안 되므로,
+#  [보관 파일 내려받음 표시] 를 누르시면 그 파일은 조용해집니다.
+# =============================================================================
+
+
+def expiry_rows(client_db) -> list[dict]:
+    """아직 내려받지 않은, 사라질 예정인 파일들 (가까운 순)."""
+    res = (
+        client_db.table("archives")
+        .select("snapshot_date,table_name,expires_at,run_url,saved_at,storage")
+        .eq("storage", "github")
+        .not_.is_("expires_at", "null")
+        .is_("saved_at", "null")
+        .order("expires_at")
+        .execute()
+    )
+    return res.data or []
+
+
+def days_until(day: str, today: date | None = None) -> int:
+    """그 날까지 며칠 남았는지. 이미 지났으면 음수."""
+    return (date.fromisoformat(day) - (today or date.today())).days
+
+
+def group_by_run(rows: list[dict]) -> list[dict]:
+    """
+    같은 실행에서 올린 파일은 한 덩어리로 묶습니다.
+    한 번 실행에 14일치 × 2개 표 = 28줄이 나오는데,
+    메일에 28줄을 그대로 적으면 무엇을 해야 할지 안 보입니다.
+    """
+    bucket: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        key = (r.get("expires_at") or "", r.get("run_url") or "")
+        g = bucket.setdefault(key, {
+            "expires_at": r.get("expires_at"),
+            "run_url": r.get("run_url"),
+            "dates": set(),
+            "files": 0,
+        })
+        g["dates"].add(r["snapshot_date"])
+        g["files"] += 1
+    out = list(bucket.values())
+    out.sort(key=lambda g: g["expires_at"] or "")
+    return out
+
+
+def do_check_expiry(client_db, warn_days: int) -> int:
+    """
+    사라질 파일이 있으면 알려줍니다.
+    돌려주는 값 1 = 작업 실패 = 대표님께 메일이 갑니다.
+    """
+    rows = expiry_rows(client_db)
+    if not rows:
+        print("\n✅ 사라질 예정인 보관 파일이 없습니다.")
+        print("   (내려받아 두신 파일은 여기에 나오지 않습니다)")
+        return 0
+
+    groups = group_by_run(rows)
+    urgent = [g for g in groups
+              if g["expires_at"] and days_until(g["expires_at"]) <= warn_days]
+
+    print(f"\n내려받지 않은 보관 파일 {len(groups)}묶음")
+    for g in groups:
+        left = days_until(g["expires_at"]) if g["expires_at"] else None
+        mark = "🚨" if left is not None and left <= warn_days else "  "
+        dates = sorted(g["dates"])
+        span = dates[0] if len(dates) == 1 else f"{dates[0]} ~ {dates[-1]}"
+        print(f"  {mark} {span} ({g['files']}개 파일) "
+              f"· {g['expires_at']} 에 사라짐 · {left}일 남음")
+
+    if not urgent:
+        print(f"\n✅ {warn_days}일 안에 사라지는 것은 없습니다. 아직 여유 있습니다.")
+        return 0
+
+    print("\n" + "=" * 66)
+    print(f"  🚨 {warn_days}일 안에 사라지는 보관 파일이 있습니다")
+    print("=" * 66)
+    print("\n  【하실 일 · 5분】")
+    for i, g in enumerate(urgent, 1):
+        dates = sorted(g["dates"])
+        span = dates[0] if len(dates) == 1 else f"{dates[0]} ~ {dates[-1]}"
+        print(f"\n  {i}) {span} — {g['expires_at']} 에 사라집니다")
+        print(f"     {g['run_url'] or '(주소 기록 없음 — Actions 목록에서 찾으세요)'}")
+        print("     → 그 화면 맨 아래 [Artifacts] 에서 내려받아")
+        print("       PC 나 구글 드라이브에 두세요.")
+    print("\n  다 받으셨으면 알림을 멈춰 주세요:")
+    print("     GitHub → Actions → [보관 파일 만료 알림] → Run workflow →")
+    print("     '내려받아 저장을 마쳤습니다' 를 true 로 두고 실행")
+    print("\n  ※ 한 번 사라지면 되살릴 수 없습니다. 이 메일은 그래서 갑니다.")
+    return 1
+
+
+def do_mark_saved(client_db) -> int:
+    """'내려받아 두었다' 고 표시합니다. 알림이 멈춥니다."""
+    rows = expiry_rows(client_db)
+    alive = [r for r in rows
+             if r.get("expires_at") and days_until(r["expires_at"]) >= 0]
+
+    if not alive:
+        print("\n표시할 것이 없습니다. (알림 대상인 파일이 없습니다)")
+        return 0
+
+    now = now_iso()
+    days = sorted({r["snapshot_date"] for r in alive})
+    for r in alive:
+        client_db.table("archives").update({"saved_at": now}).eq(
+            "snapshot_date", r["snapshot_date"]
+        ).eq("table_name", r["table_name"]).execute()
+
+    print(f"\n✅ {len(alive)}개 파일({len(days)}일치)을 "
+          f"'내려받음' 으로 표시했습니다.")
+    print(f"   {days[0]} ~ {days[-1]}")
+    print("   이제 이 파일들 때문에 메일이 오지 않습니다.")
+    print("\n   ⚠️ 표시만 한 것입니다. 실제로 파일을 받아 두셨는지는")
+    print("      프로그램이 확인할 수 없습니다. 꼭 받아 두세요.")
+    return 0
+
+
+def now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
@@ -329,10 +465,29 @@ def main() -> int:
                     help="[GitHub 보관 3단계] 내려받은 이 폴더를 검사하고 정리합니다")
     ap.add_argument("--manifest", default="",
                     help="3단계에서 쓸 manifest.json 경로")
+    ap.add_argument("--check-expiry", action="store_true",
+                    help="곧 사라지는 보관 파일이 있으면 실패로 끝냅니다(=메일)")
+    ap.add_argument("--mark-saved", action="store_true",
+                    help="내려받아 두었다고 표시합니다 (알림이 멈춥니다)")
     args = ap.parse_args()
     dry_run = args.dry_run or env("DRY_RUN").lower() == "true"
 
     acfg = cfg.load("archive.yaml")
+
+    # ---- 사라질 파일 알림 / 내려받음 표시 (옮기는 작업과는 별개입니다) ----
+    if args.check_expiry or args.mark_saved:
+        client_db = db.connect()
+        problem = archives_ready(client_db)
+        if problem:
+            print(f"\nℹ️ 아직 준비가 안 됐습니다.\n\n  {problem}\n")
+            print("  자세한 설명: docs/archive-setup.md")
+            return 0
+        if args.mark_saved:
+            return do_mark_saved(client_db)
+        return do_check_expiry(
+            client_db, int(acfg.get("expiry_warn_days", 30))
+        )
+
     keep_days = max(int(acfg.get("keep_days", 30)), ABSOLUTE_MIN_KEEP_DAYS)
     if keep_days != acfg.get("keep_days"):
         print(f"⚠️ keep_days 를 {acfg.get('keep_days')} → {keep_days} 로 올렸습니다.")

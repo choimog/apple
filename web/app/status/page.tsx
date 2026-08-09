@@ -220,7 +220,16 @@ export default async function StatusPage({
             {/*
               GitHub 보관은 기한이 지나면 파일이 사라집니다.
               이게 안 보이면 모르는 사이에 자료가 없어집니다.
+
+              ⚠️ 다 내려받으신 뒤에는 이 경고가 사라집니다.
+                 (archives.saved_at 이 채워진 것은 세지 않습니다)
+                 계속 떠 있으면 나중에 진짜 경고까지 무시하게 됩니다.
             */}
+            {archived.expiring && !archived.expiresAt && (
+              <p className="mt-2 text-xs text-ink-faint">
+                ✅ 보관 파일은 모두 내려받아 두신 것으로 표시돼 있습니다.
+              </p>
+            )}
             {archived.expiring && archived.expiresAt && (
               <div
                 className={`mt-3 rounded-xl border px-3 py-2.5 ${
@@ -235,8 +244,15 @@ export default async function StatusPage({
                   {archived.daysLeft !== null && ` (${archived.daysLeft}일 남음)`}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-                  GitHub 보관은 기한이 있습니다. 그 전에 파일을 내려받아 PC 나
-                  구글 드라이브에 두세요. 한 번 사라지면 되살릴 수 없습니다.
+                  GitHub 보관 기간은 최대 90일입니다. 그 전에 파일을 내려받아
+                  PC 나 구글 드라이브에 두세요. 한 번 사라지면 되살릴 수
+                  없습니다. 30일 밑으로 남으면 메일로도 알려드립니다.
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+                  받으신 뒤 GitHub → Actions →{" "}
+                  <strong>보관 파일 만료 알림</strong> → Run workflow 에서
+                  &lsquo;내려받아 저장을 마쳤습니다&rsquo; 를 true 로 두고
+                  실행하시면 이 경고와 메일이 멈춥니다.
                 </p>
                 {archived.runUrl && (
                   <a

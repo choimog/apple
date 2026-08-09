@@ -785,7 +785,7 @@ export async function getArchivedRange(): Promise<{
 } | null> {
   const { data, error } = await supabase
     .from("archives")
-    .select("snapshot_date,row_count,storage,expires_at,run_url")
+    .select("snapshot_date,row_count,storage,expires_at,run_url,saved_at")
     .eq("table_name", "rankings")
     .eq("deleted_from_db", true)
     .order("snapshot_date");
@@ -799,6 +799,7 @@ export async function getArchivedRange(): Promise<{
     storage?: string | null;
     expires_at?: string | null;
     run_url?: string | null;
+    saved_at?: string | null;
   };
   const rows = data as unknown as Row[];
   const dates = rows.map((r) => r.snapshot_date);
@@ -808,8 +809,12 @@ export async function getArchivedRange(): Promise<{
    * R2 는 올려두면 영구 보관이지만, GitHub 은 기한이 지나면 파일이
    * 사라집니다. 가장 먼저 사라지는 것을 찾아 화면에 띄웁니다.
    * 이게 안 보이면 대표님이 모르는 사이에 자료가 없어집니다.
+   *
+   * saved_at 이 채워진 것은 이미 PC 로 받아 두신 것이라 알리지 않습니다.
+   * (안 그러면 다 받아 두신 뒤에도 빨간 경고가 계속 떠서,
+   *  나중에 진짜 경고까지 무시하게 됩니다)
    */
-  const withExpiry = rows.filter((r) => r.expires_at);
+  const withExpiry = rows.filter((r) => r.expires_at && !r.saved_at);
   withExpiry.sort((a, b) => (a.expires_at! < b.expires_at! ? -1 : 1));
   const first = withExpiry[0] ?? null;
 

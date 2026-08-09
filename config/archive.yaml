@@ -63,6 +63,18 @@ key_template: "{table}/{yyyy}/{mm}/{table}_{date}.jsonl.gz"
 storage: github
 
 # GitHub 이 파일을 며칠 보관할지.
-# 공개 저장소는 최대 400일까지 됩니다. 저장소 설정이 더 짧으면 그쪽을 따릅니다.
-# (GitHub → Settings → Actions → General → Artifact and log retention)
-github_retention_days: 400
+#
+# ⚠️ 최대값은 90일입니다. 그 이상은 넣을 수 없습니다.
+#    즉 보관 파일은 90일 뒤 자동으로 사라집니다.
+#    → 대표님이 두세 달에 한 번은 내려받아 두셔야 합니다.
+#    (사이트 [수집 상태] 에 남은 날짜가 뜨고, 30일 밑이면 메일도 갑니다)
+github_retention_days: 90
+
+# 사라지기 며칠 전부터 메일로 알릴지.
+#
+# [보관 파일 만료 알림] 작업이 매주 목요일에 돌면서, 이 날짜 안에
+# 사라지는 파일이 있으면 **일부러 실패로 끝냅니다.**
+# GitHub 은 작업이 실패하면 메일을 보내주기 때문입니다.
+#
+# 내려받으신 뒤 같은 작업을 'true' 로 한 번 돌리시면 알림이 멈춥니다.
+expiry_warn_days: 30

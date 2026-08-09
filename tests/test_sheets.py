@@ -201,7 +201,16 @@ for e in exports:
     )
 
 
-print("\n[9] 칸 개수가 머리글과 맞는지")
+print("\n[9] 안내 문서가 설정과 같은 이름을 말하는지")
+# ⚠️ 문서에 옛 탭 이름이 남아 있으면, 대표님이 시트를 열었을 때
+#    "안내에 있는 탭이 없다" 가 됩니다. 고장은 아닌데 고장처럼 보입니다.
+#    (2026-08-09 에 실제로 '전체' → '종합' 이 문서에만 남아 있었습니다)
+doc = (ROOT / "docs" / "sheets-setup.md").read_text(encoding="utf-8")
+for e in exports:
+    check(f"'{e.get('tab')}' 가 안내 문서에 있음", str(e.get("tab")) in doc)
+
+
+print("\n[10] 칸 개수가 머리글과 맞는지")
 # 머리글을 늘리고 줄 만드는 곳을 안 고치면 시트가 통째로 밀립니다.
 check("머리글이 9칸", len(ex.HEADER) == 9, ex.HEADER)
 check("만들어지는 줄도 9칸", len(row("2026-08-10")) == len(ex.HEADER))

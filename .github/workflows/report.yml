@@ -1,0 +1,71 @@
+# =============================================================================
+#  AI 일일 리포트 — 어제 순위에서 무슨 일이 있었나
+# =============================================================================
+#  【무엇을 하나요?】
+#  매일 아침, 어제자 순위표를 AI 에게 주고 한국어 요약을 쓰게 합니다.
+#  사이트 [오늘의 리포트] 에서 보실 수 있습니다.
+#
+#  🚨 이 작업은 **돈을 씁니다** (월 3,300원 · 대표님 승인 2026-08-09).
+#     config/report.yaml 의 monthly_cap_usd 를 넘으면 그 달은 멈춥니다.
+#
+#  【켜는 법】 docs/ai-report-setup.md (3분)
+#  열쇠가 없으면 아무 일도 하지 않고 끝납니다.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/report.yml
+# =============================================================================
+
+name: AI 일일 리포트
+
+on:
+  schedule:
+    # UTC 01:30 = 한국시간 10:30
+    #
+    # 매칭(09:00)이 끝난 뒤여야 합니다. 종합 순위는 세 서점의 같은 책을
+    # 하나로 묶은 결과라서, 매칭 전에 부르면 AI 가 틀린 표를 보고 씁니다.
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: "다시 쓸 날짜 (비우면 가장 최근 수집일)"
+        required: false
+        default: ""
+      force:
+        description: "true 로 두면 이미 있는 리포트도 다시 씁니다 (돈이 또 나갑니다)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: ai-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: 어제 순위 요약하기
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        # ※ cache: pip 를 쓰지 마세요. --no-cache-dir 과 충돌해 작업이
+        #   성공했는데도 실패로 표시됩니다 (2026-08-07 실제로 겪음).
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 규칙 시험 (돈 계산·한도가 깨졌으면 여기서 멈춤)
+        # AI 를 부르기 전에 확인합니다. 시험 자체는 돈을 쓰지 않습니다.
+        run: python tests/test_report.py
+
+      - name: 리포트 쓰기
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # 없으면 아무 일도 하지 않고 성공으로 끝납니다.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REPORT_DATE: ${{ inputs.report_date }}
+          FORCE: ${{ inputs.force }}
+        run: python crawler/run_report.py

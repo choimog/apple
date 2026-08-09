@@ -1,0 +1,311 @@
+"""
+=============================================================================
+ AI 일일 리포트 — "어제 순위에서 무슨 일이 있었나" 를 한국어로
+=============================================================================
+
+ 【무엇을 하나요?】
+ 매일 수집·매칭이 끝난 뒤, 순위표에서 뽑은 숫자를 AI 에게 주고
+ 마케팅 담당자가 읽을 만한 요약을 쓰게 합니다.
+ 결과는 daily_reports 표에 저장되고 사이트 [오늘의 리포트] 에서 보입니다.
+
+ 🚨 【이 프로그램은 돈을 씁니다 — 그래서 지키는 것】
+  1. config/report.yaml 의 monthly_cap_usd 를 **넘길 수 없습니다.**
+     이번 달에 쓴 돈을 먼저 세고, 한도에 닿았으면 부르지 않고 멈춥니다.
+  2. 같은 날짜 리포트가 이미 있으면 **다시 부르지 않습니다.**
+     (다시 돌려도 돈이 두 번 나가지 않습니다)
+  3. 열쇠(ANTHROPIC_API_KEY)가 없으면 아무 일도 안 하고 넘어갑니다.
+  4. 한 건마다 쓴 돈을 표에 적습니다. 나중에 확인할 수 있습니다.
+
+ 【실행】
+ 매일 아침 자동으로 돕니다.
+ 손으로: GitHub → Actions → [AI 일일 리포트]
+=============================================================================
+"""
+
+from __future__ import annotations
+
+import calendar
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import report_data  # noqa: E402
+from common import config as cfg  # noqa: E402
+
+MILLION = 1_000_000
+# 화면에 원화를 같이 보여줄 때만 씁니다. 계산·한도는 전부 달러가 기준입니다.
+KRW_PER_USD = 1400
+
+
+def env(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+# -----------------------------------------------------------------------------
+#  돈 계산
+# -----------------------------------------------------------------------------
+def price_of(conf: dict, model: str) -> tuple[float, float]:
+    """
+    100만 토큰당 (넣는 값, 나오는 값) 달러.
+
+    ⚠️ 모르는 모델이면 **일부러 실패합니다.**
+       0원으로 계산해 버리면 한도를 그냥 지나쳐 돈이 계속 나갑니다.
+    """
+    table = conf.get("pricing") or {}
+    row = table.get(model)
+    if not row:
+        raise SystemExit(
+            f"❌ config/report.yaml 의 pricing 에 '{model}' 요금이 없습니다.\n"
+            f"   요금을 모르면 얼마 썼는지도 모르고, 한도도 못 지킵니다.\n"
+            f"   지금 적혀 있는 모델: {', '.join(sorted(table)) or '(없음)'}"
+        )
+    return float(row["input"]), float(row["output"])
+
+
+def cost_of(conf: dict, model: str, tin: int, tout: int) -> float:
+    pin, pout = price_of(conf, model)
+    return (tin / MILLION) * pin + (tout / MILLION) * pout
+
+
+def spent_this_month(client, today: str) -> tuple[float, int]:
+    """이번 달에 이미 쓴 돈과 건수. (표에 적힌 값을 그대로 더합니다)"""
+    first = today[:8] + "01"
+    res = (
+        client.table("daily_reports")
+        .select("cost_usd")
+        .gte("report_date", first)
+        .lte("report_date", today)
+        .execute()
+    )
+    rows = res.data or []
+    return sum(float(r.get("cost_usd") or 0) for r in rows), len(rows)
+
+
+def won(usd: float) -> str:
+    return f"약 {round(usd * KRW_PER_USD):,}원"
+
+
+# -----------------------------------------------------------------------------
+#  AI 에게 부탁하는 말
+# -----------------------------------------------------------------------------
+SYSTEM = """당신은 한국 출판사의 마케팅 담당자를 돕는 분석가입니다.
+세 서점(교보문고·예스24·알라딘)의 어제자 베스트셀러 순위 자료를 받아,
+바쁜 담당자가 1분 안에 읽을 수 있는 한국어 리포트를 씁니다.
+
+【반드시 지킬 것】
+- 주어진 자료에 없는 사실을 절대 지어내지 마세요. 판매 부수, 광고 집행,
+  출간 배경, 언론 보도 같은 것은 자료에 없습니다. 추측하지 마세요.
+- "어제 자료가 없습니다" 라고 적혀 있으면 순위 변화에 대해 아무 말도 하지 마세요.
+- 숫자는 자료에 있는 그대로만 쓰세요. 반올림하거나 어림잡지 마세요.
+- 확실하지 않으면 "자료만으로는 알 수 없습니다" 라고 쓰세요.
+
+【형식】 아래 마크다운 표시만 쓰세요. 표(|)나 링크는 쓰지 마세요.
+  ## 소제목
+  - 항목
+  **굵게**
+  그냥 문단
+
+【구성】
+## 한 줄 요약
+어제 순위에서 가장 눈에 띄는 것 한 가지. 두 문장 이내.
+
+## 눈에 띄는 움직임
+신규 진입·크게 오른 책·크게 떨어진 책 중 의미 있는 것만 3~6개.
+각 항목에 왜 눈여겨볼 만한지 한 줄. (자료로 알 수 있는 범위에서만)
+
+## 출판사 흐름
+출판사 순위에서 읽을 수 있는 것. 2~4줄.
+
+## 지켜볼 것
+내일 확인해 볼 만한 것 2~3개.
+
+전체 700자 안팎으로 짧게 쓰세요. 인사말과 맺음말은 쓰지 마세요."""
+
+
+def build_prompt(digest_text: str) -> str:
+    return (
+        "아래는 자동 수집된 어제자 베스트셀러 순위 자료입니다.\n"
+        "이 자료만 보고 리포트를 써 주세요.\n\n"
+        "-----\n"
+        f"{digest_text}\n"
+        "-----\n"
+    )
+
+
+def ask_claude(conf: dict, prompt: str) -> tuple[str, int, int]:
+    """
+    AI 를 한 번 부릅니다. (본문, 넣은 토큰, 나온 토큰) 을 돌려줍니다.
+    실패하면 무엇이 문제인지 한국어로 알려주고 멈춥니다.
+    """
+    import anthropic
+
+    model = str(conf.get("model", "claude-opus-5"))
+    kwargs: dict = {
+        "model": model,
+        "max_tokens": int(conf.get("max_tokens", 4000)),
+        "system": SYSTEM,
+        "messages": [{"role": "user", "content": prompt}],
+        "output_config": {"effort": str(conf.get("effort", "medium"))},
+    }
+    # 생각을 끄면 값이 예측 가능해집니다. (config/report.yaml 의 thinking)
+    if not conf.get("thinking", False):
+        kwargs["thinking"] = {"type": "disabled"}
+
+    client = anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY"))
+
+    try:
+        res = client.messages.create(**kwargs)
+    except anthropic.RateLimitError:
+        raise SystemExit(
+            "❌ AI 쪽에서 '잠시 너무 많이 불렀다' 고 합니다.\n"
+            "   자료는 그대로 있습니다. 내일 다시 돕니다.\n"
+            "   급하시면 30분 뒤에 [AI 일일 리포트] 를 손으로 다시 돌려 주세요."
+        )
+    except anthropic.APIStatusError as exc:
+        hint = ""
+        if exc.status_code in (401, 403):
+            hint = ("\n   → 열쇠(ANTHROPIC_API_KEY)가 틀렸거나 만료됐을 수 있습니다."
+                    "\n     docs/ai-report-setup.md 의 '다) 열쇠 다시 만들기' 를 보세요.")
+        elif exc.status_code == 400:
+            hint = ("\n   → 보낸 요청이 형식에 안 맞습니다. 제(클로드)가 고쳐야 하는 문제입니다."
+                    "\n     이 메시지를 그대로 알려 주세요.")
+        raise SystemExit(f"❌ AI 호출 실패 ({exc.status_code}): {exc}{hint}")
+    except anthropic.APIConnectionError:
+        raise SystemExit(
+            "❌ AI 쪽에 연결하지 못했습니다 (네트워크).\n"
+            "   자료는 그대로 있습니다. 내일 다시 돕니다."
+        )
+
+    # ⚠️ 본문을 읽기 전에 반드시 이것부터 봅니다.
+    #    거절된 응답에서 본문을 꺼내려 하면 엉뚱한 곳에서 터집니다.
+    if getattr(res, "stop_reason", None) == "refusal":
+        raise SystemExit(
+            "❌ AI 가 이 자료로 글쓰기를 거절했습니다.\n"
+            "   순위 자료에 이상한 제목이 섞였을 수 있습니다.\n"
+            "   빈 리포트를 저장하지 않고 멈춥니다."
+        )
+
+    parts = [b.text for b in res.content if getattr(b, "type", "") == "text"]
+    text = "\n".join(parts).strip()
+    if not text:
+        raise SystemExit(
+            "❌ AI 가 빈 글을 돌려줬습니다. 빈 리포트를 저장하지 않고 멈춥니다."
+        )
+
+    return text, int(res.usage.input_tokens), int(res.usage.output_tokens)
+
+
+# -----------------------------------------------------------------------------
+def main() -> int:
+    conf = cfg.load("report.yaml")
+
+    print("=" * 66)
+    print("  AI 일일 리포트")
+    print("=" * 66)
+
+    if not conf.get("enabled", True):
+        print("\nℹ️ config/report.yaml 에서 꺼져 있습니다.")
+        return 0
+
+    if not env("ANTHROPIC_API_KEY"):
+        # 아직 안 켜셨을 뿐입니다. 매일 빨간 X 를 띄우면 진짜 고장이 묻힙니다.
+        print("\nℹ️ AI 열쇠(ANTHROPIC_API_KEY)가 없어 아무것도 하지 않았습니다.")
+        print("   설정 방법: docs/ai-report-setup.md")
+        return 0
+
+    from common import db
+
+    client = db.connect()
+
+    day = env("REPORT_DATE") or report_data.latest_date(client)
+    if not day:
+        print("\n수집된 자료가 없습니다.")
+        return 0
+
+    model = str(conf.get("model", "claude-opus-5"))
+    price_of(conf, model)          # 요금을 모르면 여기서 바로 멈춥니다
+
+    # ---- 이미 있으면 다시 안 부릅니다 (돈이 두 번 나가지 않게) ----
+    force = env("FORCE").lower() == "true"
+    have = (
+        client.table("daily_reports")
+        .select("report_date")
+        .eq("report_date", day)
+        .execute()
+    ).data or []
+    if have and not force:
+        print(f"\n✅ {day} 리포트가 이미 있습니다. 다시 부르지 않습니다.")
+        return 0
+
+    # ---- 이번 달 한도 ----
+    cap = float(conf.get("monthly_cap_usd", 3.0))
+    spent, n = spent_this_month(client, day)
+    print(f"\n이번 달: {n}건 · ${spent:.4f} ({won(spent)}) / 한도 ${cap:.2f} ({won(cap)})")
+
+    if spent >= cap:
+        # 🚨 넘길 수 없습니다. "조금만 더" 가 없습니다.
+        print(
+            f"\n🛑 이번 달 한도(${cap:.2f} · {won(cap)})를 다 썼습니다.\n"
+            f"   이번 달 남은 날은 리포트를 만들지 않습니다.\n"
+            f"   순위표와 그래프는 그대로 다 보입니다.\n\n"
+            f"   한도를 올리시려면 config/report.yaml 의 monthly_cap_usd 를 고치세요.\n"
+            f"   값이 싼 AI 로 바꾸려면 model 을 claude-haiku-4-5 로 바꾸세요 (값 1/5)."
+        )
+        return 0
+
+    if spent >= cap * 0.8:
+        print(f"⚠️ 한도의 80% 를 넘었습니다. 이번 달 안에 멈출 수 있습니다.")
+
+    # ---- 자료 뽑기 ----
+    print(f"\n기준 날짜: {day}")
+    digest = report_data.collect(client, day, conf)
+    if not digest["rows"]:
+        # 자료가 없는데 AI 를 부르면 돈만 쓰고 지어낸 글이 나옵니다.
+        print("\n그 날짜의 종합 순위가 비어 있습니다. AI 를 부르지 않습니다.")
+        return 0
+
+    text = report_data.to_text(digest)
+    print(f"  종합 {len(digest['rows'])}권 · 신규 {len(digest['new_in'])} · "
+          f"상승 {len(digest['up'])} · 하락 {len(digest['down'])}"
+          + ("" if digest["has_yesterday"] else "  (어제 자료 없음)"))
+
+    # ---- AI 부르기 ----
+    print(f"\n{model} 에게 요약을 부탁합니다...")
+    body, tin, tout = ask_claude(conf, build_prompt(text))
+    cost = cost_of(conf, model, tin, tout)
+
+    print(f"  넣은 토큰 {tin:,} · 나온 토큰 {tout:,}")
+    print(f"  이번 1건 비용: ${cost:.4f} ({won(cost)})")
+    print(f"  이번 달 합계: ${spent + cost:.4f} ({won(spent + cost)}) / ${cap:.2f}")
+
+    y, m, d = int(day[:4]), int(day[5:7]), int(day[8:10])
+    in_month = calendar.monthrange(y, m)[1]
+    days_left = in_month - d
+    print(f"  이 속도면 한 달에 ${cost * in_month:.2f} ({won(cost * in_month)}) 정도입니다.")
+    if spent + cost + cost * days_left > cap:
+        print("  ⚠️ 이 속도면 이번 달 안에 한도에 닿습니다. 닿으면 자동으로 멈춥니다.")
+
+    # ---- 저장 ----
+    client.table("daily_reports").upsert(
+        {
+            "report_date": day,
+            "model": model,
+            "content_md": body,
+            "input_tokens": tin,
+            "output_tokens": tout,
+            "cost_usd": round(cost, 6),
+        },
+        on_conflict="report_date",
+    ).execute()
+
+    print(f"\n✅ 저장했습니다. 사이트 [오늘의 리포트] 에서 보실 수 있습니다.")
+    print("-" * 66)
+    print(body)
+    print("-" * 66)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

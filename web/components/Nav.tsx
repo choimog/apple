@@ -25,6 +25,7 @@ const GROUPS: { href: string; label: string }[][] = [
     { href: "/insights", label: "분야" },
   ],
   [
+    { href: "/report", label: "리포트" },
     { href: "/search", label: "검색" },
     { href: "/status", label: "수집 상태" },
   ],

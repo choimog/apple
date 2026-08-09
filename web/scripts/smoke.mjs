@@ -43,6 +43,8 @@ const PAGES = [
   ["/insights", ["어떤 분야가 종합 상위권을 채우고 있나"]],
   ["/search?q=%EC%86%8C%EC%84%A4", []],
   ["/status", ["수집 상태", "날짜별 · 서점별 수집 기록"]],
+  // 리포트가 아직 없어도 화면은 떠야 합니다 ("아직 리포트가 없습니다")
+  ["/report", ["오늘의 리포트"]],
   // 관리자가 아니면 "관리자만 볼 수 있습니다" 가 뜹니다. 둘 다 제목은 같습니다.
   ["/review", ["매칭 검토"]],
   ["/share", ["공유 링크"]],
@@ -128,7 +130,7 @@ if (!(await waitForServer())) {
       로그인이 되어 있어서 늘 정상으로 보입니다.
 --------------------------------------------------------------------------- */
 console.log("\n[회원 전용] 로그인 안 하면 못 들어가는지");
-for (const path of ["/", "/best", "/status", "/book/1", "/review", "/share"]) {
+for (const path of ["/", "/best", "/status", "/book/1", "/review", "/share", "/report"]) {
   try {
     const res = await fetch(BASE + path, {
       redirect: "manual",

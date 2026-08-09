@@ -210,53 +210,97 @@ CREATE POLICY "관리자만 판단 고치기" ON book_matches
 
 
 -- ---------------------------------------------------------------------------
---  6. 제대로 잠겼는지 확인
+--  6. 제대로 됐는지 확인 — 이 하나만 보시면 됩니다
 -- ---------------------------------------------------------------------------
---  아래 표가 나옵니다. 읽어야 할 곳은 딱 두 칸입니다.
+--  【2026-08-09 고침】
+--  원래는 확인 조회를 두 개로 나눠 놨는데, Supabase 는 **맨 마지막 결과만**
+--  보여줍니다. 그래서 정작 제일 중요한 '잠금 확인' 을 대표님이 못 보셨습니다.
+--  하나로 합쳤습니다.
 --
---    · 공개용_읽기  전부 0 이어야 합니다  ← 0 이 아니면 아직 열려 있습니다
---    · 회원_읽기    전부 1 이어야 합니다  ← 0 이면 회원도 못 봅니다
+--  아래 5줄이 나옵니다. **판정 칸이 전부 ✅ 면 끝난 것입니다.**
 -- ---------------------------------------------------------------------------
-SELECT
-    c.relname AS "표 이름",
-    c.relrowsecurity AS "잠금_켜짐",
-    count(*) FILTER (
-        WHERE p.polcmd = 'r' AND 'anon' = ANY (
-            SELECT rolname FROM pg_roles WHERE oid = ANY (p.polroles)
-        )
-    ) AS "공개용_읽기",
-    count(*) FILTER (
-        WHERE p.polcmd = 'r' AND 'authenticated' = ANY (
-            SELECT rolname FROM pg_roles WHERE oid = ANY (p.polroles)
-        )
-    ) AS "회원_읽기"
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-LEFT JOIN pg_policy p ON p.polrelid = c.oid
-WHERE n.nspname = 'public'
-  AND c.relkind = 'r'
-  AND c.relname IN (
-      'stores', 'categories', 'books', 'store_books', 'book_matches',
-      'rankings', 'book_meta', 'crawl_logs', 'daily_reports', 'archives',
-      'profiles'
-  )
-GROUP BY c.relname, c.relrowsecurity
-ORDER BY c.relname;
-
-
--- ---------------------------------------------------------------------------
---  7. 검토 화면 권한이 살아 있는지 확인
--- ---------------------------------------------------------------------------
---  아래 두 줄이 나와야 정상입니다. 안 나오면 검토 화면의 버튼이
---  "권한이 없습니다" 로 실패합니다.
---
---    decision / decided_by / decided_at  → 3줄
--- ---------------------------------------------------------------------------
-SELECT
-    column_name AS "고칠 수 있는 칸",
-    privilege_type AS "권한"
-FROM information_schema.column_privileges
-WHERE table_schema = 'public'
-  AND table_name = 'book_matches'
-  AND grantee = 'authenticated'
-ORDER BY column_name;
+WITH want AS (
+    SELECT unnest(ARRAY[
+        'stores', 'categories', 'books', 'store_books', 'book_matches',
+        'rankings', 'book_meta', 'crawl_logs', 'daily_reports', 'archives',
+        'profiles'
+    ]) AS name
+),
+tbl AS (
+    SELECT c.oid, c.relname AS name, c.relrowsecurity AS rls_on
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN want w ON w.name = c.relname
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+),
+pol AS (
+    SELECT
+        t.name,
+        t.rls_on,
+        -- ⚠️ 0 은 PUBLIC(모두) 입니다. TO 를 안 적은 규칙이 그렇게 됩니다.
+        --    그것도 '로그인 없이 보인다' 로 세야 합니다. 안 그러면
+        --    열려 있는데 ✅ 가 뜹니다.
+        count(*) FILTER (
+            WHERE p.polcmd = 'r' AND (
+                0 = ANY (p.polroles) OR EXISTS (
+                    SELECT 1 FROM pg_roles r
+                    WHERE r.oid = ANY (p.polroles) AND r.rolname = 'anon'
+                )
+            )
+        ) AS anon_read,
+        count(*) FILTER (
+            WHERE p.polcmd = 'r' AND (
+                0 = ANY (p.polroles) OR EXISTS (
+                    SELECT 1 FROM pg_roles r
+                    WHERE r.oid = ANY (p.polroles) AND r.rolname = 'authenticated'
+                )
+            )
+        ) AS member_read
+    FROM tbl t
+    LEFT JOIN pg_policy p ON p.polrelid = t.oid
+    GROUP BY t.name, t.rls_on
+),
+n_open   AS (SELECT count(*) AS v FROM pol WHERE anon_read > 0),
+n_unlock AS (SELECT count(*) AS v FROM pol WHERE NOT rls_on),
+n_member AS (SELECT count(*) AS v FROM pol WHERE member_read > 0),
+n_all    AS (SELECT count(*) AS v FROM pol),
+n_grant  AS (
+    SELECT count(*) AS v FROM information_schema.column_privileges
+    WHERE table_schema = 'public' AND table_name = 'book_matches'
+      AND grantee = 'authenticated' AND privilege_type = 'UPDATE'
+      AND column_name IN ('decision', 'decided_by', 'decided_at')
+),
+n_admin  AS (SELECT count(*) AS v FROM profiles WHERE role = 'admin')
+SELECT * FROM (
+    SELECT 1 AS "번호",
+           '로그인 없이 보이는 표' AS "확인 항목",
+           (SELECT v FROM n_open) || '개' AS "결과",
+           CASE WHEN (SELECT v FROM n_open) = 0
+                THEN '✅ 잘 잠겼습니다'
+                ELSE '❌ 아직 열려 있습니다. 이 파일을 다시 실행하세요' END AS "판정"
+    UNION ALL
+    SELECT 2, '잠금이 꺼진 표',
+           (SELECT v FROM n_unlock) || '개',
+           CASE WHEN (SELECT v FROM n_unlock) = 0
+                THEN '✅ 전부 켜져 있습니다'
+                ELSE '❌ 꺼진 표가 있습니다' END
+    UNION ALL
+    SELECT 3, '회원이 볼 수 있는 표',
+           (SELECT v FROM n_member) || ' / ' || (SELECT v FROM n_all) || '개',
+           CASE WHEN (SELECT v FROM n_member) = (SELECT v FROM n_all)
+                THEN '✅ 회원은 다 볼 수 있습니다'
+                ELSE '❌ 회원도 못 보는 표가 있습니다' END
+    UNION ALL
+    SELECT 4, '검토 화면 쓰기 권한',
+           (SELECT v FROM n_grant) || ' / 3칸',
+           CASE WHEN (SELECT v FROM n_grant) = 3
+                THEN '✅ 버튼이 동작합니다'
+                ELSE '❌ 검토 버튼이 실패합니다' END
+    UNION ALL
+    SELECT 5, '관리자 계정',
+           (SELECT v FROM n_admin) || '명',
+           CASE WHEN (SELECT v FROM n_admin) >= 1
+                THEN '✅ 매칭 검토 메뉴가 보입니다'
+                ELSE '❌ 위 3번의 이메일이 계정과 다릅니다' END
+) x
+ORDER BY "번호";

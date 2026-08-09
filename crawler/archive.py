@@ -51,8 +51,60 @@ TABLES = {
 }
 
 
+# 수집 기록은 보관소로 옮기지 않고 **그냥 지웁니다.**
+# 순위 자료와 달리 다시 볼 일이 없는 운영 기록이기 때문입니다.
+# (되살릴 수 없으므로 아무리 설정해도 이보다 짧게는 안 지웁니다)
+ABSOLUTE_MIN_LOG_KEEP_DAYS = 30
+
+
 def env(name: str) -> str:
     return os.environ.get(name, "").strip()
+
+
+def prune_logs(client_db, log_keep_days: int) -> int:
+    """
+    오래된 수집 기록(crawl_logs)을 지웁니다.
+
+    【왜 필요한가요? — 2026-08-09】
+    분야가 208개라 하루 208줄씩 쌓입니다. 1년이면 7만 줄입니다.
+    그런데 이 표는 보관소로도 안 빠지고 아무도 안 지우고 있었습니다.
+    용량 계산도 이걸 '거의 안 늘어나는 것' 으로 세고 있어서, 예상 최대치가
+    실제보다 계속 낮게 나왔습니다. 낮게 나오는 경고는 안 나오는 경고입니다.
+
+    ⚠️ 순위 자료와 달리 **보관 파일을 만들지 않고 지웁니다.**
+       되살릴 수 없으므로, 화면이 실제로 쓰는 기간(14일)보다 훨씬 넉넉한
+       기본값(180일)을 두고, 그보다 짧게는 아무리 설정해도 안 지웁니다.
+    """
+    keep = max(ABSOLUTE_MIN_LOG_KEEP_DAYS, int(log_keep_days or 180))
+    cutoff = (date.today() - timedelta(days=keep)).isoformat()
+
+    try:
+        # 몇 줄이 지워지는지 먼저 셉니다. "지웠습니다" 만 적고 실제로는
+        # 0줄인 경우를 구분하기 위해서입니다.
+        got = (
+            client_db.table("crawl_logs")
+            .select("id", count="exact", head=True)
+            .lt("snapshot_date", cutoff)
+            .execute()
+        )
+        n = got.count or 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ 수집 기록을 세지 못했습니다(정리 건너뜀): {exc}")
+        return 0
+
+    if n == 0:
+        print(f"  수집 기록: {cutoff} 이전이 없습니다 (최근 {keep}일치 유지)")
+        return 0
+
+    try:
+        client_db.table("crawl_logs").delete().lt("snapshot_date", cutoff).execute()
+    except Exception as exc:  # noqa: BLE001
+        # 정리에 실패했다고 보관 작업 전체를 실패로 만들지 않습니다.
+        print(f"  ⚠️ 수집 기록을 지우지 못했습니다: {exc}")
+        return 0
+
+    print(f"  수집 기록: {cutoff} 이전 {n:,}줄 정리 (최근 {keep}일치 유지)")
+    return n
 
 
 def make_client():
@@ -525,6 +577,10 @@ def main() -> int:
 
         if args.commit:
             print("\n[3단계] 내려받은 파일을 검사하고 DB 를 정리합니다")
+            # 순위 자료를 정리하는 김에 오래된 수집 기록도 함께 지웁니다.
+            # (보관소로 옮기지 않고 그냥 지웁니다 — 운영 기록이라 다시 볼
+            #  일이 없고, 화면은 최근 14일치만 씁니다)
+            prune_logs(client_db, int(acfg.get("log_keep_days", 180)))
             return do_commit(
                 client_db,
                 Path(args.manifest or "out/manifest.json"),

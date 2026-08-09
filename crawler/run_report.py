@@ -357,9 +357,18 @@ def main() -> int:
     ).execute()
 
     print(f"\n✅ 저장했습니다. 사이트 [오늘의 리포트] 에서 보실 수 있습니다.")
-    print("-" * 66)
-    print(body)
-    print("-" * 66)
+
+    # ⚠️ 리포트 본문을 여기에 통째로 찍지 않습니다 (2026-08-09 고침).
+    #
+    #    이 저장소는 **공개**입니다. 실행 기록(Actions 로그)은 누구나
+    #    읽을 수 있습니다. 사이트는 회원만 보게 잠가 놓고 정작 같은 글이
+    #    로그에 그대로 있으면 잠근 의미가 없습니다.
+    #
+    #    "잘 나왔는지" 확인은 첫 줄만으로 충분합니다.
+    head = next((ln for ln in body.splitlines() if ln.strip()), "")
+    print(f"   첫 줄: {head[:40]}{'…' if len(head) > 40 else ''}")
+    print(f"   길이: {len(body):,}자")
+    print("   전문은 사이트에서 보세요 (로그는 공개라 싣지 않습니다)")
     return 0
 
 

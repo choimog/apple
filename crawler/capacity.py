@@ -49,44 +49,96 @@ FREE_LIMIT_MB = 500
 # ⚠️ archive.py 의 TABLES 와 같아야 합니다. 어긋나면 계산이 조용히 틀립니다.
 PER_DAY_TABLES = {"rankings", "book_meta"}
 
+# ---------------------------------------------------------------------------
+#  천천히, 그러나 **끝없이** 늘어나는 표
+# ---------------------------------------------------------------------------
+#  【2026-08-09 대표님 질문에서 찾은 잘못】
+#  "리포트가 계속 누적되는 것 때문에 용량 계산에 문제가 생기진 않으려나?"
+#
+#  확인해 보니 **실제로 문제가 있었습니다.**
+#  이 계산은 표를 두 가지로만 나눴습니다.
+#    · 날마다 쌓이는 것 (보관소로 빠짐)
+#    · 도서 목록 ("거의 안 늘어남")
+#  그런데 아래 두 표는 **어느 쪽도 아닙니다.** 날마다 늘어나는데
+#  보관소로 빠지지 않습니다. 그런데도 '거의 안 늘어남' 쪽에 들어가 있었습니다.
+#
+#    · crawl_logs    수집 기록. 하루 208줄(분야 수만큼). 연 7만 줄.
+#                    → 이쪽이 진짜 문제입니다.
+#    · daily_reports AI 리포트. 하루 1줄. 연 365줄.
+#                    → 양은 무시할 만하지만 분류가 틀린 건 같습니다.
+#
+#  '안 늘어난다' 고 세면 예상 최대치가 계속 실제보다 낮게 나옵니다.
+#  낮게 나오는 경고는 안 나오는 경고와 같습니다.
+SLOW_GROW_TABLES = {"crawl_logs", "daily_reports"}
+
+# 이 중 crawl_logs 는 이제 정리합니다 (archive.py 의 prune_logs).
+# daily_reports 는 지우지 않습니다 — 지난 리포트를 계속 보셔야 하고,
+# 하루 한 줄이라 1년에 1MB 남짓이기 때문입니다.
+NEVER_PRUNED = {"daily_reports"}
+
+# daily_reports 처럼 안 지우는 표는 '몇 년 뒤' 를 봐야 합니다.
+# 1년으로 잡습니다. 그보다 멀리 보면 숫자가 공상에 가까워집니다.
+HORIZON_DAYS = 365
+
 # 코드에 박아 둔 최소 보관 일수 (archive.py 의 ABSOLUTE_MIN_KEEP_DAYS)
 MIN_KEEP_DAYS = 14
 
 
 def project(rows: list[dict], n_days: int, keep: int,
-            limit: int = FREE_LIMIT_MB) -> dict:
+            limit: int = FREE_LIMIT_MB, log_keep: int = 180) -> dict:
     """
-    rows   : table_sizes() 결과 [{table_name, total_bytes, ...}]
-    n_days : 지금 DB 에 들어 있는 수집 날짜 수
-    keep   : 보관 일수 (config/archive.yaml 의 keep_days)
+    rows     : table_sizes() 결과 [{table_name, total_bytes, ...}]
+    n_days   : 지금 DB 에 들어 있는 수집 날짜 수
+    keep     : 순위 자료 보관 일수 (config/archive.yaml 의 keep_days)
+    log_keep : 수집 기록 보관 일수 (config/archive.yaml 의 log_keep_days)
     """
     days = max(1, int(n_days or 1))
     keep = max(MIN_KEEP_DAYS, int(keep or MIN_KEEP_DAYS))
+    log_keep = max(1, int(log_keep or 180))
 
     def mb(v) -> float:
         return float(v or 0) / 1_000_000
 
+    def sum_of(names) -> float:
+        return sum(mb(r.get("total_bytes")) for r in rows
+                   if r.get("table_name") in names)
+
     total = sum(mb(r.get("total_bytes")) for r in rows)
-    daily = sum(mb(r.get("total_bytes")) for r in rows
-                if r.get("table_name") in PER_DAY_TABLES)
-    catalog = max(0.0, total - daily)
+    daily = sum_of(PER_DAY_TABLES)
+    slow = sum_of(SLOW_GROW_TABLES)
+    catalog = max(0.0, total - daily - slow)
 
-    # 하루에 늘어나는 양 — '순위 자료만' 셉니다. 이것만이 정말 날마다 늡니다.
-    per_day = daily / days
+    # 하루에 늘어나는 양
+    per_day = daily / days              # 순위 자료 (보관소로 빠짐)
+    slow_per_day = slow / days          # 기록·리포트 (안 빠짐)
 
-    # 보관 작업이 자리를 잡았을 때 도달할 최대치.
-    # 도서 목록은 보관소로 안 빠지므로 그대로 더합니다.
-    steady = catalog + per_day * keep
+    # 지우는 것과 안 지우는 것을 나눠서 봐야 합니다.
+    pruned_slow = sum_of(SLOW_GROW_TABLES - NEVER_PRUNED) / days
+    kept_slow = sum_of(NEVER_PRUNED) / days
 
+    # 1년 뒤 예상 최대치.
+    #   · 순위 자료   : 보관 일수만큼만 남음
+    #   · 수집 기록   : 기록 보관 일수만큼만 남음
+    #   · 리포트      : 안 지우므로 1년치가 그대로 쌓임
+    #   · 도서 목록   : 거의 안 늘어나므로 지금 크기 그대로
+    steady = (
+        catalog
+        + per_day * keep
+        + pruned_slow * log_keep
+        + kept_slow * HORIZON_DAYS
+    )
+
+    # '이대로 두면 며칠 남았나' 도 안 지우는 것까지 세야 정직합니다
+    grow_per_day = per_day + slow_per_day
     left = max(0.0, limit - total)
-    days_left = int(left / per_day) if per_day > 0 else 999
+    days_left = int(left / grow_per_day) if grow_per_day > 0 else 999
 
     # 무엇이 문제인지. 차례가 중요합니다 — 구조적인 문제를 먼저 알려야
     # 합니다. '며칠 남았다' 만 보면 보관 일수를 줄여야 한다는 걸 모릅니다.
     problem = None
     if steady > limit:
         problem = (
-            f"보관 {keep}일을 유지하면 {steady:.0f}MB 가 되어 한도({limit}MB)를 "
+            f"이대로 1년이 지나면 {steady:.0f}MB 가 되어 한도({limit}MB)를 "
             f"넘습니다. 보관 일수를 줄이거나 저장 항목을 줄여야 합니다."
         )
     elif days_left < 7:
@@ -95,18 +147,23 @@ def project(rows: list[dict], n_days: int, keep: int,
         problem = "이미 한도의 90% 를 넘겼습니다."
 
     return {
-        "total": total, "daily": daily, "catalog": catalog,
-        "per_day": per_day, "steady": steady, "days_left": days_left,
-        "keep": keep, "problem": problem,
+        "total": total, "daily": daily, "catalog": catalog, "slow": slow,
+        "per_day": per_day, "slow_per_day": slow_per_day,
+        "steady": steady, "days_left": days_left,
+        "keep": keep, "log_keep": log_keep, "problem": problem,
     }
 
 
 def describe(p: dict, top: str, limit: int = FREE_LIMIT_MB) -> str:
     return (
         f"  전체        {p['total']:.0f}MB / {limit}MB\n"
-        f"  순위 자료   {p['daily']:.0f}MB (하루 약 {p['per_day']:.1f}MB · 보관소로 빠져나감)\n"
+        f"  순위 자료   {p['daily']:.0f}MB "
+        f"(하루 약 {p['per_day']:.1f}MB · 보관소로 빠져나감)\n"
+        f"  기록·리포트 {p['slow']:.0f}MB "
+        f"(하루 약 {p['slow_per_day']:.2f}MB · 천천히 늘고 보관소로 안 빠짐)\n"
         f"  도서 목록   {p['catalog']:.0f}MB (거의 안 늘어남 · 보관소로 안 빠짐)\n"
-        f"  보관 {p['keep']}일 유지 시 예상 최대 {p['steady']:.0f}MB\n"
+        f"  1년 뒤 예상 최대 {p['steady']:.0f}MB "
+        f"(순위 {p['keep']}일 · 기록 {p['log_keep']}일 보관 기준)\n"
         f"  이대로 두면 {p['days_left']}일 뒤 한도\n"
         f"  큰 표: {top}"
     )
@@ -138,7 +195,12 @@ def main() -> int:
         n_days = 1
 
     acfg = cfg.load("archive.yaml")
-    p = project(rows, n_days, int(acfg.get("keep_days", MIN_KEEP_DAYS)))
+    p = project(
+        rows,
+        n_days,
+        int(acfg.get("keep_days", MIN_KEEP_DAYS)),
+        log_keep=int(acfg.get("log_keep_days", 180)),
+    )
 
     top = " · ".join(
         f"{r['table_name']} {float(r.get('total_bytes') or 0) / 1_000_000:.0f}MB"
@@ -157,6 +219,8 @@ def main() -> int:
         print("\n  【무엇을 하면 되나요?】")
         print("  1) config/archive.yaml 의 keep_days 를 줄입니다")
         print(f"     (지금 {p['keep']}일. 최소 {MIN_KEEP_DAYS}일까지 내려갑니다)")
+        print(f"     수집 기록도 log_keep_days 로 줄일 수 있습니다 "
+              f"(지금 {p['log_keep']}일)")
         print("     자료가 사라지는 게 아니라 보관 파일로 빠집니다.")
         print("     사이트에서 바로 볼 수 있는 기간만 짧아집니다.")
         print("  2) 그래도 모자라면 저에게 말씀해 주세요.")

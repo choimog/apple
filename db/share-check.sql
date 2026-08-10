@@ -42,11 +42,17 @@ SELECT * FROM (
 
     UNION ALL
     -- (3) 개수·시간 제한이 들어가 있나
+    --
+    -- ⚠️ 여기서 share_limits() 를 **부르면 안 됩니다.**
+    --    PostgreSQL 은 실행하기 전에 문장 전체를 먼저 읽는데, 그때 없는
+    --    함수 이름이 보이면 CASE 로 감싸 두어도 그 자리에서 멈춥니다.
+    --    (2026-08-10 대표님이 이 오류를 겪으셨습니다:
+    --     ERROR 42883: function share_limits() does not exist)
+    --    진단 파일이 진단하려던 것 때문에 죽으면 안 됩니다. 있는지만 봅니다.
     SELECT 3, '회원 제한 (개수·시간)',
            CASE WHEN to_regprocedure('share_limits()') IS NULL
-                THEN '❌ 없음 — db/share-open.sql 을 실행하세요'
-                ELSE '✅ ' || (SELECT max_links || '개 · 최대 ' || max_hours || '시간'
-                               FROM share_limits())
+                THEN '❌ 없음 — db/share-open.sql 이 안 들어갔습니다'
+                ELSE '✅ 있음'
            END
 
     UNION ALL

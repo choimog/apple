@@ -56,6 +56,8 @@ const PAGES = [
   ["/review?tab=merged&size=large", ["매칭 검토"]],
   ["/review?tab=pending&size=small&band=70", ["매칭 검토"]],
   ["/review?tab=merged&size=엉터리", ["매칭 검토"]],
+  // 엑셀로 한꺼번에 결정하기 안내가 보이는지 (2026-08-09 추가)
+  ["/review", ["엑셀로 한꺼번에"]],
   ["/share", ["공유 링크"]],
 ];
 

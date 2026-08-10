@@ -44,10 +44,15 @@ export async function POST(request: NextRequest) {
 
     const label = String(form.get("label") ?? "").trim().slice(0, 60);
     const rawDays = String(form.get("days") ?? "");
-    // 빈 값이면 기한 없음. 이상한 값이 오면 가장 짧은 쪽(안전한 쪽)으로.
+    // 빈 값이면 기한 없음(관리자만 의미 있음).
+    // 이상한 값이 오면 가장 짧은 쪽(안전한 쪽)으로 보냅니다.
+    //
+    // ⚠️ 회원에게는 이 숫자가 '시간' 으로 읽힙니다 (db/share-open.sql).
+    //    여기서 아무리 큰 값을 보내도 데이터베이스가 3시간으로 자릅니다.
+    //    진짜 한도는 화면이 아니라 데이터베이스에 있습니다.
     const days = rawDays === "" ? null : Number(rawDays);
     const safeDays =
-      days === null ? null : Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 7;
+      days === null ? null : Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 1;
 
     const res = await createShareLink(categoryId, label, safeDays);
     if (res.error || !res.token) {

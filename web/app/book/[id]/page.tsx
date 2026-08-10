@@ -98,6 +98,29 @@ export default async function BookPage({
     });
   }
 
+  /*
+    【2026-08-09 대표님 요청】
+    "종합 순위가 나온 건 좋아. 거기에 함께 작게 분야 중 가장 상위에
+     속하는 순위도 함께 나열됐으면 좋겠어."
+
+    위의 latest 는 '대표 순위' 하나입니다 (종합이 있으면 종합).
+    여기서는 그것과 **별도로**, 세부분야 중 가장 높은 것을 따로 찾습니다.
+    placements 에 그날 올라 있는 목록이 전부 들어 있으므로 새 조회는
+    필요 없습니다.
+
+    ⚠️ 매장별(offline)은 뺍니다. 온라인 순위와 성격이 달라 나란히 두면
+       "교보 3위" 가 매장 3위인지 온라인 3위인지 헷갈립니다.
+  */
+  const topCategory = new Map<string, { rank: number; name: string }>();
+  for (const pl of placements) {
+    if (pl.isOverall || pl.branchName) continue; // 종합·매장별 제외
+    const k = `${pl.storeId}|${pl.period}`;
+    const cur = topCategory.get(k);
+    if (!cur || pl.rank < cur.rank) {
+      topCategory.set(k, { rank: pl.rank, name: pl.categoryName });
+    }
+  }
+
   const online = placements.filter((p) => !p.branchName);
   const branches = placements.filter((p) => p.branchName);
   const hasSales = history.some((h) => h.sales !== null);
@@ -195,6 +218,10 @@ export default async function BookPage({
                 <dl className="mt-2.5 space-y-1.5">
                   {(["daily", "weekly"] as Period[]).map((p) => {
                     const cell = p === "daily" ? d : w;
+                    const top = topCategory.get(`${sid}|${p}`);
+                    // 대표 순위가 이미 그 분야면 같은 줄을 두 번 보여주지 않습니다
+                    const showTop =
+                      top && (cell?.isOverall || top.name !== cell?.categoryName);
                     return (
                       <div key={p} className="flex items-baseline justify-between gap-2">
                         <dt>
@@ -223,6 +250,12 @@ export default async function BookPage({
                               >
                                 {cell.isOverall ? "종합 기준" : `${cell.categoryName} 기준`}
                               </span>
+                              {/* 분야 중 가장 높은 순위 — 작게 함께 (대표님 요청) */}
+                              {showTop && top && (
+                                <span className="block truncate text-2xs text-ink-faint">
+                                  {top.name} <span className="tnum">{top.rank}위</span>
+                                </span>
+                              )}
                             </>
                           ) : (
                             <NoValue

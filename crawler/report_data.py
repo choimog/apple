@@ -62,6 +62,39 @@ def latest_date(client) -> str | None:
     return rows[0]["snapshot_date"] if rows else None
 
 
+def pub_ym_map(client, book_ids: list[int]) -> dict[int, str]:
+    """
+    도서별 출간월(배본일).
+
+    【2026-08-09 대표님 요청】
+    "리포트에서 도서명을 밝힐 때 배본일도 밝혔으면 좋겠고"
+
+    종합 순위(combined_best)에는 출간월이 없어서 따로 읽어 옵니다.
+    서점마다 조금씩 다르게 적을 수 있는데, 2026-08-09 부터 출간월이 다르면
+    아예 다른 책으로 갈라지므로 한 책 안에서는 같은 값입니다.
+    **없으면 지어내지 않고 비워 둡니다.**
+    """
+    out: dict[int, str] = {}
+    for i in range(0, len(book_ids), 200):
+        chunk = book_ids[i : i + 200]
+        try:
+            res = (
+                client.table("store_books")
+                .select("book_id,pub_ym")
+                .in_("book_id", chunk)
+                .not_.is_("pub_ym", "null")
+                .execute()
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        for r in res.data or []:
+            bid = r.get("book_id")
+            ym = r.get("pub_ym")
+            if bid is not None and ym and bid not in out:
+                out[int(bid)] = str(ym)
+    return out
+
+
 def collect(client, day: str, cfg: dict) -> dict:
     """
     하루치 요약을 만듭니다. AI 에게 넘길 재료입니다.
@@ -82,6 +115,8 @@ def collect(client, day: str, cfg: dict) -> dict:
     prev_rank = {int(r["book_id"]): i for i, r in enumerate(yesterday, 1)}
     have_yesterday = bool(yesterday)
 
+    ym_of = pub_ym_map(client, [int(r["book_id"]) for r in today])
+
     rows = []
     for i, r in enumerate(today, 1):
         bid = int(r["book_id"])
@@ -92,6 +127,8 @@ def collect(client, day: str, cfg: dict) -> dict:
             "title": r.get("title") or "",
             "author": r.get("author") or "",
             "publisher": r.get("publisher") or "",
+            # 없으면 빈 값 그대로 둡니다 (AI 에게 "모른다" 를 알려야 합니다)
+            "pub_ym": ym_of.get(bid, ""),
             "stores": int(r.get("store_count") or 0),
             "store_ranks": {
                 STORE_NAME.get(int(k), str(k)): int(v) for k, v in sorted(ranks.items())
@@ -165,25 +202,31 @@ def to_text(d: dict) -> str:
             mv = "변화없음"
         else:
             mv = f"{r['change']:+d}"
+        ym = r.get("pub_ym") or "출간월모름"
         L.append(
             f"{r['rank']:>3}. {r['title']} / {r['author']} / {r['publisher']} "
-            f"[{mv}] ({where})"
+            f"/ 배본 {ym} [{mv}] ({where})"
         )
     L.append("")
 
     if d["has_yesterday"]:
         big = d["big_move"]
+        def line(r, arrow: bool) -> str:
+            ym = r.get("pub_ym") or "출간월모름"
+            head = f"{r['prev_rank']}위→{r['rank']}위" if arrow else f"{r['rank']}위"
+            return f"  {head} {r['title']} / {r['publisher']} / 배본 {ym}"
+
         L.append(f"[신규 진입] {len(d['new_in'])}권")
         for r in d["new_in"]:
-            L.append(f"  {r['rank']}위 {r['title']} / {r['publisher']}")
+            L.append(line(r, False))
         L.append("")
         L.append(f"[{big}계단 이상 오름] {len(d['up'])}권")
         for r in d["up"]:
-            L.append(f"  {r['prev_rank']}위→{r['rank']}위 {r['title']} / {r['publisher']}")
+            L.append(line(r, True))
         L.append("")
         L.append(f"[{big}계단 이상 내림] {len(d['down'])}권")
         for r in d["down"]:
-            L.append(f"  {r['prev_rank']}위→{r['rank']}위 {r['title']} / {r['publisher']}")
+            L.append(line(r, True))
         L.append("")
 
     L.append("[출판사 순위]")

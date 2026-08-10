@@ -346,9 +346,22 @@ check "🚨 회원이 만든 링크에는 반드시 기한이 붙는다" "1" \
   "$(ask "SELECT count(*) FROM public_links
           WHERE token = '$NOEXP' AND expires_at IS NOT NULL;")"
 
-check "회원 기한은 90일을 못 넘는다" "1" \
+# 【2026-08-09 대표님 지시】 "한 사람이 2개까지, 최대 3시간까지"
+check "🚨 회원 기한은 3시간을 못 넘는다" "1" \
   "$(ask "SELECT count(*) FROM public_links
-          WHERE token = '$NOEXP' AND expires_at <= now() + interval '91 days';")"
+          WHERE token = '$NOEXP' AND expires_at <= now() + interval '3 hours 1 minute';")"
+
+# 개수 제한 — 친구는 이미 2개(FTOKEN·NOEXP)를 만들었습니다.
+# 하나는 껐으므로 살아 있는 것은 1개. 하나 더 만들면 2개가 되고,
+# 그 다음은 막혀야 합니다.
+run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+    SELECT create_share_link('ranking','10','두 번째',3);\"" > /dev/null 2>&1
+THIRD=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+    SELECT create_share_link('ranking','10','세 번째',3);\"" 2>&1)
+check "🚨 회원은 3개째를 못 만든다" "yes" \
+  "$(if echo "$THIRD" | grep -q "2 개까지"; then echo yes; else echo "no($THIRD)"; fi)"
 
 # ⚠️ WHERE 안에서 함수를 부르면 줄마다 새 링크가 만들어집니다.
 #    먼저 만들고, 그 다음에 확인해야 합니다.

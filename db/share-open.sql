@@ -15,9 +15,9 @@
 --
 --  【그래서 안전장치를 함께 넣습니다】
 --   1. 누가 만들었는지 기록하고, 관리자 목록에 **이메일이 보입니다**
---   2. 한 사람이 살아 있는 링크를 **20개까지만** 만들 수 있습니다
---   3. 회원이 만든 링크는 **기한이 반드시 있습니다** (최대 90일)
---      대표님만 '기한 없음' 을 고를 수 있습니다
+--   2. 한 사람이 살아 있는 링크를 **2개까지만** 만들 수 있습니다
+--   3. 회원이 만든 링크는 **최대 3시간** 뒤 자동으로 꺼집니다
+--      대표님만 '기한 없음' 과 긴 기한을 고를 수 있습니다
 --   4. 회원은 **자기가 만든 링크만** 보고 끕니다.
 --      대표님은 전부 보고, 누구 것이든 끌 수 있습니다
 --
@@ -32,13 +32,20 @@
 -- ---------------------------------------------------------------------------
 --  1. 설정값 — 여기 숫자만 고치면 됩니다
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS share_limits();
+
 CREATE OR REPLACE FUNCTION share_limits()
-RETURNS TABLE (max_links int, max_days int)
+RETURNS TABLE (max_links int, max_hours int)
 LANGUAGE sql
 IMMUTABLE
 AS $$
-    -- 한 회원이 동시에 살려 둘 수 있는 링크 수 / 회원이 고를 수 있는 최대 기한
-    SELECT 20, 90;
+    -- 한 회원이 동시에 살려 둘 수 있는 링크 수 / 회원이 고를 수 있는 최대 시간
+    --
+    -- 【2026-08-09 대표님 지시】
+    -- "한 사람이 2개까지 만들 수 있고, 최대 3시간까지 가능하도록."
+    -- 짧게 잡을수록 자료가 퍼지는 범위가 좁아집니다. 주소가 돌아다녀도
+    -- 3시간이 지나면 아무것도 안 보입니다.
+    SELECT 2, 3;
 $$;
 
 
@@ -57,12 +64,12 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_token  text;
-    v_admin  boolean := is_admin();
-    v_mine   int;
-    v_max    int;
-    v_maxday int;
-    v_days   int;
+    v_token   text;
+    v_admin   boolean := is_admin();
+    v_mine    int;
+    v_max     int;
+    v_maxhour int;
+    v_expires timestamptz;
 BEGIN
     -- 로그인은 반드시 필요합니다. 누가 만들었는지 모르는 링크는 만들지 않습니다.
     IF auth.uid() IS NULL THEN
@@ -73,7 +80,7 @@ BEGIN
         RAISE EXCEPTION '알 수 없는 공유 종류: %', p_kind;
     END IF;
 
-    SELECT max_links, max_days INTO v_max, v_maxday FROM share_limits();
+    SELECT max_links, max_hours INTO v_max, v_maxhour FROM share_limits();
 
     -- ---- 회원(관리자 아님)에게만 걸리는 제한 ----
     IF NOT v_admin THEN
@@ -86,18 +93,19 @@ BEGIN
 
         IF v_mine >= v_max THEN
             RAISE EXCEPTION
-                '만들 수 있는 공유 링크는 % 개까지입니다. 안 쓰는 링크를 끄고 다시 해주세요.',
+                '동시에 살려 둘 수 있는 공유 링크는 % 개까지입니다. 안 쓰는 링크를 끄거나 기한이 지나기를 기다려 주세요.',
                 v_max;
         END IF;
 
-        -- (나) 기한 제한 — 회원은 '기한 없음' 을 고를 수 없습니다.
-        --      영원히 열려 있는 주소는 나중에 아무도 기억하지 못합니다.
-        v_days := least(coalesce(p_days, 30), v_maxday);
-        IF v_days < 1 THEN
-            v_days := 1;
-        END IF;
+        -- (나) 기한 제한 — 회원은 **시간 단위**로만 만들 수 있습니다.
+        --      p_days 는 '몇 시간' 으로 읽습니다 (회원용 화면이 시간을 보냅니다).
+        --      기한 없음(NULL)을 보내도 최대치로 잘라 버립니다.
+        v_expires := now() + (least(greatest(coalesce(p_days, v_maxhour), 1),
+                                    v_maxhour) || ' hours')::interval;
     ELSE
-        v_days := p_days;   -- 관리자는 NULL(기한 없음)도 가능
+        -- 관리자는 예전처럼 '일' 단위. NULL 이면 기한 없음.
+        v_expires := CASE WHEN p_days IS NULL THEN NULL
+                          ELSE now() + (p_days || ' days')::interval END;
     END IF;
 
     -- 64글자 무작위. gen_random_uuid() 는 확장 기능 없이 쓸 수 있습니다.
@@ -105,11 +113,7 @@ BEGIN
             || replace(gen_random_uuid()::text, '-', '');
 
     INSERT INTO public_links (token, kind, target_id, label, created_by, expires_at)
-    VALUES (
-        v_token, p_kind, p_target_id, p_label, auth.uid(),
-        CASE WHEN v_days IS NULL THEN NULL
-             ELSE now() + (v_days || ' days')::interval END
-    );
+    VALUES (v_token, p_kind, p_target_id, p_label, auth.uid(), v_expires);
     RETURN v_token;
 END;
 $$;
@@ -203,7 +207,7 @@ SELECT * FROM (
     UNION ALL
     SELECT 2, '한 사람당 개수·기한 제한이 있음',
            CASE WHEN to_regprocedure('share_limits()') IS NOT NULL
-                THEN '✅ ' || (SELECT max_links || '개 · 최대 ' || max_days || '일'
+                THEN '✅ ' || (SELECT max_links || '개 · 최대 ' || max_hours || '시간'
                                FROM share_limits())
                 ELSE '❌' END
     UNION ALL

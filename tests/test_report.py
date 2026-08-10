@@ -252,6 +252,25 @@ print("\n[9] 부탁하는 말에 '지어내지 말라' 가 들어 있는지")
 check("지어내지 말라", "지어내지 마세요" in rr.SYSTEM)
 check("모르면 모른다고", "알 수 없습니다" in rr.SYSTEM)
 check("어제 자료 없을 때 규칙", "어제 자료가 없습니다" in rr.SYSTEM)
+# 2026-08-09 추가 요청 — 배본일 표기와 '원인 단정 금지'
+check("도서 언급 시 배본일도 적게 함", "배본 YYYY-MM" in rr.SYSTEM)
+check("배본일 모르면 '미상' 이라고 적게 함", "배본일 미상" in rr.SYSTEM)
+check("원인을 단정하지 말라고 못박음", "원인을 단정하지 마세요" in rr.SYSTEM)
+check("사실 우선이 다른 지시보다 위에 있음",
+      rr.SYSTEM.index("사실에서 벗어나지 마세요") < rr.SYSTEM.index("전문성"))
+
+print("\n[8-1] 자료에 배본일이 실제로 들어가는지")
+# AI 에게 배본일을 적으라고 시켜 놓고 정작 자료에 안 주면,
+# AI 는 지어내거나 전부 '미상' 으로 적습니다. 둘 다 나쁩니다.
+d_ym = dict(d2)
+for r in d_ym["rows"]:
+    r["pub_ym"] = "2024-03"
+txt = rd.to_text(d_ym)
+check("순위표에 배본일이 들어감", "배본 2024-03" in txt, txt[:200])
+for r in d_ym["rows"]:
+    r["pub_ym"] = ""
+txt2 = rd.to_text(d_ym)
+check("모르면 '출간월모름' 으로 넘어감", "출간월모름" in txt2)
 
 
 print()

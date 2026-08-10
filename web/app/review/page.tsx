@@ -103,7 +103,70 @@ export default async function ReviewPage({
         </p>
       </div>
 
-      {params.msg && <Message code={params.msg} />}
+      {params.msg && <Message code={params.msg} params={params} />}
+
+      {/* ---------- 엑셀로 한꺼번에 ---------- */}
+      <Card>
+        <CardHead
+          title="엑셀로 한꺼번에 결정하기"
+          desc="하나씩 누르는 대신, 파일로 받아 채워서 올리시면 한 번에 반영됩니다"
+        />
+        <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5">
+          <div>
+            <p className="text-sm font-semibold">① 내려받기</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+              지금 화면에 걸어 둔 조건(탭·점수·묶인 권수) 그대로 받습니다.
+              <br />
+              <strong>결정</strong> 칸에 <code>같은책</code> 또는{" "}
+              <code>다른책</code> 만 적으시면 됩니다.
+              빈칸은 그냥 넘어갑니다 — 전부 채우지 않으셔도 됩니다.
+            </p>
+            <a
+              href={`/review/sheet?tab=${tab}${bandQ}${sizeQ}`}
+              className="mt-2 inline-block rounded-xl border border-line px-3.5 py-2 text-sm font-medium hover:border-ink-faint"
+            >
+              검토 목록 내려받기 (엑셀)
+            </a>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold">② 채워서 올리기</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+              엑셀에서 <strong>CSV(쉼표로 분리)</strong> 로 저장한 뒤 올려 주세요.
+              <br />
+              <span className="text-ink-faint">
+                되돌리려면 <code>되돌리기</code> 라고 적으시면 됩니다.
+              </span>
+            </p>
+            <form
+              action="/review/import"
+              method="post"
+              encType="multipart/form-data"
+              className="mt-2 flex flex-wrap items-center gap-2"
+            >
+              <input
+                type="file"
+                name="file"
+                accept=".csv,text/csv"
+                required
+                className="max-w-full text-xs file:mr-2 file:rounded-lg file:border file:border-line file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs"
+              />
+              <button
+                type="submit"
+                className="rounded-xl border border-emerald-400 px-3.5 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+              >
+                올려서 반영
+              </button>
+            </form>
+          </div>
+        </div>
+        <p className="border-t border-line-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-faint sm:px-5">
+          ⚠️ 다른 파일을 올리시면 <strong>한 줄도 반영하지 않고</strong> 왜 안
+          되는지 알려 드립니다. 반영 뒤에는 몇 건이 들어갔는지 숫자로 보여
+          드립니다. 순위 화면 반영은 다른 결정과 마찬가지로 <strong>다음 날
+          아침</strong>입니다.
+        </p>
+      </Card>
 
       {/* ---------- 탭 ---------- */}
       <div className="scroll-x flex gap-1.5">
@@ -579,7 +642,50 @@ function DecideButton({
 }
 
 /** 버튼을 누르고 돌아왔을 때 뜨는 한 줄 */
-function Message({ code }: { code: string }) {
+function Message({
+  code,
+  params,
+}: {
+  code: string;
+  params: Record<string, string | undefined>;
+}) {
+  // 엑셀 반영 결과는 숫자를 그대로 보여줍니다.
+  // "완료" 만 뜨고 실제로는 0건인 상황을 만들지 않기 위해서입니다.
+  if (code === "imported") {
+    const n = (k: string) => Number(params[k] ?? 0);
+    const bits = [
+      `✅ ${n("ok")}건 반영했습니다`,
+      n("skip") ? `${n("skip")}건은 결정 칸이 비어 건너뜀` : "",
+      n("bad") ? `${n("bad")}건은 적힌 말을 못 알아봄` : "",
+      n("noauto") ? `${n("noauto")}건은 원래 판단을 몰라 못 되돌림` : "",
+      n("fail") ? `🚨 ${n("fail")}건은 반영되지 않음` : "",
+    ].filter(Boolean);
+    return (
+      <p
+        role="status"
+        className={`rounded-xl border px-3 py-2.5 text-sm ${
+          n("fail")
+            ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+            : "border-line bg-surface-2 text-ink-soft"
+        }`}
+      >
+        {bits.join(" · ")}
+        {n("ok") > 0 && " — 순위 화면에는 내일 아침 반영됩니다."}
+      </p>
+    );
+  }
+  if (code === "badfile") {
+    return (
+      <p
+        role="status"
+        className="rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+      >
+        ❌ {params.why || "파일을 읽지 못했습니다."}{" "}
+        <strong>한 줄도 반영하지 않았습니다.</strong>
+      </p>
+    );
+  }
+
   const map: Record<string, { text: string; bad?: boolean }> = {
     merged: { text: "✅ 같은 책으로 저장했습니다. 내일 아침 순위에 반영됩니다." },
     split: { text: "✅ 다른 책으로 저장했습니다. 내일 아침 순위에 반영됩니다." },
@@ -600,6 +706,15 @@ function Message({ code }: { code: string }) {
     dberror: { text: "저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요.", bad: true },
     badid: { text: "잘못된 요청입니다.", bad: true },
     badaction: { text: "잘못된 요청입니다.", bad: true },
+    nofile: { text: "파일을 고르지 않으셨습니다.", bad: true },
+    toobig: { text: "파일이 너무 큽니다 (5MB 넘음).", bad: true },
+    toomany: {
+      text: "한 번에 2,000건까지만 반영합니다. 나눠서 올려 주세요.",
+      bad: true,
+    },
+    nothing: {
+      text: "결정 칸이 모두 비어 있어 반영할 것이 없었습니다. (오류가 아닙니다)",
+    },
   };
   const m = map[code];
   if (!m) return null;

@@ -5,6 +5,7 @@ import { configError, currentRole } from "@/lib/supabase";
 import { buildStoreTree, getCategories, isWeekly } from "@/lib/queries";
 import { listShareLinks } from "@/lib/share";
 import { store } from "@/lib/stores";
+import { kstDateTime } from "@/lib/format";
 
 export const metadata = { title: "공유 링크" };
 
@@ -176,19 +177,38 @@ export default async function SharePage({
                   />
                 </div>
                 <div>
+                  {/*
+                    【2026-08-09 대표님 지시】
+                    "한 사람이 2개까지 만들 수 있고, 최대 3시간까지 가능하도록."
+
+                    회원은 **시간** 단위, 대표님은 예전처럼 **일** 단위입니다.
+                    ⚠️ 실제 한도는 데이터베이스가 지킵니다(db/share-open.sql).
+                       여기 목록은 '고르기 쉽게' 하는 것일 뿐, 화면을 고쳐서
+                       더 긴 값을 보내도 3시간으로 잘립니다.
+                  */}
                   <label htmlFor="days" className="mb-1 block text-sm text-ink-soft">
-                    며칠 뒤에 자동으로 꺼질지
+                    {isAdmin ? "며칠 뒤에 자동으로 꺼질지" : "몇 시간 뒤에 자동으로 꺼질지"}
                   </label>
                   <select
                     id="days"
                     name="days"
-                    defaultValue="30"
+                    defaultValue={isAdmin ? "30" : "3"}
                     className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm"
                   >
-                    <option value="7">7일</option>
-                    <option value="30">30일</option>
-                    <option value="90">90일</option>
-                    <option value="">기한 없음</option>
+                    {isAdmin ? (
+                      <>
+                        <option value="7">7일</option>
+                        <option value="30">30일</option>
+                        <option value="90">90일</option>
+                        <option value="">기한 없음</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="1">1시간</option>
+                        <option value="2">2시간</option>
+                        <option value="3">3시간 (최대)</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -207,8 +227,8 @@ export default async function SharePage({
           만드신 주소는 <strong>로그인 없이 누구나</strong> 열 수 있습니다.
           받은 분에게는 그 순위표 하나만 보이고, 다른 화면은 안 보입니다.
           <br />
-          한 사람이 동시에 <strong>20개</strong>까지, <strong>최대 90일</strong>{" "}
-          기한으로 만들 수 있습니다. 안 쓰는 주소는 꺼 주세요.
+          한 사람이 동시에 <strong>2개</strong>까지, <strong>최대 3시간</strong>{" "}
+          기한으로 만들 수 있습니다. 시간이 지나면 저절로 꺼집니다.
         </p>
       )}
 
@@ -259,7 +279,10 @@ export default async function SharePage({
                           /s/{l.token}
                         </p>
                         <p className="text-2xs text-ink-faint">
-                          {l.expiresAt ? `${l.expiresAt.slice(0, 10)} 까지` : "기한 없음"}
+                          {l.expiresAt
+                            ? /* 3시간짜리는 날짜만 적으면 언제 꺼지는지 알 수 없습니다 */
+                              `${kstDateTime(l.expiresAt) ?? l.expiresAt.slice(0, 10)} 까지`
+                            : "기한 없음"}
                           {/*
                             누가 만들었는지는 관리자에게만 보입니다.
                             회원끼리 서로 이메일을 보게 하면 안 됩니다.

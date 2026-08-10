@@ -48,6 +48,8 @@ const GROUPS: Group[] = [
     items: [
       { href: "/report", label: "리포트" },
       { href: "/search", label: "검색" },
+      // 2026-08-09 부터 회원 누구나 자기 공유 링크를 만들 수 있습니다
+      { href: "/share", label: "공유 링크" },
       { href: "/status", label: "수집 상태" },
     ],
   },
@@ -56,10 +58,7 @@ const GROUPS: Group[] = [
 /** 관리자에게만 보이는 메뉴 */
 const ADMIN_GROUP: Group = {
   name: "관리",
-  items: [
-    { href: "/review", label: "매칭 검토" },
-    { href: "/share", label: "공유 링크" },
-  ],
+  items: [{ href: "/review", label: "매칭 검토" }],
 };
 
 export default function Nav({

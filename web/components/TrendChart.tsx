@@ -25,6 +25,56 @@ const LINE_COLOR: Record<number, string> = {
   3: "#ea580c", // 알라딘 — 주황
 };
 
+/* ───────────────────────────────────────────────────────────────────────────
+   겹칠 때도 세 서점을 구분할 수 있게 — 2026-08-09 대표님 지적
+
+   "교보, 예스24, 알라딘 중 겹치게 되면 잘 안보이는 문제가 발생해."
+
+   맞습니다. 세 서점이 같은 순위면 선 세 개가 정확히 포개져서, 맨 나중에
+   그린 것(알라딘)만 보이고 나머지 둘은 사라집니다. 자료가 없는 것과
+   구분이 안 됩니다.
+
+   색만으로는 못 고칩니다. 포개지면 색도 하나만 보이니까요.
+   그래서 **모양**을 다르게 합니다. 색을 못 보는 분에게도 도움이 됩니다.
+
+     1. 선 모양      실선 / 긴 점선 / 짧은 점선
+     2. 점 모양      ● 원 / ■ 네모 / ▲ 세모
+     3. 선 굵기      뒤에 그리는 것일수록 살짝 얇게 (밑에 깔린 선이 삐져나옴)
+     4. 값 글자 위치 겹치면 위아래로 흩어 놓습니다
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/** 선 모양 — 포개져도 무늬로 구분됩니다 */
+const LINE_DASH: Record<number, string | undefined> = {
+  1: undefined,   // 교보 — 실선
+  2: "7 3",       // 예스24 — 긴 점선
+  3: "2 3",       // 알라딘 — 짧은 점선
+};
+
+/** 선 굵기 — 나중에 그리는 것일수록 얇게 해서 아래 선이 비쳐 보이게 */
+const LINE_WIDTH: Record<number, number> = { 1: 3, 2: 2.2, 3: 1.6 };
+
+/** 점 모양 — 같은 자리에 겹쳐도 셋이 다 보입니다 */
+function marker(storeId: number, cx: number, cy: number, color: string) {
+  const common = { fill: color, stroke: "var(--surface)", strokeWidth: 0.8 };
+  if (storeId === 2) {
+    // 네모
+    const r = 2.6;
+    return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} {...common} />;
+  }
+  if (storeId === 3) {
+    // 세모
+    const r = 3.2;
+    return (
+      <polygon
+        points={`${cx},${cy - r} ${cx - r},${cy + r * 0.8} ${cx + r},${cy + r * 0.8}`}
+        {...common}
+      />
+    );
+  }
+  // 원 (교보)
+  return <circle cx={cx} cy={cy} r={3} {...common} />;
+}
+
 const W = 480;
 const H = 220;
 const PAD = { top: 16, right: 54, bottom: 26, left: 54 };
@@ -47,6 +97,36 @@ function buildSeries(
   return [...byStore.entries()]
     .map(([storeId, points]) => ({ storeId, period, points }))
     .sort((a, b) => a.storeId - b.storeId);
+}
+
+/**
+ * 끝값 글자를 위아래로 얼마나 밀지.
+ *
+ * 세 서점의 마지막 값이 같거나 비슷하면 글자가 정확히 포개져서
+ * "3위" 세 개가 겹쳐 한 덩어리로 보입니다. 그래서 값이 가까운 것끼리
+ * 순서를 매겨 한 줄씩 내려 놓습니다.
+ */
+function labelShift(
+  storeId: number,
+  value: number,
+  series: Series[],
+  dates: string[]
+): number {
+  const lastOf = (s: Series) => {
+    const d = [...dates].reverse().find((x) => s.points.has(x));
+    return d === undefined ? null : s.points.get(d)!;
+  };
+  // 값이 아주 가까운(사실상 겹치는) 서점들만 모읍니다
+  const near = series
+    .map((s) => ({ storeId: s.storeId, v: lastOf(s) }))
+    .filter((e): e is { storeId: number; v: number } => e.v !== null)
+    .filter((e) => Math.abs(e.v - value) <= Math.max(1, Math.abs(value) * 0.02))
+    .sort((a, b) => a.storeId - b.storeId);
+
+  if (near.length < 2) return 0;
+  const i = near.findIndex((e) => e.storeId === storeId);
+  // 첫 번째는 제자리, 그 다음부터 11px 씩 아래로
+  return i <= 0 ? 0 : i * 11;
 }
 
 /** 눈금 숫자. 줄임말(k) 없이 그대로 적습니다. */
@@ -184,7 +264,8 @@ export default function TrendChart({
                   d={d}
                   fill="none"
                   stroke={LINE_COLOR[s.storeId]}
-                  strokeWidth="2"
+                  strokeWidth={LINE_WIDTH[s.storeId] ?? 2}
+                  strokeDasharray={LINE_DASH[s.storeId]}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -194,20 +275,23 @@ export default function TrendChart({
                 if (v === undefined) return null;
                 const i = dateIndex.get(d)!;
                 return (
-                  <circle key={d} cx={x(i)} cy={y(v)} r="2.5" fill={LINE_COLOR[s.storeId]}>
+                  <g key={d}>
+                    {marker(s.storeId, x(i), y(v), LINE_COLOR[s.storeId])}
                     <title>
                       {d} · {STORE_NAME[s.storeId]} ·{" "}
                       {metric === "rank"
                         ? `${v}위`
                         : `판매지수 ${v.toLocaleString("ko-KR")}`}
                     </title>
-                  </circle>
+                  </g>
                 );
               })}
               {lastDate && lastVal !== null && (
                 <text
-                  x={x(dateIndex.get(lastDate)!) + 6}
-                  y={y(lastVal) + 3}
+                  x={x(dateIndex.get(lastDate)!) + 8}
+                  /* 끝값이 겹치면 글자가 포개져 읽을 수 없습니다.
+                     서점마다 조금씩 위아래로 흩어 놓습니다. */
+                  y={y(lastVal) + 3 + labelShift(s.storeId, lastVal, series, dates)}
                   fontSize="10"
                   fontWeight="700"
                   fill={LINE_COLOR[s.storeId]}
@@ -223,15 +307,34 @@ export default function TrendChart({
       </svg>
 
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-ink-soft">
+        {/*
+          범례에도 **실제 선 모양과 점 모양** 을 그대로 그립니다.
+          색 상자만 있으면 그래프에서 겹친 선을 봐도 어느 것이 어느 서점인지
+          맞춰볼 수가 없습니다.
+        */}
         {series.map((s) => (
           <span key={s.storeId} className="inline-flex items-center gap-1.5">
-            <span
-              className="inline-block h-2 w-4 rounded-full"
-              style={{ backgroundColor: LINE_COLOR[s.storeId] }}
-            />
+            <svg width="26" height="10" aria-hidden className="shrink-0">
+              <line
+                x1="1"
+                y1="5"
+                x2="25"
+                y2="5"
+                stroke={LINE_COLOR[s.storeId]}
+                strokeWidth={LINE_WIDTH[s.storeId] ?? 2}
+                strokeDasharray={LINE_DASH[s.storeId]}
+                strokeLinecap="round"
+              />
+              {marker(s.storeId, 13, 5, LINE_COLOR[s.storeId])}
+            </svg>
             {STORE_NAME[s.storeId]}
           </span>
         ))}
+        {series.length > 1 && (
+          <span className="text-ink-faint">
+            · 순위가 같아 선이 겹치면 무늬와 점 모양으로 구분하세요
+          </span>
+        )}
       </div>
     </div>
   );

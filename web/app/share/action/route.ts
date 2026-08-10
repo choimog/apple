@@ -1,9 +1,11 @@
 /**
  * 공유 링크 만들기 / 켜고 끄기.
  *
- * 여기서도 관리자인지 한 번 보고, 데이터베이스에서 또 봅니다.
- * 화면 코드는 실수로 빠질 수 있고, 그러면 아무나 링크를 만들게 됩니다.
- * 데이터베이스 쪽(db/share.sql 의 is_admin 확인)이 진짜 자물쇠입니다.
+ * 【2026-08-09 부터 회원도 만들 수 있습니다】
+ * 그래서 여기서는 '로그인했는지' 만 봅니다.
+ * 개수 제한(20개)·기한 제한(90일)·남의 링크 못 끄기는 전부
+ * **데이터베이스**(db/share-open.sql)가 지킵니다.
+ * 화면 코드는 조건 하나가 빠질 수 있어서 진짜 자물쇠로 쓰지 않습니다.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -16,8 +18,9 @@ export async function POST(request: NextRequest) {
   const to = (query: string) =>
     NextResponse.redirect(new URL(`/share?${query}`, request.url), { status: 303 });
 
+  // 로그인만 확인합니다. 나머지 제한은 데이터베이스가 지킵니다.
   const role = await currentRole();
-  if (role !== "admin") return to("msg=notadmin");
+  if (role === null) return to("msg=notadmin");
 
   const what = String(form.get("do") ?? "");
 

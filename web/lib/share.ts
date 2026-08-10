@@ -91,11 +91,18 @@ export type ShareLink = {
   enabled: boolean;
   createdAt: string;
   expiresAt: string | null;
+  /** 만든 사람 (관리자에게만 보입니다. 회원끼리는 서로 안 보입니다) */
+  ownerEmail: string | null;
+  /** 내가 만든 것인지 */
+  isMine: boolean;
 };
 
 /**
- * 내가 만든 링크 목록.
- * 데이터베이스가 관리자인지 다시 확인합니다 — 화면 쪽 확인만 믿지 않습니다.
+ * 링크 목록.
+ *
+ * 회원은 **자기가 만든 것만**, 관리자는 전부 봅니다.
+ * 그 판단은 데이터베이스(my_share_links)가 합니다 — 화면 쪽 확인만
+ * 믿으면, 화면 코드에서 조건 하나만 빠져도 남의 링크가 보입니다.
  */
 export async function listShareLinks(): Promise<{
   rows: ShareLink[];
@@ -116,6 +123,10 @@ export async function listShareLinks(): Promise<{
       enabled: Boolean(r.enabled),
       createdAt: String(r.created_at),
       expiresAt: (r.expires_at as string) ?? null,
+      // 아직 db/share-open.sql 을 실행하지 않았으면 이 칸들이 없습니다.
+      // 없으면 '모름' 으로 두고 화면에서 감춥니다 (지어내지 않습니다).
+      ownerEmail: (r.owner_email as string) ?? null,
+      isMine: r.is_mine === undefined ? true : Boolean(r.is_mine),
     })),
     ok: true,
   };

@@ -106,18 +106,57 @@ print("\n[5] 예시 C — 출판사를 한쪽만 알 때 (문서 6절)")
 # 다른 출판사의 같은 원작이 뭉치면 안 됩니다.
 # → 실제로 갈라지는 게 눈에 띄면 config/matching.yaml 의
 #   publisher_unknown_needs_high 를 false 로 바꾸면 예전 동작이 됩니다.
+# ⚠️ 이 예시는 원래 출간월이 2022-09 / 2022-10 이었습니다 (실제 자료).
+#    2026-08-09 부터 한 달 차이도 다른 책이라, 출판사를 보기 전에
+#    출간월에서 먼저 걸립니다. 그래서 여기서는 출간월을 맞춰 두고
+#    **출판사 규칙만** 시험합니다. 한 달 차이 자체는 [5-1] 에서 봅니다.
+#
+#    ⚠️ 2026-08-09 알아낸 것: pub_ym_near_months 를 0 으로 바꾸면서
+#       출간월 점수가 '10점 아니면 0점' 이 됐습니다 (중간값 5점이 없어짐).
+#       그래서 출간월까지 같으면 50+25+10 = 85점이 되어, 출판사를 몰라도
+#       자동 병합 기준(85)에 **딱 걸립니다.** 아래 [5-2] 에 적어 뒀습니다.
+#       여기서는 출간월을 한쪽만 아는 경우로 출판사 규칙만 봅니다.
 a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=301)
-b = make(3, "아버지의 해방일지", "정지아 (지은이)", None, "2022-10", sb_id=302)
+b = make(3, "아버지의 해방일지", "정지아 (지은이)", None, None, sb_id=302)
 r = compare(a, b, CFG)
 print(f"  ℹ️ 점수 {r.score}점 · 근거 {r.reasons}")
-check("출판사를 모르면 80점으로는 안 묶인다", r.decision, "rejected")
+check("출판사를 모르면 75점으로는 안 묶인다", r.decision, "rejected")
 
 # 출판사가 양쪽에 다 있으면 예전처럼 검토 대기로 묶입니다
 a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=303)
-b = make(3, "아버지의 해방일지", "정지아 (지은이)", "창비", "2022-10", sb_id=304)
+b = make(3, "아버지의 해방일지", "정지아 (지은이)", "창비", "2022-09", sb_id=304)
 r = compare(a, b, CFG)
 check("출판사가 같으면 묶인다", r.decision in ("auto_high", "auto_low"), True)
 check("출판사가 같다고 기록된다", r.reasons["publisher"], "exact")
+
+
+print("\n[5-1] 🚨 한 달 차이가 실제 책에 어떤 영향을 주는지")
+# 이 예시는 **실제 자료**입니다. 예스24 는 2022-09, 알라딘은 2022-10 으로
+# 적어 둔 같은 책입니다. 서점마다 배본일 기준이 달라서 생긴 차이입니다.
+#
+# 2026-08-09 대표님 지시("한달만 달라도 다른 책")에 따라 이제 갈라집니다.
+# 이 시험은 그 결과를 **숨기지 않고 못박아 두기 위한** 것입니다.
+# 되돌리시려면 config/matching.yaml 의 pub_ym_near_months 를 1 로.
+a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=311)
+b = make(3, "아버지의 해방일지", "정지아 (지은이)", "창비", "2022-10", sb_id=312)
+r = compare(a, b, CFG)
+check("같은 책이지만 한 달 차이라 갈라진다", r.decision, "rejected")
+check("이유가 출간월이라고 기록된다", r.reasons.get("rejected_by"), "출간월(배본일)이 다름")
+
+
+print("\n[5-2] ⚠️ 0개월로 바꾸면서 생긴 옆동네 변화")
+# pub_ym_near_months 를 0 으로 두면 출간월 점수가 '10 아니면 0' 이 됩니다.
+# 중간값(5점)이 사라지면서, 출판사를 한쪽만 알아도 나머지가 전부 같으면
+# 50 + 25 + 10 = 85점이 되어 자동 병합 기준에 딱 닿습니다.
+# 예전(near 1개월)에는 80점이라 안 묶였습니다.
+#
+# 대표님께 보고드린 사항입니다. 더 엄격히 하시려면 config/matching.yaml 의
+# auto_high 를 86 이상으로 올리면 됩니다.
+a = make(2, "아버지의 해방일지", "정지아 저", "창비", "2022-09", sb_id=321)
+b = make(3, "아버지의 해방일지", "정지아 (지은이)", None, "2022-09", sb_id=322)
+r = compare(a, b, CFG)
+check("출판사 모름 + 나머지 전부 같음 = 85점", r.score, 85)
+check("그래서 자동 병합된다 (예전엔 80점이라 안 묶임)", r.decision, "auto_high")
 
 
 print("\n[6] 절대 묶으면 안 되는 경우들")
@@ -193,14 +232,24 @@ check("4년 차이는 다른 책", compare(a, b, CFG).decision, "rejected")
 check("이유를 적어 둔다",
       compare(a, b, CFG).reasons.get("rejected_by"), "출간월(배본일)이 다름")
 
-# ⚠️ 한 달 차이까지 갈라놓으면 안 됩니다. 서점마다 배본일 기준이 다릅니다
-#    (인쇄일/출고일/판매일). 같은 책도 한 달씩 어긋나게 적힙니다.
+# 【2026-08-09 대표님 지시】 "배본일은 한달만 달라도 다른 책으로 구분해줘."
+# config/matching.yaml 의 pub_ym_near_months 를 0 으로 두었습니다.
 c = make(2, "데미안", same["author"], same["publisher"], "2020-02")
-check("한 달 차이는 같은 책", compare(a, c, CFG).is_same_book, True)
+check("한 달 차이도 다른 책", compare(a, c, CFG).decision, "rejected")
 d = make(2, "데미안", same["author"], same["publisher"], "2020-01")
-check("같은 달은 당연히 같은 책", compare(a, d, CFG).is_same_book, True)
+check("같은 달만 같은 책", compare(a, d, CFG).is_same_book, True)
 e = make(2, "데미안", same["author"], same["publisher"], "2020-03")
-check("두 달 차이는 다른 책", compare(a, e, CFG).decision, "rejected")
+check("두 달 차이도 다른 책", compare(a, e, CFG).decision, "rejected")
+
+# 설정이 실제로 0 인지 못박습니다. 1 로 되돌아가면 여기서 잡힙니다.
+check("설정이 0개월", CFG["partial"]["pub_ym_near_months"], 0)
+
+# 되돌릴 수 있어야 합니다 (1 로 바꾸면 한 달 차이는 다시 같은 책)
+import copy as _copy  # noqa: E402
+loose = _copy.deepcopy(CFG)
+loose["partial"]["pub_ym_near_months"] = 1
+check("1개월로 되돌리면 한 달 차이는 같은 책",
+      compare(a, c, loose).is_same_book, True)
 
 # 🚨 '모른다' 를 '다르다' 로 바꾸면 값이 빈 서점의 책이 전부 갈라집니다.
 none_ym = make(2, "데미안", same["author"], same["publisher"], None)

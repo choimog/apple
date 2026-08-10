@@ -97,7 +97,8 @@ chmod 644 "$DATA/fake-supabase.sql"
 psqlq "$DATA/fake-supabase.sql" | grep -v NOTICE | grep -i error && {
   echo "❌ 흉내 내기 실패"; exit 1; }
 
-cp "$ROOT/db/schema.sql" "$ROOT/db/rls.sql" "$ROOT/db/auth.sql" "$ROOT/db/share.sql" "$DATA/"
+cp "$ROOT/db/schema.sql" "$ROOT/db/rls.sql" "$ROOT/db/auth.sql" \
+   "$ROOT/db/share.sql" "$ROOT/db/share-open.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 psqlq "$DATA/schema.sql" >/dev/null
 psqlq "$DATA/rls.sql"    >/dev/null
@@ -165,6 +166,19 @@ try() {  # try <사용자uuid> <SQL>
   if echo "$out" | grep -qi "error\|denied\|violates"; then
     echo "blocked"
   elif echo "$out" | grep -qE "^(UPDATE|DELETE|INSERT)[ 0-9]* 0$"; then
+    echo "blocked"
+  else
+    echo "ok"
+  fi
+}
+
+# 로그인 안 한 사람(anon)으로 해 봅니다.
+try_anon() {  # try_anon <SQL>
+  local out
+  out=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+      SET ROLE anon;
+      $1\"" 2>&1)
+  if echo "$out" | grep -qi "error\|denied\|violates"; then
     echo "blocked"
   else
     echo "ok"
@@ -276,6 +290,84 @@ run "psql -h $SOCK -p $PORT -U postgres -q -c \"
     UPDATE public_links SET enabled=true, expires_at=NULL WHERE token='$TOKEN';\"" >/dev/null 2>&1
 check "한 번에 300줄까지만" "2" \
   "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 999999);")"
+
+echo ""
+echo "[5-2] 공유 링크를 회원에게 열었을 때 (db/share-open.sql)"
+# 🚨 여기가 이번 변경에서 가장 위험한 부분입니다.
+#    "링크를 만들 권한" 을 회원에게 나눠 주는 일이라, 조건 하나만 새면
+#    회원이 남의 링크를 끄거나 남이 만든 주소를 볼 수 있게 됩니다.
+psqlq "$DATA/share-open.sql" > "$DATA/openout.txt"
+
+check "안내표가 전부 ✅" "0" \
+  "$(grep -c '❌' "$DATA/openout.txt" || true)"
+
+# 회원도 만들 수 있어야 합니다 (이번 요청의 목적)
+FTOKEN=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated;
+    SET request.jwt.claim.sub = '$FRIEND';
+    SELECT create_share_link('ranking','10','친구가 만든 것',30);\"" 2>&1 | tail -1 | tr -d '[:space:]')
+check "회원도 링크를 만들 수 있다 (64글자)" "yes" \
+  "$(if [ ${#FTOKEN} = 64 ]; then echo yes; else echo "no(${#FTOKEN}글자: ${FTOKEN:0:60})"; fi)"
+
+check "만든 링크는 로그인 없이 열린다" "2" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$FTOKEN', 100);")"
+
+# ---- 여기부터가 진짜 자물쇠 ----
+check "🚨 회원은 남(대표님)이 만든 링크를 못 본다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+          SELECT count(*) FROM my_share_links() WHERE token = '$TOKEN';")"
+
+check "회원은 자기 것은 본다" "1" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+          SELECT count(*) FROM my_share_links() WHERE token = '$FTOKEN';")"
+
+# ⚠️ try() 로 보면 안 됩니다. set_share_link 는 막혀도 오류가 아니라
+#    **false 를 돌려줍니다.** 오류가 없다고 'ok' 로 세면 통과해 버립니다.
+#    (2026-08-09 실제로 그렇게 잘못 나왔습니다)
+check "🚨 회원은 남의 링크를 못 끈다 (false 를 돌려줌)" "f" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+          SELECT set_share_link('$TOKEN', false);")"
+
+check "대표님 링크는 그대로 살아 있다" "2" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$TOKEN', 100);")"
+
+check "회원은 자기 것은 끌 수 있다" "ok" \
+  "$(try "$FRIEND" "SELECT set_share_link('$FTOKEN', false);")"
+
+check "끈 뒤에는 안 열린다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM share_rankings('$FTOKEN', 100);")"
+
+# 회원은 '기한 없음' 을 못 고릅니다 — 영원히 열린 주소를 막습니다
+NOEXP=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated;
+    SET request.jwt.claim.sub = '$FRIEND';
+    SELECT create_share_link('ranking','10','기한없이 해보기',NULL);\"" 2>&1 | tail -1 | tr -d '[:space:]')
+check "🚨 회원이 만든 링크에는 반드시 기한이 붙는다" "1" \
+  "$(ask "SELECT count(*) FROM public_links
+          WHERE token = '$NOEXP' AND expires_at IS NOT NULL;")"
+
+check "회원 기한은 90일을 못 넘는다" "1" \
+  "$(ask "SELECT count(*) FROM public_links
+          WHERE token = '$NOEXP' AND expires_at <= now() + interval '91 days';")"
+
+# ⚠️ WHERE 안에서 함수를 부르면 줄마다 새 링크가 만들어집니다.
+#    먼저 만들고, 그 다음에 확인해야 합니다.
+BTOKEN=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"
+    SET ROLE authenticated;
+    SET request.jwt.claim.sub = '$BOSS';
+    SELECT create_share_link('ranking','10','대표님 무기한',NULL);\"" 2>&1 | tail -1 | tr -d '[:space:]')
+check "대표님은 기한 없이도 만들 수 있다" "1" \
+  "$(ask "SELECT count(*) FROM public_links
+          WHERE token = '$BTOKEN' AND expires_at IS NULL;")"
+
+# ⚠️ 읽기가 막히면 오류가 아니라 **0줄**이 돌아옵니다.
+#    try() 는 오류만 보므로 여기서는 줄 수를 직접 셉니다.
+check "🚨 표 자체는 여전히 잠겨 있다 (회원이 주소값을 못 읽음)" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub = '$FRIEND';
+          SELECT count(*) FROM public_links;")"
+
+check "로그인 안 한 사람은 여전히 못 만든다" "blocked" \
+  "$(try_anon "SELECT create_share_link('ranking','10','몰래',30);")"
 
 echo ""
 echo "[6] 수집 작업(service_role)은 계속 돌아야 한다"

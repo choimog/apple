@@ -79,17 +79,23 @@ export default async function BookPage({
   // 그중 **가장 높은 순위 하나**만 보여주는데, 어느 목록에서 나온
   // 숫자인지 안 적으면 "3위" 가 종합 3위인지 세부분야 3위인지 알 수 없습니다.
   // 같은 3위라도 뜻이 완전히 다릅니다. 그래서 분야 이름을 함께 담습니다.
+  //
+  // 【2026-08-09 대표님 지시】
+  // "종합 순위에 올라있을 시 종합 순위를 우선적으로 표기해줘."
+  // 그 고르기는 lib/queries.ts 에서 이미 끝났습니다 (종합이 있으면 종합).
+  // 여기서는 최신 날짜 것만 꺼내 옵니다.
   const latest = new Map<
     string,
-    { rank: number; sales: number | null; categoryName: string }
+    { rank: number; sales: number | null; categoryName: string; isOverall: boolean }
   >();
   for (const h of history) {
     if (h.date !== latestDate) continue;
-    const k = `${h.storeId}|${h.period}`;
-    const cur = latest.get(k);
-    if (!cur || h.rank < cur.rank) {
-      latest.set(k, { rank: h.rank, sales: h.sales, categoryName: h.categoryName });
-    }
+    latest.set(`${h.storeId}|${h.period}`, {
+      rank: h.rank,
+      sales: h.sales,
+      categoryName: h.categoryName,
+      isOverall: h.isOverall,
+    });
   }
 
   const online = placements.filter((p) => !p.branchName);
@@ -166,7 +172,7 @@ export default async function BookPage({
           title="지금 순위"
           desc={
             latestDate
-              ? `${dayLabel(latestDate)} · 그 서점에서 이 책이 가장 높이 오른 목록의 순위입니다`
+              ? `${dayLabel(latestDate)} · 종합(전체) 목록에 있으면 그 순위, 없으면 가장 높이 오른 분야의 순위입니다`
               : "순위 기록이 없습니다"
           }
         />
@@ -204,8 +210,18 @@ export default async function BookPage({
                                 어느 목록에서 나온 순위인지 반드시 적습니다.
                                 '종합 3위' 와 '한국소설 3위' 는 완전히 다릅니다.
                               */}
-                              <span className="block truncate text-2xs text-ink-faint">
-                                {cell.categoryName} 기준
+                              {/*
+                                종합이면 눈에 띄게, 세부분야면 옅게.
+                                '종합 3위' 와 '한국소설 3위' 는 완전히 다릅니다.
+                              */}
+                              <span
+                                className={`block truncate text-2xs ${
+                                  cell.isOverall
+                                    ? "font-semibold text-ink-soft"
+                                    : "text-ink-faint"
+                                }`}
+                              >
+                                {cell.isOverall ? "종합 기준" : `${cell.categoryName} 기준`}
                               </span>
                             </>
                           ) : (

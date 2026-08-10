@@ -599,8 +599,10 @@ export type HistoryPoint = {
   period: Period;
   rank: number;
   sales: number | null;
-  /** 이 순위가 나온 분야 (한 서점에서 여러 분야에 올랐으면 가장 높은 순위 쪽) */
+  /** 이 순위가 나온 분야 */
   categoryName: string;
+  /** 그 분야가 '종합(전체)' 인지 */
+  isOverall: boolean;
 };
 
 export type CurrentPlacement = {
@@ -685,7 +687,26 @@ export async function getBookDetail(bookId: number): Promise<{
     const period = periodOf(cat);
     const key = `${r.snapshot_date}|${storeId}|${period}`;
     const cur = best.get(key);
-    if (!cur || r.rank < cur.rank) {
+    const isOverall = cat.unified_code === "all";
+
+    /*
+      【2026-08-09 대표님 지시】
+      "종합 순위에 올라있을 시 종합 순위를 우선적으로 표기해줘."
+
+      예전에는 그냥 '가장 높은 순위' 를 골랐습니다. 그러면 종합 120위인
+      책이 세부분야에서 3위면 화면에 3위로 나옵니다. 숫자만 보면 훨씬
+      잘 팔리는 것처럼 보이는데, 사실이 아닙니다.
+
+      이제 **종합(전체) 목록에 있으면 무조건 그것을 씁니다.**
+      종합에 없을 때만 세부분야 중 가장 높은 것을 씁니다.
+      (어느 목록인지는 화면에 함께 적으므로 오해할 일이 없습니다)
+    */
+    const better =
+      !cur ||
+      (isOverall && !cur.isOverall) ||          // 종합이 언제나 이깁니다
+      (isOverall === cur.isOverall && r.rank < cur.rank); // 같은 급이면 높은 순위
+
+    if (better) {
       best.set(key, {
         date: r.snapshot_date,
         storeId,
@@ -693,6 +714,7 @@ export async function getBookDetail(bookId: number): Promise<{
         rank: r.rank,
         sales: r.sales_point,
         categoryName: cat.name,
+        isOverall,
       });
     }
   }

@@ -27,17 +27,21 @@ export default async function SharePage({
   }
 
   const params = await searchParams;
+  /*
+    【2026-08-09 대표님 요청】
+    "공유링크를 생성할 수 있는 기능을 다른 사람들한테도 오픈해달란 말이었어."
+
+    그래서 이 화면은 **로그인한 회원 누구나** 볼 수 있습니다.
+    다만 보이는 목록은 다릅니다.
+      · 회원   → 자기가 만든 링크만
+      · 관리자 → 전부 + 누가 만들었는지
+
+    ⚠️ 그 구분은 화면이 아니라 **데이터베이스**가 합니다
+       (db/share-open.sql 의 my_share_links / set_share_link).
+       화면에서만 막으면 조건 하나 빠지는 순간 남의 링크가 보입니다.
+  */
   const role = await currentRole();
-  if (role !== "admin") {
-    return (
-      <Card className="p-6">
-        <h1 className="text-lg font-bold">공유 링크</h1>
-        <p className="mt-2 text-sm text-ink-soft">
-          이 화면은 관리자만 볼 수 있습니다.
-        </p>
-      </Card>
-    );
-  }
+  const isAdmin = role === "admin";
 
   let cats, links;
   try {
@@ -198,11 +202,25 @@ export default async function SharePage({
             </form>
           </Card>
 
-          {/* ---------- 목록 ---------- */}
+          {!isAdmin && (
+        <p className="rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-ink-soft">
+          만드신 주소는 <strong>로그인 없이 누구나</strong> 열 수 있습니다.
+          받은 분에게는 그 순위표 하나만 보이고, 다른 화면은 안 보입니다.
+          <br />
+          한 사람이 동시에 <strong>20개</strong>까지, <strong>최대 90일</strong>{" "}
+          기한으로 만들 수 있습니다. 안 쓰는 주소는 꺼 주세요.
+        </p>
+      )}
+
+      {/* ---------- 목록 ---------- */}
           <Card>
             <CardHead
-              title="만든 주소"
-              desc="끄면 그 주소는 즉시 열리지 않습니다. 기록은 남습니다."
+              title={isAdmin ? "만든 주소 (회원 것 포함)" : "내가 만든 주소"}
+              desc={
+                isAdmin
+                  ? "회원이 만든 것도 여기 다 보입니다. 누구 것이든 끄실 수 있습니다."
+                  : "끄면 그 주소는 즉시 열리지 않습니다. 기록은 남습니다."
+              }
             />
             {links.rows.length === 0 ? (
               <Empty title="아직 만든 주소가 없습니다" />
@@ -240,11 +258,23 @@ export default async function SharePage({
                         <p className="scroll-x text-xs text-ink-faint">
                           /s/{l.token}
                         </p>
-                        {l.expiresAt && (
-                          <p className="text-2xs text-ink-faint">
-                            {l.expiresAt.slice(0, 10)} 까지
-                          </p>
-                        )}
+                        <p className="text-2xs text-ink-faint">
+                          {l.expiresAt ? `${l.expiresAt.slice(0, 10)} 까지` : "기한 없음"}
+                          {/*
+                            누가 만들었는지는 관리자에게만 보입니다.
+                            회원끼리 서로 이메일을 보게 하면 안 됩니다.
+                            (그 판단은 데이터베이스가 합니다)
+                          */}
+                          {isAdmin && l.ownerEmail && !l.isMine && (
+                            <>
+                              {" · "}
+                              <span className="font-medium text-ink-soft">
+                                {l.ownerEmail}
+                              </span>{" "}
+                              님이 만듦
+                            </>
+                          )}
+                        </p>
                       </div>
 
                       {live && (

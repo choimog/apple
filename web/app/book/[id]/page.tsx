@@ -15,6 +15,9 @@ import {
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
 import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
+
+/** 판매지수를 공개하는 서점 (예스24 · 알라딘). 교보는 목록에 안 냅니다 */
+const SALES_STORES: StoreId[] = STORE_ORDER.filter((s) => store(s).hasSalesPoint);
 import { dayLabel, num } from "@/lib/format";
 import {
   getBookDetail,
@@ -68,12 +71,25 @@ export default async function BookPage({
     stores[0];
 
   // 최신 날짜의 대표 순위 (서점 × 기간)
-  const latest = new Map<string, { rank: number; sales: number | null }>();
+  //
+  // 【2026-08-09 대표님 지적】
+  // "위에 보이는 3사의 순위가 무슨 순위를 기준으로 나타내는지 표시해줄 필요"
+  //
+  // 한 책이 하루에 '종합'·'소설'·'한국소설' 여러 곳에 오릅니다. 여기서는
+  // 그중 **가장 높은 순위 하나**만 보여주는데, 어느 목록에서 나온
+  // 숫자인지 안 적으면 "3위" 가 종합 3위인지 세부분야 3위인지 알 수 없습니다.
+  // 같은 3위라도 뜻이 완전히 다릅니다. 그래서 분야 이름을 함께 담습니다.
+  const latest = new Map<
+    string,
+    { rank: number; sales: number | null; categoryName: string }
+  >();
   for (const h of history) {
     if (h.date !== latestDate) continue;
     const k = `${h.storeId}|${h.period}`;
     const cur = latest.get(k);
-    if (!cur || h.rank < cur.rank) latest.set(k, { rank: h.rank, sales: h.sales });
+    if (!cur || h.rank < cur.rank) {
+      latest.set(k, { rank: h.rank, sales: h.sales, categoryName: h.categoryName });
+    }
   }
 
   const online = placements.filter((p) => !p.branchName);
@@ -148,7 +164,11 @@ export default async function BookPage({
       <Card>
         <CardHead
           title="지금 순위"
-          desc={latestDate ? dayLabel(latestDate) : "순위 기록이 없습니다"}
+          desc={
+            latestDate
+              ? `${dayLabel(latestDate)} · 그 서점에서 이 책이 가장 높이 오른 목록의 순위입니다`
+              : "순위 기록이 없습니다"
+          }
         />
         <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
           {STORE_ORDER.map((sid: StoreId) => {
@@ -174,9 +194,20 @@ export default async function BookPage({
                         <dt>
                           <PeriodBadge period={p} />
                         </dt>
-                        <dd className="tnum text-lg font-bold">
+                        <dd className="min-w-0 text-right">
                           {cell ? (
-                            `${cell.rank}위`
+                            <>
+                              <span className="tnum text-lg font-bold">
+                                {cell.rank}위
+                              </span>
+                              {/*
+                                어느 목록에서 나온 순위인지 반드시 적습니다.
+                                '종합 3위' 와 '한국소설 3위' 는 완전히 다릅니다.
+                              */}
+                              <span className="block truncate text-2xs text-ink-faint">
+                                {cell.categoryName} 기준
+                              </span>
+                            </>
                           ) : (
                             <NoValue
                               label="순위 밖"
@@ -202,53 +233,89 @@ export default async function BookPage({
         </div>
       </Card>
 
-      {/* ═══════════ 추이 ═══════════
-          【2026-08-08 대표님 지적】
-          "순위 추이와 판매지수 추이를 위아래로 구분하지 말고 병렬로 구분할 것."
-          같은 기간의 두 지표는 나란히 놓아야 함께 읽힙니다. */}
-      {(["daily", "weekly"] as Period[]).map((p, i) => (
-        <Card key={p}>
-          <CardHead
-            title={
-              <span className="flex items-center gap-2">
-                <PeriodBadge period={p} withHelp /> 추이
-              </span>
-            }
-            /* 내려받기는 일간·주간을 한꺼번에 받으므로 위쪽 카드에만 답니다 */
-            right={
-              i === 0 ? (
-                <BookExportButton
-                  history={history}
-                  title={main.raw_title}
-                  author={main.raw_author}
-                  publisher={main.raw_publisher}
-                />
-              ) : undefined
-            }
-          />
-          <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-            <div>
-              <div className="px-4 pt-3 text-sm font-semibold sm:px-5">
-                순위 <span className="font-normal text-ink-faint">· 위로 갈수록 높은 순위</span>
+      {/* ═══════════ 순위 추이 ═══════════
+          【2026-08-09 대표님 지적】
+          "일간 판매지수와 주간 판매지수가 똑같은데 두개를 굳이 보여주기보단,
+           순위를 양옆으로 배치하고, 빈 자리에 차라리 알라딘과 예스의 지수를
+           나누어서 양옆으로 배치해서 보여줘."
+
+          맞습니다. 판매지수는 서점이 **책 한 권에 하나**만 매기는 값이라,
+          일간 목록에서 보든 주간 목록에서 보든 같은 숫자입니다.
+          같은 그림을 두 번 그리고 있었습니다.
+
+          그래서 이렇게 바꿉니다.
+            순위 추이    → 일간 | 주간      (기간을 비교)
+            판매지수 추이 → 예스24 | 알라딘  (서점을 비교) */}
+      <Card>
+        <CardHead
+          title="순위 추이"
+          desc="위로 갈수록 높은 순위 · 최근 30일"
+          right={
+            <BookExportButton
+              history={history}
+              title={main.raw_title}
+              author={main.raw_author}
+              publisher={main.raw_publisher}
+            />
+          }
+        />
+        <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          {(["daily", "weekly"] as Period[]).map((p) => (
+            <div key={p}>
+              <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold sm:px-5">
+                <PeriodBadge period={p} withHelp />
               </div>
               <TrendChart history={history} period={p} metric="rank" />
             </div>
-            <div>
-              <div className="px-4 pt-3 text-sm font-semibold sm:px-5">
-                판매지수{" "}
-                <span className="font-normal text-ink-faint">· 예스24·알라딘만 공개</span>
-              </div>
-              {hasSales ? (
-                <TrendChart history={history} period={p} metric="sales" />
-              ) : (
-                <p className="px-4 py-10 text-center text-sm text-ink-faint">
-                  판매지수 기록이 없습니다.
-                </p>
-              )}
-            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* ═══════════ 판매지수 추이 ═══════════ */}
+      <Card>
+        <CardHead
+          title="판매지수 추이"
+          desc="서점마다 기준이 다릅니다. 한 화면에 합치지 않고 나란히 둡니다"
+        />
+        {!hasSales ? (
+          <Empty title="판매지수를 공개하는 서점이 없습니다">
+            교보문고는 판매지수를 목록에 공개하지 않습니다. 예스24·알라딘에서
+            이 책이 순위에 들면 여기에 그래프가 생깁니다.
+          </Empty>
+        ) : (
+          <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+            {SALES_STORES.map((sid) => {
+              const s = store(sid);
+              const mine = history.filter((h) => h.storeId === sid);
+              // 판매지수는 일간·주간이 같은 값이므로 한쪽만 그립니다.
+              // 일간 기록이 없는 책도 있어 그때는 주간을 씁니다.
+              const hasDaily = mine.some(
+                (h) => h.period === "daily" && h.sales !== null
+              );
+              return (
+                <div key={sid}>
+                  <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold sm:px-5">
+                    <span className={`rounded-md px-2 py-0.5 text-2xs font-medium ${s.chip}`}>
+                      {s.name}
+                    </span>
+                    <span className="font-normal text-ink-faint">{s.salesLabel}</span>
+                  </div>
+                  <TrendChart
+                    history={mine}
+                    period={hasDaily ? "daily" : "weekly"}
+                    metric="sales"
+                  />
+                </div>
+              );
+            })}
           </div>
-        </Card>
-      ))}
+        )}
+        <p className="border-t border-line-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-faint sm:px-5">
+          판매지수는 서점이 책 한 권에 하나씩 매기는 값이라 일간·주간이 같습니다.
+          그래서 기간별로 나누지 않고 <strong>서점별</strong>로 나눠 보여줍니다.
+          두 서점의 숫자는 계산 방식이 달라 <strong>서로 비교하면 안 됩니다.</strong>
+        </p>
+      </Card>
 
       {/* ═══════════ 올라 있는 목록 ═══════════ */}
       <PlacementCard rows={online} />

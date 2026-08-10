@@ -180,6 +180,48 @@ r = compare(a, b, CFG)
 check("출간월이 같아도 출판사가 다르면 안 묶인다", r.decision, "rejected")
 check("거부 사유가 출판사로 기록된다", r.reasons.get("rejected_by"), "출판사가 다름")
 
+print("\n[9-1] 출간월(배본일)이 다르면 아예 다른 책 — 2026-08-09 대표님 지시")
+# 【왜 즉시 거부인가요?】
+# 예전에는 출간월을 10점짜리 가산점으로만 봤습니다. 그래서
+#   제목 50 + 저자 25 = 75점 → 묶는 기준(65점)을 넘어 버립니다.
+# 출간월이 몇 년 차이 나도 묶였다는 뜻입니다.
+# 개정판·재출간은 판권과 내용이 다른 별개의 상품입니다.
+same = dict(author="헤르만 헤세", publisher="민음사")
+a = make(1, "데미안", same["author"], same["publisher"], "2020-01")
+b = make(2, "데미안", same["author"], same["publisher"], "2024-06")
+check("4년 차이는 다른 책", compare(a, b, CFG).decision, "rejected")
+check("이유를 적어 둔다",
+      compare(a, b, CFG).reasons.get("rejected_by"), "출간월(배본일)이 다름")
+
+# ⚠️ 한 달 차이까지 갈라놓으면 안 됩니다. 서점마다 배본일 기준이 다릅니다
+#    (인쇄일/출고일/판매일). 같은 책도 한 달씩 어긋나게 적힙니다.
+c = make(2, "데미안", same["author"], same["publisher"], "2020-02")
+check("한 달 차이는 같은 책", compare(a, c, CFG).is_same_book, True)
+d = make(2, "데미안", same["author"], same["publisher"], "2020-01")
+check("같은 달은 당연히 같은 책", compare(a, d, CFG).is_same_book, True)
+e = make(2, "데미안", same["author"], same["publisher"], "2020-03")
+check("두 달 차이는 다른 책", compare(a, e, CFG).decision, "rejected")
+
+# 🚨 '모른다' 를 '다르다' 로 바꾸면 값이 빈 서점의 책이 전부 갈라집니다.
+none_ym = make(2, "데미안", same["author"], same["publisher"], None)
+check("한쪽이 출간월을 모르면 거부하지 않는다",
+      compare(a, none_ym, CFG).decision != "rejected", True)
+both_none = make(1, "데미안", same["author"], same["publisher"], None)
+check("양쪽 다 모르면 거부하지 않는다",
+      compare(both_none, none_ym, CFG).decision != "rejected", True)
+
+# 점수로는 절대 못 뒤집습니다 (제목·저자·출판사가 완전히 같아도)
+check("완전히 같은 나머지 + 다른 출간월 → 그래도 거부",
+      compare(a, b, CFG).decision, "rejected")
+
+# 끌 수 있어야 합니다 (설정 한 줄)
+import copy  # noqa: E402
+off = copy.deepcopy(CFG)
+off["thresholds"]["pub_ym_hard"] = False
+check("pub_ym_hard: false 면 예전처럼 점수로만 본다",
+      compare(a, b, off).decision != "rejected", True)
+
+
 print("\n[10] 표기만 다른 같은 출판사는 그대로 묶인다")
 for pub_b in ["(주)민음사", "민음사(주)", "주식회사 민음사"]:
     a = make(2, "싯다르타", "헤르만 헤세", "민음사", "2023-05", sb_id=910)

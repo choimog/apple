@@ -12,14 +12,19 @@ import {
   getScoreBands,
   isReviewTab,
   parseBand,
+  parseSize,
   reasonText,
   REVIEW_PAGE_SIZE,
+  SIZE_HELP,
+  SIZE_LABEL,
+  sizeGroupOf,
   TAB_HELP,
   TAB_LABEL,
   type Reason,
   type ReviewBook,
   type ReviewPair,
   type ReviewTab,
+  type SizeGroup,
 } from "@/lib/review";
 
 export const metadata = { title: "매칭 검토" };
@@ -36,7 +41,9 @@ export const metadata = { title: "매칭 검토" };
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; page?: string; msg?: string; band?: string }>;
+  searchParams: Promise<{
+    tab?: string; page?: string; msg?: string; band?: string; size?: string;
+  }>;
 }) {
   if (configError) {
     return (
@@ -51,6 +58,7 @@ export default async function ReviewPage({
   const page = Math.max(0, Number(params.page ?? 0) || 0);
   // 모르는 값이 주소에 들어오면 '전체' 로 봅니다 (엉뚱한 빈 화면 방지)
   const band = parseBand(params.band);
+  const size = parseSize(params.size);
 
   const role = await currentRole();
   if (role !== "admin") {
@@ -72,7 +80,7 @@ export default async function ReviewPage({
   try {
     [counts, result, scoreBands] = await Promise.all([
       getReviewCounts(),
-      getReviewPairs(tab, page, band),
+      getReviewPairs(tab, page, band, size),
       getScoreBands(tab),
     ]);
   } catch (e) {
@@ -81,7 +89,8 @@ export default async function ReviewPage({
 
   const lastPage = Math.max(0, Math.ceil(result.total / REVIEW_PAGE_SIZE) - 1);
   const bandQ = band === null ? "" : `&band=${band}`;
-  const here = `/review?tab=${tab}&page=${page}${bandQ}`;
+  const sizeQ = size === null ? "" : `&size=${size}`;
+  const here = `/review?tab=${tab}&page=${page}${bandQ}${sizeQ}`;
 
   return (
     <div className="space-y-5">
@@ -127,7 +136,13 @@ export default async function ReviewPage({
               점수로 좁혀 보기
             </span>
             <div className="scroll-x flex items-center gap-1.5">
-              <BandChip tab={tab} band={null} on={band === null} count={result.ok ? counts[tab] : null}>
+              <BandChip
+                tab={tab}
+                band={null}
+                on={band === null}
+                keep={sizeQ}
+                count={result.ok && size === null ? counts[tab] : null}
+              >
                 전체
               </BandChip>
               {scoreBands.bands.map((b) => (
@@ -136,13 +151,49 @@ export default async function ReviewPage({
                   tab={tab}
                   band={b.start}
                   on={band === b.start}
-                  count={b.count}
+                  keep={sizeQ}
+                  count={size === null ? b.count : null}
                 >
                   {b.label}
                 </BandChip>
               ))}
             </div>
           </div>
+          {/* ---------- 묶음 크기로 좁혀 보기 ---------- */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-soft pt-2.5">
+            <span className="shrink-0 text-xs font-semibold text-ink-soft">
+              묶인 권수
+            </span>
+            <div className="scroll-x flex items-center gap-1.5">
+              <SizeChip tab={tab} size={null} on={size === null} keep={bandQ}>
+                전체
+              </SizeChip>
+              {(["small", "exact", "large"] as SizeGroup[]).map((g) => (
+                <SizeChip
+                  key={g}
+                  tab={tab}
+                  size={g}
+                  on={size === g}
+                  keep={bandQ}
+                  title={SIZE_HELP[g]}
+                >
+                  {SIZE_LABEL[g]}
+                </SizeChip>
+              ))}
+            </div>
+          </div>
+          {size !== null && (
+            <p className="mt-1.5 text-2xs leading-relaxed text-ink-soft">
+              {SIZE_HELP[size]}
+            </p>
+          )}
+          {result.capped && (
+            <p className="mt-1.5 text-2xs leading-relaxed text-amber-700 dark:text-amber-400">
+              ⚠️ 짝이 너무 많아 앞쪽 일부만 훑었습니다. 여기 보이는 것이
+              전부는 아닙니다. 점수 구간을 같이 좁히면 정확해집니다.
+            </p>
+          )}
+
           <p className="mt-2 text-2xs leading-relaxed text-ink-faint">
             점수가 낮을수록 기계가 덜 확신한 짝입니다.
             {tab === "pending"
@@ -168,7 +219,11 @@ export default async function ReviewPage({
       ) : result.rows.length === 0 ? (
         <Empty
           title={
-            band !== null
+            size !== null && band !== null
+              ? `${SIZE_LABEL[size]} · ${bandLabel(band)} 짝이 없습니다`
+              : size !== null
+                ? `${SIZE_LABEL[size]} 인 짝이 없습니다`
+                : band !== null
               ? `${bandLabel(band)} 짝이 없습니다`
               : tab === "pending"
                 ? "검토할 것이 없습니다"
@@ -177,7 +232,7 @@ export default async function ReviewPage({
                   : "자동으로 묶인 짝이 없습니다"
           }
           action={
-            band !== null ? (
+            band !== null || size !== null ? (
               <Link
                 href={`/review?tab=${tab}`}
                 className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint hover:text-ink"
@@ -198,14 +253,14 @@ export default async function ReviewPage({
       {/* ---------- 쪽 넘기기 ---------- */}
       {lastPage > 0 && (
         <div className="flex items-center justify-between text-sm">
-          <PageLink tab={tab} band={band} page={page - 1} disabled={page === 0}>
+          <PageLink tab={tab} band={band} size={size} page={page - 1} disabled={page === 0}>
             ← 이전
           </PageLink>
           <span className="tnum text-xs text-ink-faint">
             {page + 1} / {lastPage + 1}쪽 ·{" "}
             {band === null ? "전체" : bandLabel(band)} {num(result.total)}쌍
           </span>
-          <PageLink tab={tab} band={band} page={page + 1} disabled={page >= lastPage}>
+          <PageLink tab={tab} band={band} size={size} page={page + 1} disabled={page >= lastPage}>
             다음 →
           </PageLink>
         </div>
@@ -238,12 +293,14 @@ export default async function ReviewPage({
 function PageLink({
   tab,
   band,
+  size,
   page,
   disabled,
   children,
 }: {
   tab: ReviewTab;
   band: number | null;
+  size: SizeGroup | null;
   page: number;
   disabled: boolean;
   children: React.ReactNode;
@@ -252,7 +309,8 @@ function PageLink({
     return <span className="text-ink-faint opacity-40">{children}</span>;
   }
   // 쪽을 넘겨도 고른 점수 구간은 그대로 유지합니다
-  const q = band === null ? "" : `&band=${band}`;
+  const q =
+    (band === null ? "" : `&band=${band}`) + (size === null ? "" : `&size=${size}`);
   return (
     <Link
       href={`/review?tab=${tab}&page=${page}${q}`}
@@ -274,17 +332,24 @@ function BandChip({
   band,
   on,
   count,
+  keep = "",
   children,
 }: {
   tab: ReviewTab;
   band: number | null;
   on: boolean;
   count: number | null;
+  /** 같이 유지할 다른 조건 (예: &size=large) */
+  keep?: string;
   children: React.ReactNode;
 }) {
   return (
     <Link
-      href={band === null ? `/review?tab=${tab}` : `/review?tab=${tab}&band=${band}`}
+      href={
+        band === null
+          ? `/review?tab=${tab}${keep}`
+          : `/review?tab=${tab}&band=${band}${keep}`
+      }
       aria-current={on ? "true" : undefined}
       className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
         on
@@ -296,6 +361,45 @@ function BandChip({
       {count !== null && (
         <span className="tnum ml-1.5 opacity-70">{num(count)}</span>
       )}
+    </Link>
+  );
+}
+
+/**
+ * 묶음 크기 버튼.
+ * 점수 구간과 마찬가지로, 고르면 1쪽으로 돌아갑니다.
+ */
+function SizeChip({
+  tab,
+  size,
+  on,
+  keep = "",
+  title,
+  children,
+}: {
+  tab: ReviewTab;
+  size: SizeGroup | null;
+  on: boolean;
+  keep?: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={
+        size === null
+          ? `/review?tab=${tab}${keep}`
+          : `/review?tab=${tab}&size=${size}${keep}`
+      }
+      title={title}
+      aria-current={on ? "true" : undefined}
+      className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
+        on
+          ? "bg-accent font-semibold text-accent-ink"
+          : "border border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink"
+      }`}
+    >
+      {children}
     </Link>
   );
 }
@@ -320,6 +424,24 @@ function PairCard({
           <span className="tnum rounded-md bg-surface-2 px-2 py-0.5 text-xs font-semibold">
             {pair.score}점
           </span>
+          {/*
+            이 짝이 속한 책에 몇 권이 묶여 있는지.
+            서점이 셋이라 3권이 정상입니다. 4권 이상은 한 서점에서 두 권이
+            묶였다는 뜻이라 눈에 띄게 표시합니다.
+          */}
+          {pair.groupSize !== null && (
+            <span
+              title={SIZE_HELP[sizeGroupOf(pair.groupSize)]}
+              className={`tnum rounded-md px-2 py-0.5 text-xs font-medium ${
+                pair.groupSize >= 4
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                  : "bg-surface-2 text-ink-soft"
+              }`}
+            >
+              {pair.groupSize}권 묶임
+              {pair.groupSize >= 4 && " ⚠️"}
+            </span>
+          )}
           {reasons.map((r, i) => (
             <ReasonChip key={i} reason={r} />
           ))}

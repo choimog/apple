@@ -52,6 +52,10 @@ const PAGES = [
   ["/review?tab=pending&band=70", ["매칭 검토"]],
   // 모르는 값이 와도 빈 화면이 아니라 전체가 보여야 합니다
   ["/review?tab=merged&band=999", ["매칭 검토"]],
+  // 묶인 권수로 좁혔을 때 (2026-08-09 추가)
+  ["/review?tab=merged&size=large", ["매칭 검토"]],
+  ["/review?tab=pending&size=small&band=70", ["매칭 검토"]],
+  ["/review?tab=merged&size=엉터리", ["매칭 검토"]],
   ["/share", ["공유 링크"]],
 ];
 

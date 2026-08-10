@@ -40,6 +40,44 @@ export function isReviewTab(v: string | undefined): v is ReviewTab {
   return v === "pending" || v === "merged" || v === "mine";
 }
 
+/* ═══════════════════════════════════════════════ 묶음 크기 (몇 권이 묶였나) */
+
+/**
+ * 【2026-08-09 대표님 요청】
+ * "매칭 내역에 3개만 묶인 경우, 4개 이상을 묶어둔 경우와 2개 이하만
+ *  묶어둔 경우도 찾아서 고를 수 있었으면 좋겠어."
+ *
+ * 서점이 셋이므로 **3권이 정상**입니다. 거기서 벗어난 것이 볼 거리입니다.
+ *
+ *   2권 이하 → 한 서점을 놓쳤을 수 있음 (있는데 못 묶은 경우)
+ *   3권      → 정상 (세 서점에서 한 권씩)
+ *   4권 이상 → 🚨 한 서점에서 두 권이 묶였다는 뜻입니다.
+ *              개정판·세트·다른 판형이 섞였을 가능성이 큽니다.
+ */
+export type SizeGroup = "small" | "exact" | "large";
+
+export const SIZE_LABEL: Record<SizeGroup, string> = {
+  small: "2권 이하",
+  exact: "3권 (정상)",
+  large: "4권 이상",
+};
+
+export const SIZE_HELP: Record<SizeGroup, string> = {
+  small: "한 서점을 놓쳤을 수 있습니다. 있는데 못 묶은 경우입니다.",
+  exact: "서점이 셋이므로 이것이 정상입니다.",
+  large: "한 서점에서 두 권이 묶였다는 뜻입니다. 개정판·세트가 섞였을 수 있습니다.",
+};
+
+export function sizeGroupOf(n: number): SizeGroup {
+  if (n >= 4) return "large";
+  if (n === 3) return "exact";
+  return "small";
+}
+
+export function parseSize(v: string | undefined): SizeGroup | null {
+  return v === "small" || v === "exact" || v === "large" ? v : null;
+}
+
 /* ══════════════════════════════════════════════════ 점수 구간 (5점 단위) */
 
 /**
@@ -144,9 +182,66 @@ export type ReviewPair = {
   decidedAt: string | null;
   a: ReviewBook;
   b: ReviewBook;
+  /** 이 짝이 속한 책에 지금 몇 권이 묶여 있는지 (모르면 null) */
+  groupSize: number | null;
 };
 
 const PAGE_SIZE = 20;
+
+/**
+ * 묶음 크기를 세려면 store_books 를 통째로 봐야 합니다.
+ * 이 숫자보다 많으면 세는 것을 포기하고 **모른다고 말합니다.**
+ * (조용히 틀린 숫자를 보여주는 것보다 낫습니다)
+ */
+const SIZE_SCAN_CAP = 40000;
+
+/** 묶음 크기 필터를 켰을 때 훑어볼 짝의 최대 개수 */
+const FILTER_SCAN_CAP = 6000;
+
+/**
+ * 책마다 몇 권이 묶여 있는지.
+ * 돌려주는 값: { byStoreBook: 서점도서id → 묶음 크기, ok }
+ *
+ * ⚠️ PostgREST 에는 GROUP BY 가 없어서 직접 세야 합니다.
+ *    id 와 book_id 두 칸만 읽으므로 가볍습니다.
+ */
+async function groupSizes(): Promise<{
+  byStoreBook: Map<number, number>;
+  ok: boolean;
+}> {
+  const supabase = db();
+  const rows: { id: number; book_id: number | null }[] = [];
+  const step = 1000;
+
+  try {
+    for (let start = 0; start < SIZE_SCAN_CAP; start += step) {
+      const { data, error } = await supabase
+        .from("store_books")
+        .select("id,book_id")
+        .not("book_id", "is", null)
+        .order("id")
+        .range(start, start + step - 1);
+      if (error) throw new Error(error.message);
+      const got = (data ?? []) as { id: number; book_id: number | null }[];
+      rows.push(...got);
+      if (got.length < step) break;
+    }
+  } catch {
+    return { byStoreBook: new Map(), ok: false };
+  }
+
+  const perBook = new Map<number, number>();
+  for (const r of rows) {
+    if (r.book_id == null) continue;
+    perBook.set(r.book_id, (perBook.get(r.book_id) ?? 0) + 1);
+  }
+  const byStoreBook = new Map<number, number>();
+  for (const r of rows) {
+    if (r.book_id == null) continue;
+    byStoreBook.set(r.id, perBook.get(r.book_id) ?? 0);
+  }
+  return { byStoreBook, ok: true };
+}
 
 /**
  * 검토할 짝 목록.
@@ -159,8 +254,15 @@ const PAGE_SIZE = 20;
 export async function getReviewPairs(
   tab: ReviewTab,
   page = 0,
-  band: number | null = null
-): Promise<{ rows: ReviewPair[]; total: number; ok: boolean }> {
+  band: number | null = null,
+  size: SizeGroup | null = null
+): Promise<{
+  rows: ReviewPair[];
+  total: number;
+  ok: boolean;
+  /** 묶음 크기 필터에서 너무 많아 일부만 훑었으면 true */
+  capped?: boolean;
+}> {
   const supabase = db();
   const decisions = TAB_DECISIONS[tab];
 
@@ -188,6 +290,35 @@ export async function getReviewPairs(
   if (range) {
     listQuery = listQuery.gte("score", range.lo).lt("score", range.hiExclusive);
   }
+  // ---- 묶음 크기로 좁혀 볼 때 ----
+  //
+  // ⚠️ 이때는 데이터베이스가 대신 쪽을 나눠 줄 수 없습니다. '몇 권이
+  //    묶였나' 는 다른 표(store_books)를 세어야 알 수 있기 때문입니다.
+  //    그래서 여기서만 여러 줄을 받아 와서 직접 고릅니다.
+  //    너무 많으면 **일부만 봤다고 화면에 적습니다** (조용히 자르지 않음).
+  const sizes = size === null ? null : await groupSizes();
+
+  if (size !== null && sizes) {
+    const { data: all, error: e0 } = await listQuery.range(0, FILTER_SCAN_CAP - 1);
+    if (e0) return { rows: [], total: 0, ok: false };
+    const rowsAll = (all ?? []) as { store_book_a: number }[];
+    const kept = rowsAll.filter((m) => {
+      const n = sizes.byStoreBook.get(m.store_book_a);
+      return n !== undefined && sizeGroupOf(n) === size;
+    });
+    const pageRows = kept.slice(from, from + PAGE_SIZE);
+    const shaped = await shapePairs(
+      pageRows as never[],
+      sizes.byStoreBook
+    );
+    return {
+      rows: shaped,
+      total: kept.length,
+      ok: true,
+      capped: rowsAll.length >= FILTER_SCAN_CAP,
+    };
+  }
+
   const { data, error } = await listQuery.range(from, from + PAGE_SIZE - 1);
 
   if (error) {
@@ -209,6 +340,37 @@ export async function getReviewPairs(
 
   if (!matches.length) return { rows: [], total: count ?? 0, ok: true };
 
+  // 크기 필터를 안 켰어도 '몇 권 묶였는지' 는 카드에 보여줍니다.
+  // 못 세면 숫자를 지어내지 않고 감춥니다 (null).
+  const sz = await groupSizes();
+  const rows = await shapePairs(matches, sz.ok ? sz.byStoreBook : null);
+  return { rows, total: count ?? 0, ok: true };
+}
+
+/**
+ * 짝 목록에 책 정보를 붙입니다.
+ *
+ * ⚠️ 두 책을 한 번에 이어붙이지 않고 따로 읽습니다.
+ *    같은 표(store_books)를 두 번 이어붙이는 조회는 데이터베이스가
+ *    붙여준 이름(외래키 이름)에 기대야 하는데, 그 이름은 표를 다시
+ *    만들면 바뀝니다. 조용히 깨질 자리라 나눠서 읽습니다.
+ */
+async function shapePairs(
+  matches: {
+    id: number;
+    store_book_a: number;
+    store_book_b: number;
+    score: number;
+    reasons: Record<string, unknown> | null;
+    decision: string;
+    auto_decision: string | null;
+    decided_at: string | null;
+  }[],
+  sizeByStoreBook: Map<number, number> | null
+): Promise<ReviewPair[]> {
+  const supabase = db();
+  if (!matches.length) return [];
+
   const ids = [
     ...new Set(matches.flatMap((m) => [m.store_book_a, m.store_book_b])),
   ];
@@ -216,7 +378,7 @@ export async function getReviewPairs(
     .from("store_books")
     .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
     .in("id", ids);
-  if (e2) return { rows: [], total: count ?? 0, ok: false };
+  if (e2) return [];
 
   const byId = new Map<number, ReviewBook>();
   for (const b of books ?? []) {
@@ -248,10 +410,11 @@ export async function getReviewPairs(
       decidedAt: m.decided_at,
       a,
       b,
+      groupSize: sizeByStoreBook?.get(m.store_book_a) ?? null,
     });
   }
 
-  return { rows, total: count ?? 0, ok: true };
+  return rows;
 }
 
 /** 탭마다 몇 건씩 남았는지 (탭 옆 숫자) */

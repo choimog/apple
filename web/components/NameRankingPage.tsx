@@ -98,7 +98,10 @@ export default async function NameRankingPage({
 
       <Card className="p-4 sm:p-5">
         <FieldLabel>분야</FieldLabel>
-        <div className="flex flex-wrap gap-1.5">
+        {/* 분야가 많아 휴대폰에서 화면 절반을 덮습니다.
+            [서점별]·[종합] 화면과 같은 방식으로 높이를 정하고 그 안에서 스크롤합니다.
+            (2026-08-09 대표님 요청) */}
+        <div className="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
           {options.map((o) => (
             <Pill key={o.code} href={href({ cat: o.code })} active={o.code === unified}>
               {o.label}

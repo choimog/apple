@@ -106,9 +106,18 @@ export default async function BestPage({
       {/* ============ 고르기 ============ */}
       <Card className="p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <FieldLabel>분야</FieldLabel>
-            <div className="flex flex-wrap gap-1.5">
+            {/*
+              【2026-08-09 대표님 요청】
+              "분야별 버튼도 모바일 서점별에서 보이는 것처럼 스크롤 형식으로"
+
+              예전에는 그냥 줄바꿈이라, 휴대폰에서 분야가 20개쯤 되면
+              화면 절반이 버튼으로 덮여서 정작 순위표가 안 보였습니다.
+              [서점별] 화면과 **똑같은** 방식으로 바꿉니다 —
+              높이를 정해 두고 그 안에서만 스크롤합니다.
+            */}
+            <div className="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
               {options.map((o) => (
                 <Pill
                   key={o.code}

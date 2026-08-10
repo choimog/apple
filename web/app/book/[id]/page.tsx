@@ -31,11 +31,12 @@ import {
 /**
  * 순위를 어느 기준으로 볼지.
  *   "overall"        종합(전체) 순위
+ *   "top"            분야(상위) — 그날 올라 있는 분야 중 가장 높은 순위
  *   "cat:fiction" 등  그 분야 하나만
  *
- * 【2026-08-10 대표님 지시】 "분야 최고는 일단 없애줘."
- * 날마다 다른 분야를 가리키는 줄이라, 경고를 붙여도 오해의 여지가
- * 남습니다. 분야는 하나를 콕 집어서만 봅니다.
+ * 【2026-08-10 대표님 지시】 "분야(상위)라고 해서 다시 만들어줘."
+ * 이름이 '최고' 였을 때는 무엇의 최고인지 알기 어려웠습니다.
+ * '상위' 는 여러 분야 중 위쪽 것을 본다는 뜻이 이름에 담깁니다.
  */
 type Basis = string;
 
@@ -92,7 +93,7 @@ export default async function BookPage({
     한 계단 움직였을 뿐입니다.
 
     그래서 **분야 하나를 콕 집어서** 볼 수 있게 했습니다.
-    '분야 최고' 도 남겨 두되, 분야가 바뀌는 날에는 화면에 적습니다.
+    '분야(상위)' 도 남겨 두되, 분야가 바뀌면 화면에 적습니다.
   */
   const wanted = sp.basis ?? "";
   const catCodes = new Set(categoryChoices.map((c) => c.unifiedCode));
@@ -104,18 +105,44 @@ export default async function BookPage({
   /*
     무엇을 보여줄지 정합니다.
     · 주소로 고르신 것이 있으면 그것
-    · 없으면 종합(전체). 종합에 한 번도 안 올랐으면 가장 오래 머문 분야
-    어느 쪽이든 **한 가지 기준만** 그립니다. 섞지 않습니다.
+    · 없으면 종합(전체). 종합에 한 번도 안 올랐으면 분야(상위)
+    어느 쪽이든 **한 가지 기준만** 그립니다. 기준을 섞지 않습니다.
   */
-  const firstCat = categoryChoices[0]?.unifiedCode ?? null;
-  const shownCat =
-    pickedCat ?? (wanted === "overall" && hasOverall ? null : hasOverall ? null : firstCat);
+  const hasCategory = categoryChoices.length > 0;
+  const basis: Basis = pickedCat
+    ? `cat:${pickedCat}`
+    : wanted === "top" && hasCategory
+      ? "top"
+      : wanted === "overall" && hasOverall
+        ? "overall"
+        : hasOverall
+          ? "overall"
+          : "top";
 
-  const basis: Basis = shownCat ? `cat:${shownCat}` : "overall";
+  let history: typeof allHistory;
+  if (pickedCat) {
+    history = allHistory.filter((h) => h.unifiedCode === pickedCat);
+  } else if (basis === "overall") {
+    history = allHistory.filter((h) => h.isOverall);
+  } else {
+    /*
+      분야(상위) — 그날 올라 있는 분야 중 가장 높은 순위 하나.
+      빠르게 훑기에 편해서 남겨 둡니다. 다만 날마다 다른 분야를
+      가리킬 수 있어서, 그럴 때는 아래에 한 줄로 적어 둡니다.
+    */
+    const top = new Map<string, (typeof allHistory)[number]>();
+    for (const h of allHistory) {
+      if (h.isOverall) continue;
+      const k = `${h.date}|${h.storeId}|${h.period}`;
+      const cur = top.get(k);
+      if (!cur || h.rank < cur.rank) top.set(k, h);
+    }
+    history = [...top.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
 
-  const history = shownCat
-    ? allHistory.filter((h) => h.unifiedCode === shownCat)
-    : allHistory.filter((h) => h.isOverall);
+  // 분야(상위) 로 볼 때 실제로 몇 개 분야가 섞였는지
+  const mixedNames =
+    basis === "top" ? [...new Set(history.map((h) => h.categoryName))] : [];
 
   /*
     판매지수는 **기준과 상관없습니다.** 서점이 책 한 권에 하나씩 매기는
@@ -382,7 +409,9 @@ export default async function BookPage({
           desc={
             basis === "overall"
               ? "종합(전체) 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
-              : `${categoryChoices.find((c) => c.unifiedCode === shownCat)?.name ?? "분야"} 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일`
+              : pickedCat
+                ? `${categoryChoices.find((c) => c.unifiedCode === pickedCat)?.name ?? "분야"} 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일`
+                : "분야(상위) 기준 · 위로 갈수록 높은 순위 · 최근 30일"
           }
           right={
             <BookExportButton
@@ -407,13 +436,18 @@ export default async function BookPage({
                     종합(전체)
                   </BasisChip>
                 )}
+                {categoryChoices.length > 1 && (
+                  <BasisChip id={id} basis="top" on={basis === "top"}>
+                    분야(상위)
+                  </BasisChip>
+                )}
                 {/* 이 책이 실제로 올랐던 분야만 (오래 머문 것부터) */}
                 {categoryChoices.map((c) => (
                   <BasisChip
                     key={c.unifiedCode}
                     id={id}
                     basis={`cat:${c.unifiedCode}`}
-                    on={shownCat === c.unifiedCode}
+                    on={pickedCat === c.unifiedCode}
                   >
                     {c.name}
                     <span className="ml-1 opacity-70">{c.days}일</span>
@@ -422,10 +456,23 @@ export default async function BookPage({
               </div>
             </div>
             <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
-              한 번에 <strong>한 가지 기준</strong>만 그립니다. 기준이
-              다르면 숫자의 뜻도 다르기 때문입니다. 소설에서 3위이던 책이
-              종합에 처음 들면 150위가 되는데, 섞어 그리면 폭락처럼 보이지만
-              실제로는 <strong>더 잘 팔려서</strong> 종합에 든 것입니다.
+              {mixedNames.length > 1 ? (
+                <>
+                  <strong>분야(상위)</strong>는 그날 올라 있는 분야 중 가장
+                  높은 순위를 따라갑니다. 지금 {mixedNames.length}개 분야(
+                  {mixedNames.join(" · ")})가 섞여 있어서, 오르내림이 실제
+                  움직임과 다를 수 있습니다. 정확히 보시려면 분야를 하나
+                  골라 주세요.
+                </>
+              ) : (
+                <>
+                  한 번에 <strong>한 가지 기준</strong>만 그립니다. 기준이
+                  다르면 숫자의 뜻도 다르기 때문입니다. 소설에서 3위이던
+                  책이 종합에 처음 들면 150위가 되는데, 섞어 그리면 폭락처럼
+                  보이지만 실제로는 <strong>더 잘 팔려서</strong> 종합에 든
+                  것입니다.
+                </>
+              )}
             </p>
           </div>
         )}

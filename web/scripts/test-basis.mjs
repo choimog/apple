@@ -41,20 +41,20 @@ check("같은 기준 안에서만 최고 순위를 고른다",
 console.log("\n[2] 화면에서 고를 수 있다");
 check("주소로 기준을 받는다", page.includes("searchParams") && page.includes("sp.basis"));
 check("고르는 버튼이 있다", page.includes("BasisChip"));
-check("종합과 분야를 고를 수 있다",
-  page.includes('basis="overall"') && page.includes('basis={`cat:'));
+check("종합·분야(상위)·분야 하나를 고를 수 있다",
+  page.includes('basis="overall"') && page.includes('basis="top"') &&
+  page.includes('basis={`cat:'));
 check("고른 기준으로 걸러서 그린다",
   /allHistory\.filter\([\s\S]{0,80}h\.isOverall\)/.test(page));
 check("무슨 기준인지 제목 옆에 적는다",
   page.includes("종합(전체) 순위 기준") &&
-  page.includes('순위 기준 · 위로 갈수록'));
+  page.includes("분야(상위) 기준"));
 // 한쪽밖에 없는 책에서 버튼을 보여주면 눌러도 아무 일이 없습니다
 check("고를 것이 하나뿐이면 버튼 줄을 안 보여준다",
   /Number\(hasOverall\) \+ categoryChoices\.length > 1/.test(page));
 // 종합에 한 번도 안 오른 책은 종합을 기본으로 두면 빈 그래프가 됩니다
-check("종합이 없으면 가장 오래 머문 분야로 시작한다",
-  page.includes("categoryChoices[0]?.unifiedCode") &&
-  /hasOverall \? null : firstCat/.test(page));
+check("종합이 없으면 분야(상위)로 시작한다",
+  /hasOverall\s*\?\s*"overall"\s*:\s*"top"/.test(page));
 
 console.log("\n[2-1] 🚨 여러 분야에 동시에 올랐을 때 (2026-08-10 추가 지적)");
 // '소설 5위' 와 '한국소설 2위' 에 함께 올라 있다가 한국소설에서 빠지면
@@ -65,18 +65,25 @@ check("그 책이 올랐던 분야 목록을 만든다", q.includes("categoryCho
 check("오래 머문 분야를 앞에 둔다", /b\.days - a\.days/.test(q));
 check("분야 하나를 콕 집어 고를 수 있다", page.includes('basis={`cat:'));
 check("모르는 분야 코드는 무시한다", page.includes("catCodes.has"));
-// 【2026-08-10 대표님 지시】 "분야 최고는 일단 없애줘."
-// 날마다 다른 분야를 가리키는 줄이라, 경고를 붙여도 오해가 남습니다.
-check("'분야 최고' 를 없앴다",
-  !page.includes('basis="top"') && !page.includes("mixedNames"));
+// 【2026-08-10 대표님 지시】 "분야(상위)라고 해서 다시 만들어줘."
+// '최고' 는 무엇의 최고인지 알기 어려웠습니다.
+check("이름이 '분야(상위)' 다",
+  page.includes("분야(상위)") && !page.includes("분야 최고"));
+check("분야(상위)는 그날 가장 높은 분야를 따라간다",
+  /if \(!cur \|\| h\.rank < cur\.rank\) top\.set\(k, h\)/.test(page));
 check("제목 옆에 고른 분야 이름을 적는다",
   page.includes("순위 기준 · 위로 갈수록"));
 // 🚨 조용히 섞이면 안 됩니다
-// 🚨 섞이는 길 자체를 없앴으므로, 섞일 수 없다는 것을 확인합니다
 check("한 번에 한 가지 기준만 그린다",
   page.includes("한 가지 기준</strong>만 그립니다"));
 check("고른 분야 하나만 걸러낸다",
-  /allHistory\.filter\(\(h\) => h\.unifiedCode === shownCat\)/.test(page));
+  /allHistory\.filter\(\(h\) => h\.unifiedCode === pickedCat\)/.test(page));
+// 🚨 분야(상위)는 날마다 다른 분야를 가리킬 수 있습니다. 조용히 두면 안 됩니다.
+check("분야가 섞이면 몇 개인지 이름까지 알려준다",
+  page.includes("mixedNames") && page.includes("mixedNames.join"));
+check("분야 하나를 고르라고 권한다",
+  page.includes("분야를 하나\n                  골라 주세요") ||
+  page.includes("분야를 하나"));
 // 고를 것이 하나뿐이면 버튼 줄 자체가 방해입니다
 check("고를 것이 둘 이상일 때만 버튼을 보여준다",
   /Number\(hasOverall\) \+ categoryChoices\.length > 1/.test(page));

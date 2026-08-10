@@ -193,7 +193,7 @@ const PAGE_SIZE = 20;
  * 이 숫자보다 많으면 세는 것을 포기하고 **모른다고 말합니다.**
  * (조용히 틀린 숫자를 보여주는 것보다 낫습니다)
  */
-const SIZE_SCAN_CAP = 40000;
+const SIZE_SCAN_CAP = 300000;
 
 /** 묶음 크기 필터를 켰을 때 훑어볼 짝의 최대 개수 */
 const FILTER_SCAN_CAP = 6000;
@@ -224,6 +224,13 @@ async function groupSizes(): Promise<{
       .select("id", { count: "exact", head: true })
       .not("book_id", "is", null);
     if (ce) throw new Error(ce.message);
+
+    // 🚨 다 못 읽을 것 같으면 **일부만 세지 않습니다.**
+    //    일부만 세면 3권 묶인 책이 '2권' 으로 나옵니다. 빈칸보다 나쁩니다.
+    //    (틀린 숫자는 아무도 못 알아챕니다)
+    if ((count ?? 0) > SIZE_SCAN_CAP) {
+      return { byStoreBook: new Map(), ok: false };
+    }
 
     const total = Math.min(count ?? 0, SIZE_SCAN_CAP);
     const starts: number[] = [];
@@ -523,19 +530,49 @@ export async function* streamReviewPairs(
     HARD_SCAN_CAP
   );
 
+  // ---- '몇 번째부터' 대신 '어디까지 읽었나' 로 읽습니다 ----
+  //
+  // 🚨 2026-08-10 대표님 신고: 전체를 받았는데 29,502줄에서 끊김.
+  //
+  //    원인은 **읽는 방식**이었습니다. 예전에는 "29,000번째부터 500줄" 처럼
+  //    부탁했습니다. 그러면 데이터베이스는 매번 앞의 29,000줄을 처음부터
+  //    다시 세고 다시 줄 세운 다음 뒷부분만 떼어 줍니다. 뒤로 갈수록
+  //    한 번이 점점 느려져서, 3만 줄쯤에서 시간 제한(60초)에 걸립니다.
+  //
+  //    그래서 "마지막으로 읽은 번호 다음부터 500줄" 로 바꿉니다.
+  //    몇 번째든 늘 같은 속도입니다.
+  //
+  //    ⚠️ 덤으로 **조용히 틀리던 것**도 함께 고쳐집니다.
+  //       점수순으로 줄을 세우면 같은 점수가 수백 개씩 있습니다. 순서가
+  //       매번 달라질 수 있어서, 어떤 줄은 두 번 나오고 어떤 줄은 아예
+  //       빠질 수 있었습니다. 번호는 겹치지 않으므로 그런 일이 없습니다.
+  //
+  //    대신 파일이 점수순이 아니라 번호순이 됩니다. '전체 정리' 용도라
+  //    괜찮다고 봤습니다. (조건을 걸고 받는 쪽은 점수순 그대로입니다)
+  const byId = maxRows === Infinity;
+  let after = 0;
+
   for (let start = 0; start < scanCap && status.sent < maxRows; start += EXPORT_CHUNK) {
     let q = supabase
       .from("book_matches")
       .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
-      .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
       .in("decision", decisions);
     if (range) q = q.gte("score", range.lo).lt("score", range.hiExclusive);
 
-    const { data, error } = await q.range(start, start + EXPORT_CHUNK - 1);
+    q = byId
+      ? q.order("id", { ascending: true }).gt("id", after).limit(EXPORT_CHUNK)
+      : q
+          .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
+          // 같은 점수끼리 순서가 흔들리지 않게 번호로 한 번 더 줄 세웁니다
+          .order("id", { ascending: true })
+          .range(start, start + EXPORT_CHUNK - 1);
+
+    const { data, error } = await q;
     if (error) throw new Error(error.message);
 
     const got = (data ?? []) as Parameters<typeof shapePairs>[0];
     if (!got.length) return;
+    if (byId) after = got[got.length - 1].id;
 
     let use = got;
     if (size !== null && byStoreBook) {

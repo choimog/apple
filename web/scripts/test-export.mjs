@@ -94,6 +94,22 @@ try {
     lib.includes("Promise.all") && lib.includes("LANES"));
   check("번호를 나눠서 물어본다 (주소가 너무 길어지지 않게)",
     lib.includes("ID_CHUNK"));
+  // 🚨 일부만 세면 3권 묶인 책이 '2권' 으로 나옵니다. 빈칸보다 나쁩니다.
+  check("다 못 세면 틀린 숫자 대신 '모른다' 로 넘어간다",
+    /> SIZE_SCAN_CAP\)\s*\{[\s\S]{0,120}ok: false/.test(lib));
+
+  console.log("\n[5-1] 🚨 뒤로 갈수록 느려지지 않는다 (29,502줄에서 끊긴 원인)");
+  // "29,000번째부터" 로 물으면 데이터베이스가 매번 앞 29,000줄을 다시
+  // 셉니다. 뒤로 갈수록 느려져 시간 제한에 걸립니다.
+  check("전체 받기는 '마지막 번호 다음부터' 로 읽는다",
+    lib.includes('.gt("id", after)'), );
+  check("어디까지 읽었는지 기억한다",
+    /after\s*=\s*got\[got\.length - 1\]\.id/.test(lib));
+  check("조건을 걸고 받을 때는 점수순을 유지한다",
+    lib.includes('tab === "mine" ? "decided_at" : "score"'));
+  // 같은 점수가 수백 개라 순서가 흔들리면 어떤 줄은 두 번, 어떤 줄은 빠집니다
+  check("같은 점수끼리도 순서가 안 흔들리게 번호로 한 번 더 줄 세운다",
+    /"score".*\n[\s\S]{0,200}?\.order\("id", \{ ascending: true \}\)[\s\S]{0,80}\.range\(/.test(lib));
 
   console.log("\n[6] 잘렸으면 조용히 넘어가지 않는다");
   check("잘림 표시가 있다", route.includes("status.capped"));

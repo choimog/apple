@@ -35,6 +35,18 @@ export const SHEET_HEADER = [
   "근거",
 ] as const;
 
+/**
+ * 파일 안에 안내 문구를 한 줄 넣습니다 (잘렸다·없다·도중에 끊겼다).
+ *
+ * ⚠️ 칸 수를 머리글과 **똑같이** 맞춰야 합니다. 하나라도 모자라면
+ *    엑셀에서 칸이 밀려 보입니다.
+ */
+export function noteRow(text: string): string[] {
+  const row = Array<string>(SHEET_HEADER.length).fill("");
+  row[2] = text; // '점수' 칸 자리 — 짝번호·결정 칸은 비워 둡니다
+  return row;
+}
+
 /** '결정' 칸에 적을 수 있는 말 */
 export const DECISION_WORDS: Record<string, "merge" | "split" | "undo"> = {
   "같은책": "merge",

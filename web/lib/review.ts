@@ -214,17 +214,37 @@ async function groupSizes(): Promise<{
   const step = 1000;
 
   try {
-    for (let start = 0; start < SIZE_SCAN_CAP; start += step) {
-      const { data, error } = await supabase
-        .from("store_books")
-        .select("id,book_id")
-        .not("book_id", "is", null)
-        .order("id")
-        .range(start, start + step - 1);
-      if (error) throw new Error(error.message);
-      const got = (data ?? []) as { id: number; book_id: number | null }[];
-      rows.push(...got);
-      if (got.length < step) break;
+    // 몇 줄인지 **먼저 세고**, 그만큼을 한꺼번에(동시에) 읽습니다.
+    //
+    // ⚠️ 예전에는 1,000줄씩 앞에서부터 차례로 읽었습니다. 4만 줄이면
+    //    40번을 줄 서서 기다립니다. 한 번에 0.2초씩만 걸려도 8초입니다.
+    //    그 8초가 내려받기가 멈춘 것처럼 보이던 원인 중 하나였습니다.
+    const { count, error: ce } = await supabase
+      .from("store_books")
+      .select("id", { count: "exact", head: true })
+      .not("book_id", "is", null);
+    if (ce) throw new Error(ce.message);
+
+    const total = Math.min(count ?? 0, SIZE_SCAN_CAP);
+    const starts: number[] = [];
+    for (let s = 0; s < total; s += step) starts.push(s);
+
+    // 한 번에 너무 많이 부르면 데이터베이스가 거절합니다. 6개씩 나눠 부릅니다.
+    const LANES = 6;
+    for (let i = 0; i < starts.length; i += LANES) {
+      const batch = await Promise.all(
+        starts.slice(i, i + LANES).map(async (s) => {
+          const { data, error } = await supabase
+            .from("store_books")
+            .select("id,book_id")
+            .not("book_id", "is", null)
+            .order("id")
+            .range(s, s + step - 1);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as { id: number; book_id: number | null }[];
+        })
+      );
+      for (const got of batch) rows.push(...got);
     }
   } catch {
     return { byStoreBook: new Map(), ok: false };
@@ -374,14 +394,23 @@ async function shapePairs(
   const ids = [
     ...new Set(matches.flatMap((m) => [m.store_book_a, m.store_book_b])),
   ];
-  const { data: books, error: e2 } = await supabase
-    .from("store_books")
-    .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
-    .in("id", ids);
-  if (e2) return [];
+
+  // ⚠️ 번호를 한 줄에 다 적어서 물어보면 주소가 너무 길어져 데이터베이스가
+  //    거절합니다. 화면(20줄)에서는 안 걸리지만 내려받기(수백 줄)에서는
+  //    걸립니다. 300개씩 나눠 묻습니다.
+  const ID_CHUNK = 300;
+  const books: Record<string, unknown>[] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const { data, error: e2 } = await supabase
+      .from("store_books")
+      .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
+      .in("id", ids.slice(i, i + ID_CHUNK));
+    if (e2) return [];
+    books.push(...((data ?? []) as Record<string, unknown>[]));
+  }
 
   const byId = new Map<number, ReviewBook>();
-  for (const b of books ?? []) {
+  for (const b of books) {
     byId.set(b.id as number, {
       id: b.id as number,
       storeId: b.store_id as number,
@@ -415,6 +444,101 @@ async function shapePairs(
   }
 
   return rows;
+}
+
+/* ══════════════════════════════════════════════ 엑셀로 내려받기 (많은 줄) */
+
+/**
+ * 【2026-08-10 대표님 신고】
+ * "엑셀 파일 다운로드 버튼을 눌렀는데 페이지가 한참 로딩중인 것처럼
+ *  나오다가 결국 사이트 에러창이 떴다"
+ *
+ * 파일이 커서가 **아니었습니다.** 내려받기가 화면용 함수를
+ * 20줄씩 100번 불렀고, 그때마다 '몇 권 묶였나' 를 처음부터 다시
+ * 세고 있었습니다. 한 번에 데이터베이스를 4,000번 넘게 부른 셈입니다.
+ * 서버에는 한 요청에 쓸 수 있는 시간 제한이 있어서, 그 시간을 넘기면
+ * 아무 파일도 못 받고 오류 화면이 뜹니다.
+ *
+ * 그래서 내려받기는 화면과 **다른 길**로 갑니다.
+ *   · '몇 권 묶였나' 는 **한 번만** 셉니다
+ *   · 20줄이 아니라 500줄씩 받아 옵니다
+ *   · 다 모은 뒤에 보내지 않고 **받는 대로 조금씩 흘려보냅니다**
+ *     (그래야 브라우저가 곧바로 '내려받는 중' 으로 바뀝니다)
+ */
+const EXPORT_CHUNK = 500;
+
+export type ExportStatus = {
+  /** 지금까지 보낸 줄 수 */
+  sent: number;
+  /** 너무 많아서 잘렸는지 */
+  capped: boolean;
+};
+
+export async function* streamReviewPairs(
+  tab: ReviewTab,
+  band: number | null,
+  size: SizeGroup | null,
+  maxRows: number,
+  status: ExportStatus
+): AsyncGenerator<ReviewPair[]> {
+  const supabase = db();
+  const decisions = TAB_DECISIONS[tab];
+  const range = band === null ? null : bandRange(band);
+
+  // 여기서 딱 한 번만 셉니다 (예전에는 20줄마다 다시 셌습니다)
+  const sz = await groupSizes();
+  const byStoreBook = sz.ok ? sz.byStoreBook : null;
+
+  if (size !== null && !byStoreBook) {
+    // 묶인 권수를 모르면 권수로 고를 수 없습니다.
+    // 아무거나 담아서 '된 척' 하면 안 됩니다.
+    throw new Error(
+      "묶인 권수를 세지 못해 권수로 고른 목록을 만들 수 없습니다. 잠시 뒤 다시 해 보세요."
+    );
+  }
+
+  // 권수로 좁힐 때는 걸러지는 줄이 있으므로 더 많이 훑어야 합니다.
+  const scanCap = size === null ? maxRows : FILTER_SCAN_CAP;
+
+  for (let start = 0; start < scanCap && status.sent < maxRows; start += EXPORT_CHUNK) {
+    let q = supabase
+      .from("book_matches")
+      .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
+      .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
+      .in("decision", decisions);
+    if (range) q = q.gte("score", range.lo).lt("score", range.hiExclusive);
+
+    const { data, error } = await q.range(start, start + EXPORT_CHUNK - 1);
+    if (error) throw new Error(error.message);
+
+    const got = (data ?? []) as Parameters<typeof shapePairs>[0];
+    if (!got.length) return;
+
+    let use = got;
+    if (size !== null && byStoreBook) {
+      use = got.filter((m) => {
+        const n = byStoreBook.get(m.store_book_a);
+        return n !== undefined && sizeGroupOf(n) === size;
+      });
+    }
+    if (use.length > maxRows - status.sent) {
+      use = use.slice(0, maxRows - status.sent);
+      status.capped = true;
+    }
+
+    if (use.length) {
+      const shaped = await shapePairs(use, byStoreBook);
+      status.sent += shaped.length;
+      yield shaped;
+    }
+
+    // 덜 받아 왔으면 더 없는 것입니다
+    if (got.length < EXPORT_CHUNK) return;
+  }
+
+  // 여기까지 왔는데 아직 남았다면 훑는 한도에 걸린 것입니다
+  if (status.sent >= maxRows) status.capped = true;
+  else if (size !== null) status.capped = true;
 }
 
 /** 탭마다 몇 건씩 남았는지 (탭 옆 숫자) */

@@ -5,19 +5,22 @@
  * 올리는 쪽은 /review/import 입니다.
  *
  * 【2026-08-10 대표님 신고 — 눌렀는데 한참 있다가 오류창이 떴다】
- * 파일이 커서가 아니었습니다. 아래 두 가지가 원인이었습니다.
+ * 파일이 커서가 아니었습니다. 화면용 함수(20줄짜리)를 100번 불렀고,
+ * 그때마다 '몇 권 묶였나' 를 처음부터 다시 셌습니다. 데이터베이스를
+ * 4,000번 넘게 부른 셈이라 서버의 시간 제한에 걸렸습니다.
+ *   → lib/review.ts 의 streamReviewPairs 로 바꿨습니다 (약 50번).
+ *   → 다 모은 뒤에 보내지 않고 받는 대로 흘려보냅니다.
  *
- *  1. 화면용 함수(20줄짜리)를 100번 불렀고, 그때마다 '몇 권 묶였나' 를
- *     처음부터 다시 셌습니다. 데이터베이스를 4,000번 넘게 부른 셈입니다.
- *     → lib/review.ts 의 streamReviewPairs 로 바꿨습니다. 약 50번이면 끝납니다.
- *
- *  2. 다 모은 **뒤에야** 보내기 시작했습니다. 그동안 브라우저에는 아무
- *     일도 안 일어나므로 '멈춘 것' 처럼 보입니다.
- *     → 이제 받는 대로 조금씩 흘려보냅니다. 누르자마자 내려받기가 뜹니다.
+ * 【2026-08-10 대표님 요청 — 세 가지를 갯수 제한 없이 한 번에】
+ * "검토 대기와 자동으로 묶은 것, 내가 내린 결정까지 갯수 제한 없이
+ *  한번에 다 다운로드 할 수 있게 해줬으면 좋겠어. 한번에 정리할 수 있게."
+ *   → tab=all 이면 세 가지를 이어서 한 파일에 담습니다.
+ *   → 줄 수 제한을 없앴습니다.
  *
  * ⚠️ 흘려보내기 시작하면 도중에 "실패했습니다" 라고 바꿀 수 없습니다.
- *    그래서 도중에 실패하면 **파일 안 마지막 줄에 적습니다.**
- *    잘린 파일을 다 받은 파일로 오해하시면 안 되니까요.
+ *    그래서 **파일 맨 끝에 '여기까지가 전부입니다' 를 적습니다.**
+ *    그 줄이 없으면 중간에 끊긴 것입니다. 잘린 파일을 다 받은 파일로
+ *    오해하시면 안 되니까요.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -30,28 +33,27 @@ import {
   parseSize,
   reasonText,
   streamReviewPairs,
+  TAB_LABEL,
   type ExportStatus,
   type ReviewPair,
   type ReviewTab,
 } from "@/lib/review";
 import { noteRow, SHEET_HEADER } from "@/lib/review-sheet";
 
-/**
- * 이 요청에 쓸 수 있는 시간(초). 기본값은 10초라 큰 목록에서 잘립니다.
- * (무료 요금제에서는 60초가 최대입니다. 그보다 크게 적으면 무시됩니다)
- */
+/** 시간이 오래 걸릴 수 있습니다 (무료 요금제 최대치) */
 export const maxDuration = 60;
-
-/** 미리 만들어 두지 말고 누를 때마다 새로 만듭니다 */
 export const dynamic = "force-dynamic";
 
-/** 한 번에 내려받을 수 있는 최대 줄 수 */
-const MAX_ROWS = 2000;
+/** 한 탭만 받을 때의 줄 수 상한. 0 이면 제한 없음 */
+const ONE_TAB_MAX = 2000;
 
-function rowOf(p: ReviewPair): unknown[] {
+const ALL_TABS: ReviewTab[] = ["pending", "merged", "mine"];
+
+function rowOf(p: ReviewPair, tab: ReviewTab): unknown[] {
   return [
     p.id,
     "", // ← 대표님이 채우실 칸
+    TAB_LABEL[tab],
     p.score,
     p.groupSize ?? "",
     store(p.a.storeId).name,
@@ -74,21 +76,26 @@ export async function GET(request: NextRequest) {
   }
 
   const q = request.nextUrl.searchParams;
-  const tab: ReviewTab = isReviewTab(q.get("tab") ?? undefined)
-    ? (q.get("tab") as ReviewTab)
-    : "pending";
-  const band = parseBand(q.get("band") ?? undefined);
-  const size = parseSize(q.get("size") ?? undefined);
+  const raw = q.get("tab") ?? undefined;
 
-  const status: ExportStatus = { sent: 0, capped: false };
-  const batches = streamReviewPairs(tab, band, size, MAX_ROWS, status);
+  // tab=all → 세 가지 전부, 갯수 제한 없음
+  const all = raw === "all";
+  const tabs: ReviewTab[] = all
+    ? ALL_TABS
+    : [isReviewTab(raw) ? (raw as ReviewTab) : "pending"];
+
+  // 전체 받기는 조건을 걸지 않습니다 — '한 번에 정리' 가 목적이니까요
+  const band = all ? null : parseBand(q.get("band") ?? undefined);
+  const size = all ? null : parseSize(q.get("size") ?? undefined);
+  const maxRows = all ? Infinity : ONE_TAB_MAX;
 
   // 🚨 첫 덩어리는 **흘려보내기 전에** 받아 봅니다.
   //    여기서 실패하면 아직 오류 화면을 띄울 수 있습니다.
-  //    (한 번 보내기 시작하면 되돌릴 수 없습니다)
-  let first: ReviewPair[] | null = null;
+  const firstStatus: ExportStatus = { sent: 0, capped: false };
+  const firstGen = streamReviewPairs(tabs[0], band, size, maxRows, firstStatus);
+  let first: ReviewPair[];
   try {
-    const r = await batches.next();
+    const r = await firstGen.next();
     first = r.done ? [] : r.value;
   } catch (e) {
     return new NextResponse(
@@ -103,31 +110,52 @@ export async function GET(request: NextRequest) {
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       const push = (line: string) => controller.enqueue(enc.encode(line + "\r\n"));
+      let total = 0;
+      let capped = false;
+
       try {
         controller.enqueue(enc.encode(CSV_BOM));
         push(csvLine([...SHEET_HEADER]));
 
-        for (const p of first ?? []) push(csvLine(rowOf(p)));
-        for await (const batch of batches) {
-          for (const p of batch) push(csvLine(rowOf(p)));
+        for (const [i, tab] of tabs.entries()) {
+          // 첫 탭의 첫 덩어리는 위에서 이미 받아 두었습니다
+          const status = i === 0 ? firstStatus : { sent: 0, capped: false };
+          const gen =
+            i === 0
+              ? firstGen
+              : streamReviewPairs(tab, band, size, maxRows, status);
+
+          if (all) push(csvLine(noteRow(`──── ${TAB_LABEL[tab]} ────`)));
+          if (i === 0) for (const p of first) push(csvLine(rowOf(p, tab)));
+          for await (const batch of gen) {
+            for (const p of batch) push(csvLine(rowOf(p, tab)));
+          }
+
+          total += status.sent;
+          if (status.capped) capped = true;
+          if (all && status.sent === 0) {
+            push(csvLine(noteRow("(이 칸에는 없습니다)")));
+          }
         }
 
-        if (status.sent === 0) {
+        if (total === 0) {
           push(csvLine(noteRow("고르신 조건에 해당하는 짝이 없습니다.")));
-        } else if (status.capped) {
-          // ⚠️ 잘렸으면 **파일 안에 적습니다.** 조용히 자르면 "이게 전부" 로
-          //    오해하십니다.
+        }
+        if (capped) {
           push(
             csvLine(
               noteRow(
-                `⚠️ 너무 많아 앞쪽 ${status.sent}건만 받았습니다. ` +
+                `⚠️ 너무 많아 앞쪽 ${total}건까지만 담았습니다. ` +
                   "이것부터 처리해서 올리시고 다시 받아 주세요."
               )
             )
           );
         }
+
+        // 🚨 이 줄이 파일 끝에 있어야 **다 받은 것**입니다.
+        push(csvLine(noteRow(`✅ 여기까지가 전부입니다 (총 ${total}건)`)));
       } catch (e) {
-        // 도중에 실패했습니다. 이미 보낸 줄은 되돌릴 수 없으므로 **적어서 알립니다.**
+        // 도중에 실패했습니다. 이미 보낸 줄은 되돌릴 수 없으므로 적어서 알립니다.
         push(
           csvLine(
             noteRow(
@@ -144,15 +172,17 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const name = `매칭검토_${tab}${band ? `_${band}점대` : ""}${
-    size ? `_${size}` : ""
-  }_${new Date().toISOString().slice(0, 10)}.csv`;
+  const today = new Date().toISOString().slice(0, 10);
+  const name = all
+    ? `매칭검토_전체_${today}.csv`
+    : `매칭검토_${tabs[0]}${band ? `_${band}점대` : ""}${
+        size ? `_${size}` : ""
+      }_${today}.csv`;
 
   return new NextResponse(body, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
-      // 중간에 끼어드는 서버가 통째로 모았다가 보내지 않도록
       "Cache-Control": "no-store",
       "X-Accel-Buffering": "no",
     },

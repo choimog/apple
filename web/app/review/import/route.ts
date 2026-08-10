@@ -16,8 +16,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { currentRole, db } from "@/lib/supabase";
 import { parseSheet } from "@/lib/review-sheet";
 
-/** 한 번에 반영할 수 있는 최대 줄 수 */
-const MAX_APPLY = 2000;
+/** 시간이 오래 걸릴 수 있습니다 (무료 요금제 최대치) */
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+/**
+ * 한 번에 반영할 수 있는 최대 줄 수.
+ *
+ * 【2026-08-10】 내려받기를 '갯수 제한 없이' 로 바꿨는데 올리는 쪽이
+ * 2,000줄이면, 받은 파일을 다 채워 올렸을 때 통째로 거절당합니다.
+ * 받을 수 있는 만큼은 올릴 수 있어야 합니다.
+ */
+const MAX_APPLY = 100000;
 
 export async function POST(request: NextRequest) {
   const back = new URL("/review", request.url);
@@ -95,29 +105,35 @@ export async function POST(request: NextRequest) {
     groups.get(key)!.push(r.id);
   }
 
+  // 수만 줄을 200개씩 **차례로** 고치면 줄 서서 기다리다 시간 제한에
+  // 걸립니다. 4묶음씩 동시에 보냅니다.
+  const LANES = 4;
   for (const [key, ids] of groups) {
     const [decision, mode] = key.split("|");
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const { data, error } = await supabase
-        .from("book_matches")
-        .update({
-          decision,
-          // 되돌린 것은 '사람이 내린 결정' 이 아니므로 흔적을 지웁니다.
-          decided_by: mode === "undo" ? null : auth.user.id,
-          decided_at: mode === "undo" ? null : new Date().toISOString(),
-        })
-        .in("id", chunk)
-        .select("id");
+    const chunks: number[][] = [];
+    for (let i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
 
+    for (let i = 0; i < chunks.length; i += LANES) {
+      const results = await Promise.all(
+        chunks.slice(i, i + LANES).map(async (chunk) => {
+          const { data, error } = await supabase
+            .from("book_matches")
+            .update({
+              decision,
+              // 되돌린 것은 '사람이 내린 결정' 이 아니므로 흔적을 지웁니다.
+              decided_by: mode === "undo" ? null : auth.user!.id,
+              decided_at: mode === "undo" ? null : new Date().toISOString(),
+            })
+            .in("id", chunk)
+            .select("id");
+          return { n: chunk.length, got: error ? 0 : (data ?? []).length };
+        })
+      );
       // ⚠️ 오류가 없어도 안심하면 안 됩니다.
       //    보안 규칙에 막히면 **오류 없이 0줄**이 바뀝니다.
-      if (error) {
-        failed += chunk.length;
-      } else {
-        const n = (data ?? []).length;
-        applied += n;
-        failed += chunk.length - n;
+      for (const r of results) {
+        applied += r.got;
+        failed += r.n - r.got;
       }
     }
   }

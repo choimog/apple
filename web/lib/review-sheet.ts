@@ -20,6 +20,9 @@
 export const SHEET_HEADER = [
   "짝번호",
   "결정",
+  // 세 가지를 한 파일로 받으실 수 있어서(2026-08-10 요청), 이 줄이 어느
+  // 탭에서 왔는지 적습니다. 올릴 때는 읽지 않습니다 — 짝번호로만 찾습니다.
+  "구분",
   "점수",
   "묶인권수",
   "A서점",
@@ -43,7 +46,7 @@ export const SHEET_HEADER = [
  */
 export function noteRow(text: string): string[] {
   const row = Array<string>(SHEET_HEADER.length).fill("");
-  row[2] = text; // '점수' 칸 자리 — 짝번호·결정 칸은 비워 둡니다
+  row[2] = text; // '구분' 칸 자리 — 짝번호·결정 칸은 반드시 비워 둡니다
   return row;
 }
 

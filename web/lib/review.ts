@@ -398,15 +398,28 @@ async function shapePairs(
   // ⚠️ 번호를 한 줄에 다 적어서 물어보면 주소가 너무 길어져 데이터베이스가
   //    거절합니다. 화면(20줄)에서는 안 걸리지만 내려받기(수백 줄)에서는
   //    걸립니다. 300개씩 나눠 묻습니다.
+  //    또 하나: 나눈 것을 **차례로** 물으면 줄 서서 기다립니다.
+  //    갯수 제한 없이 받을 때는 그 기다림이 쌓여 시간 제한에 걸립니다.
+  //    4개씩 동시에 묻습니다.
   const ID_CHUNK = 300;
+  const LANES = 4;
+  const parts: number[][] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) parts.push(ids.slice(i, i + ID_CHUNK));
+
   const books: Record<string, unknown>[] = [];
-  for (let i = 0; i < ids.length; i += ID_CHUNK) {
-    const { data, error: e2 } = await supabase
-      .from("store_books")
-      .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
-      .in("id", ids.slice(i, i + ID_CHUNK));
-    if (e2) return [];
-    books.push(...((data ?? []) as Record<string, unknown>[]));
+  for (let i = 0; i < parts.length; i += LANES) {
+    const got = await Promise.all(
+      parts.slice(i, i + LANES).map(async (part) => {
+        const { data, error } = await supabase
+          .from("store_books")
+          .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
+          .in("id", part);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as Record<string, unknown>[];
+      })
+    ).catch(() => null);
+    if (!got) return [];
+    for (const g of got) books.push(...g);
   }
 
   const byId = new Map<number, ReviewBook>();
@@ -467,6 +480,12 @@ async function shapePairs(
  */
 const EXPORT_CHUNK = 500;
 
+/**
+ * '갯수 제한 없이' 라고 해도 끝없이 돌면 안 됩니다.
+ * 여기 걸리면 **파일 안에 잘렸다고 적습니다** (조용히 자르지 않습니다).
+ */
+const HARD_SCAN_CAP = 100000;
+
 export type ExportStatus = {
   /** 지금까지 보낸 줄 수 */
   sent: number;
@@ -498,7 +517,11 @@ export async function* streamReviewPairs(
   }
 
   // 권수로 좁힐 때는 걸러지는 줄이 있으므로 더 많이 훑어야 합니다.
-  const scanCap = size === null ? maxRows : FILTER_SCAN_CAP;
+  // maxRows 가 Infinity(갯수 제한 없음)여도 여기서 멈출 자리는 있어야 합니다.
+  const scanCap = Math.min(
+    size === null ? maxRows : FILTER_SCAN_CAP,
+    HARD_SCAN_CAP
+  );
 
   for (let start = 0; start < scanCap && status.sent < maxRows; start += EXPORT_CHUNK) {
     let q = supabase
@@ -537,8 +560,7 @@ export async function* streamReviewPairs(
   }
 
   // 여기까지 왔는데 아직 남았다면 훑는 한도에 걸린 것입니다
-  if (status.sent >= maxRows) status.capped = true;
-  else if (size !== null) status.capped = true;
+  if (status.sent >= maxRows || size !== null) status.capped = true;
 }
 
 /** 탭마다 몇 건씩 남았는지 (탭 옆 숫자) */

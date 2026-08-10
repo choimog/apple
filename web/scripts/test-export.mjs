@@ -53,9 +53,10 @@ try {
   console.log("\n[2] 🚨 안내 문구를 우리가 다시 읽어도 사고가 안 난다");
   // 이 파일을 그대로 다시 올리실 수 있습니다. 안내 줄이 '결정' 으로
   // 읽히면 엉뚱한 짝이 바뀝니다.
-  const round = parseSheet(
-    toCsv([...SHEET_HEADER], [[1, "같은책", 90, 3, "", "", "", "", "", "", "", "", "", "", ""], note])
-  );
+  const filled = Array(SHEET_HEADER.length).fill("");
+  filled[0] = 1;
+  filled[1] = "같은책";
+  const round = parseSheet(toCsv([...SHEET_HEADER], [filled, note]));
   check("반영할 줄은 1건뿐", round.rows.length === 1, round.rows);
   check("안내 줄은 '빈칸' 으로 넘어감", round.blank === 1, round.blank);
   check("'모르는 말' 로 세지 않음", round.unknown.length === 0, round.unknown);
@@ -63,10 +64,10 @@ try {
   console.log("\n[3] 조금씩 흘려보내도 파일이 똑같다");
   // 한꺼번에 만들던 것을 줄 단위로 바꿨습니다. 결과가 달라지면 안 됩니다.
   const rows = [
-    [1, "", 90, 3, "교보문고", "아버지, 해방일지", "정지아", "창비", "2022-09",
-     "예스24", "아버지, 해방일지", "정지아", "창비", "2022-09", "제목 같음"],
-    [2, "", 70, 2, "교보문고", '따옴표"있음', "저자", "민음사", "", "예스24",
-     "따옴표\"있음", "저자", "민음사", "", ""],
+    [1, "", "검토 대기", 90, 3, "교보문고", "아버지, 해방일지", "정지아", "창비",
+     "2022-09", "예스24", "아버지, 해방일지", "정지아", "창비", "2022-09", "제목 같음"],
+    [2, "", "검토 대기", 70, 2, "교보문고", '따옴표"있음', "저자", "민음사", "",
+     "예스24", "따옴표\"있음", "저자", "민음사", "", ""],
   ];
   const whole = toCsv([...SHEET_HEADER], rows);
   const streamed =
@@ -96,9 +97,36 @@ try {
 
   console.log("\n[6] 잘렸으면 조용히 넘어가지 않는다");
   check("잘림 표시가 있다", route.includes("status.capped"));
-  check("잘렸다고 파일 안에 적는다", route.includes("건만 받았습니다"));
+  check("잘렸다고 파일 안에 적는다", route.includes("건까지만 담았습니다"));
   check("도중에 끊기면 파일 안에 적는다", route.includes("전부가 아닙니다"));
   check("한 건도 없으면 그렇다고 적는다", route.includes("해당하는 짝이 없습니다"));
+  // 🚨 흘려보내는 중에는 오류 화면으로 못 바꿉니다. 끝 표시가 유일한 증거입니다.
+  check("파일 맨 끝에 '여기까지가 전부' 를 적는다",
+    route.includes("여기까지가 전부입니다"));
+
+  console.log("\n[7] 2026-08-10 요청 — 세 가지를 갯수 제한 없이 한 번에");
+  check("tab=all 을 받아들인다", route.includes('raw === "all"'));
+  check("세 가지를 모두 담는다",
+    /ALL_TABS[^\n]*=[^\n]*"pending"[^\n]*"merged"[^\n]*"mine"/.test(route));
+  check("전체일 때는 줄 수 제한이 없다", route.includes("all ? Infinity"));
+  check("전체일 때는 점수·권수 조건을 걸지 않는다",
+    route.includes("all ? null : parseBand") && route.includes("all ? null : parseSize"));
+  check("어느 칸에서 온 줄인지 적는다", SHEET_HEADER.includes("구분"));
+  check("'구분' 은 결정 바로 뒤 (앞 두 칸은 그대로)",
+    SHEET_HEADER[0] === "짝번호" && SHEET_HEADER[1] === "결정" &&
+    SHEET_HEADER[2] === "구분", SHEET_HEADER.slice(0, 3));
+
+  console.log("\n[8] 받을 수 있는 만큼 올릴 수도 있어야 한다");
+  // 내려받기만 늘리고 올리기를 2,000줄로 두면, 다 채워 올렸을 때
+  // 통째로 거절당합니다.
+  const imp = readFileSync("app/review/import/route.ts", "utf8");
+  const cap = Number((imp.match(/MAX_APPLY\s*=\s*(\d+)/) ?? [])[1]);
+  check("올리기 한도가 2,000줄보다 크다", cap > 2000, cap);
+  check("올리기도 시간 제한을 늘려 두었다",
+    /export const maxDuration\s*=\s*\d+/.test(imp));
+  check("여러 묶음을 동시에 보낸다", imp.includes("LANES"));
+  check("막혀서 0줄 바뀐 것을 성공으로 세지 않는다",
+    imp.includes("failed += r.n - r.got"));
 
   console.log();
   if (bad) {

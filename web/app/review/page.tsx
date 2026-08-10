@@ -121,12 +121,30 @@ export default async function ReviewPage({
               <code>다른책</code> 만 적으시면 됩니다.
               빈칸은 그냥 넘어갑니다 — 전부 채우지 않으셔도 됩니다.
             </p>
-            <a
-              href={`/review/sheet?tab=${tab}${bandQ}${sizeQ}`}
-              className="mt-2 inline-block rounded-xl border border-line px-3.5 py-2 text-sm font-medium hover:border-ink-faint"
-            >
-              검토 목록 내려받기 (엑셀)
-            </a>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a
+                href={`/review/sheet?tab=${tab}${bandQ}${sizeQ}`}
+                className="inline-block rounded-xl border border-line px-3.5 py-2 text-sm font-medium hover:border-ink-faint"
+              >
+                이 조건만 내려받기
+              </a>
+              {/* 2026-08-10 요청 — "갯수 제한 없이 한번에 다 다운로드" */}
+              <a
+                href="/review/sheet?tab=all"
+                className="inline-block rounded-xl border border-ink-faint bg-surface-2 px-3.5 py-2 text-sm font-medium hover:border-ink"
+              >
+                전체 한 번에 내려받기
+              </a>
+            </div>
+            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
+              <strong>전체</strong>는 세 가지(검토 대기·자동으로 묶은
+              것·내가 내린 결정)를 조건 없이 전부 담습니다. 건수가 많으면
+              시간이 좀 걸립니다.
+              <br />
+              받으신 뒤 <strong>맨 아래 줄에 「여기까지가 전부입니다」</strong>
+              가 있는지 봐 주세요. 없으면 중간에 끊긴 것이니 다시 받아
+              주세요.
+            </p>
           </div>
 
           <div>

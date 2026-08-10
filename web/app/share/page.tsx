@@ -89,9 +89,29 @@ export default async function SharePage({
             아직 준비가 안 됐습니다
           </p>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Supabase → SQL Editor 에서 <code>db/share.sql</code> 을 한 번
-            실행해 주세요.
+            Supabase → SQL Editor 에서 <code>db/share.sql</code> 을 먼저,
+            그 다음 <code>db/share-open.sql</code> 을 실행해 주세요.
           </p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            <strong>이미 실행하셨는데도 이 화면이면</strong>, 아래 한 줄을
+            SQL Editor 에서 실행해 보세요. 데이터베이스는 바뀌었는데 그
+            사실이 아직 전달되지 않은 경우입니다.
+          </p>
+          <code className="scroll-x mt-2 block rounded-lg border border-line bg-surface px-3 py-2 text-xs">
+            NOTIFY pgrst, &apos;reload schema&apos;;
+          </code>
+          {/* 🚨 이유를 감추면 대표님도 저도 무엇이 문제인지 알 수 없습니다.
+              데이터베이스가 한 말을 그대로 보여줍니다. */}
+          {links.error && (
+            <>
+              <p className="mt-3 text-xs text-ink-faint">
+                데이터베이스가 한 말 (그대로 알려 주세요):
+              </p>
+              <code className="scroll-x mt-1 block rounded-lg border border-line bg-surface px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                {links.error}
+              </code>
+            </>
+          )}
         </Card>
       ) : (
         <>

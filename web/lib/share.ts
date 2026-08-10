@@ -107,12 +107,16 @@ export type ShareLink = {
 export async function listShareLinks(): Promise<{
   rows: ShareLink[];
   ok: boolean;
+  /** 안 될 때 데이터베이스가 실제로 한 말 */
+  error?: string;
 }> {
   const { data, error } = await db().rpc("my_share_links");
   if (error) {
-    // 아직 db/share.sql 을 실행하지 않았거나 관리자가 아닙니다.
-    // 조용히 빈 목록을 보여주지 않고 화면에서 안내합니다.
-    return { rows: [], ok: false };
+    // ⚠️ 예전에는 여기서 이유를 버리고 화면에 "db/share.sql 을 실행하세요"
+    //    라고만 적었습니다. 대표님이 db/share-open.sql 을 실행하신 뒤에도
+    //    똑같은 문구가 떠서, 무엇이 문제인지 알 길이 없었습니다 (2026-08-10).
+    //    이유를 버리지 말고 그대로 들고 나갑니다.
+    return { rows: [], ok: false, error: error.message };
   }
   return {
     rows: (data ?? []).map((r: Record<string, unknown>) => ({

@@ -202,19 +202,19 @@ def to_text(d: dict) -> str:
             mv = "변화없음"
         else:
             mv = f"{r['change']:+d}"
-        ym = r.get("pub_ym") or "출간월모름"
+        ym = r.get("pub_ym") or "출간월 모름"
         L.append(
             f"{r['rank']:>3}. {r['title']} / {r['author']} / {r['publisher']} "
-            f"/ 배본 {ym} [{mv}] ({where})"
+            f"/ {ym} [{mv}] ({where})"
         )
     L.append("")
 
     if d["has_yesterday"]:
         big = d["big_move"]
         def line(r, arrow: bool) -> str:
-            ym = r.get("pub_ym") or "출간월모름"
+            ym = r.get("pub_ym") or "출간월 모름"
             head = f"{r['prev_rank']}위→{r['rank']}위" if arrow else f"{r['rank']}위"
-            return f"  {head} {r['title']} / {r['publisher']} / 배본 {ym}"
+            return f"  {head} {r['title']} / {r['publisher']} / {ym}"
 
         L.append(f"[신규 진입] {len(d['new_in'])}권")
         for r in d["new_in"]:

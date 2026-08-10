@@ -132,17 +132,30 @@ try {
     SHEET_HEADER[0] === "짝번호" && SHEET_HEADER[1] === "결정" &&
     SHEET_HEADER[2] === "구분", SHEET_HEADER.slice(0, 3));
 
-  console.log("\n[8] 받을 수 있는 만큼 올릴 수도 있어야 한다");
-  // 내려받기만 늘리고 올리기를 2,000줄로 두면, 다 채워 올렸을 때
-  // 통째로 거절당합니다.
-  const imp = readFileSync("app/review/import/route.ts", "utf8");
-  const cap = Number((imp.match(/MAX_APPLY\s*=\s*(\d+)/) ?? [])[1]);
-  check("올리기 한도가 2,000줄보다 크다", cap > 2000, cap);
+  console.log("\n[8] 🚨 올리기도 파일을 통째로 보내지 않는다 (413 PAYLOAD_TOO_LARGE)");
+  // 파일 통째로 올리기는 4.5MB 에서 서버 앞단이 거절합니다.
+  // 우리 코드가 실행되기도 전이라 안내 문구조차 못 띄웁니다.
+  const imp = readFileSync("app/review/import/chunk/route.ts", "utf8");
+  const impUi = readFileSync("components/ImportSheet.tsx", "utf8");
+  check("파일을 올리는 폼이 없다",
+    !readFileSync("app/review/page.tsx", "utf8").includes('action="/review/import"'));
+  check("브라우저가 파일을 읽는다", impUi.includes("parseSheet"));
+  check("짝번호와 결정만 나눠 보낸다",
+    impUi.includes("/review/import/chunk") && impUi.includes("JSON.stringify"));
+  check("한 번에 보내는 건수를 정해 뒀다", /PER_CALL\s*=\s*\d+/.test(impUi));
+  check("서버도 한 번에 받는 양을 막는다", /MAX_PER_CALL\s*=\s*\d+/.test(imp));
   check("올리기도 시간 제한을 늘려 두었다",
     /export const maxDuration\s*=\s*\d+/.test(imp));
-  check("여러 묶음을 동시에 보낸다", imp.includes("LANES"));
+  check("이상한 값이 섞이면 한 건도 반영 안 한다",
+    imp.includes("짝번호가 이상합니다") && imp.includes("모르는 결정"));
   check("막혀서 0줄 바뀐 것을 성공으로 세지 않는다",
-    imp.includes("failed += r.n - r.got"));
+    imp.includes("failed += ids.length - n"));
+  check("엉뚱한 파일이면 보내기 전에 멈춘다",
+    /parsed\.fatal[\s\S]{0,80}return;/.test(impUi));
+  check("도중에 멈추면 어디까지 반영됐는지 말한다",
+    impUi.includes("이미 반영됐습니다"));
+  check("몇 건 반영·건너뜀·실패인지 숫자로 보여준다",
+    impUi.includes("건 반영했습니다") && impUi.includes("반영 안 됨"));
 
   console.log("\n[9] 🚨 전체 받기는 브라우저가 나눠서 가져온다 (두 번 잘린 뒤)");
   // 29,502줄 · 36,002줄에서 두 번 잘렸습니다. 서버가 한 번에 다 만들려는

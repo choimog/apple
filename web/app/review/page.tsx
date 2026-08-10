@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import ExportAll from "@/components/ExportAll";
+import ImportSheet from "@/components/ImportSheet";
 import DataError from "@/components/DataError";
 import { Card, CardHead, Empty } from "@/components/ui";
 import { configError, currentRole } from "@/lib/supabase";
@@ -154,26 +155,10 @@ export default async function ReviewPage({
                 되돌리려면 <code>되돌리기</code> 라고 적으시면 됩니다.
               </span>
             </p>
-            <form
-              action="/review/import"
-              method="post"
-              encType="multipart/form-data"
-              className="mt-2 flex flex-wrap items-center gap-2"
-            >
-              <input
-                type="file"
-                name="file"
-                accept=".csv,text/csv"
-                required
-                className="max-w-full text-xs file:mr-2 file:rounded-lg file:border file:border-line file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs"
-              />
-              <button
-                type="submit"
-                className="rounded-xl border border-emerald-400 px-3.5 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
-              >
-                올려서 반영
-              </button>
-            </form>
+            {/* 2026-08-10 — 파일을 통째로 올리면 4.5MB 에서 거절당합니다
+                (413 PAYLOAD_TOO_LARGE). 브라우저가 읽어서 '짝번호와 결정'
+                만 나눠 보냅니다. 파일을 고르시면 바로 시작합니다. */}
+            <ImportSheet />
           </div>
         </div>
         <p className="border-t border-line-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-faint sm:px-5">

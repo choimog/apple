@@ -31,8 +31,11 @@ import {
 /**
  * 순위를 어느 기준으로 볼지.
  *   "overall"        종합(전체) 순위
- *   "top"            분야 중 가장 높은 것 (분야가 날마다 바뀔 수 있음)
  *   "cat:fiction" 등  그 분야 하나만
+ *
+ * 【2026-08-10 대표님 지시】 "분야 최고는 일단 없애줘."
+ * 날마다 다른 분야를 가리키는 줄이라, 경고를 붙여도 오해의 여지가
+ * 남습니다. 분야는 하나를 콕 집어서만 봅니다.
  */
 type Basis = string;
 
@@ -76,7 +79,6 @@ export default async function BookPage({
     아예 보여주지 않습니다 (누를 것이 없는 버튼은 방해만 됩니다).
   */
   const hasOverall = allHistory.some((h) => h.isOverall);
-  const hasCategory = allHistory.some((h) => !h.isOverall);
 
   /*
     【2026-08-10 대표님 추가 지적】
@@ -99,41 +101,21 @@ export default async function BookPage({
       ? wanted.slice(4)
       : null;
 
-  const basis: Basis = pickedCat
-    ? `cat:${pickedCat}`
-    : wanted === "top" && hasCategory
-      ? "top"
-      : wanted === "overall" && hasOverall
-        ? "overall"
-        : hasOverall
-          ? "overall"
-          : "top";
-
-  let history: typeof allHistory;
-  if (basis === "overall") {
-    history = allHistory.filter((h) => h.isOverall);
-  } else if (pickedCat) {
-    history = allHistory.filter((h) => h.unifiedCode === pickedCat);
-  } else {
-    // '분야 최고' — 날마다 가장 높은 분야 하나만 남깁니다
-    const top = new Map<string, (typeof allHistory)[number]>();
-    for (const h of allHistory) {
-      if (h.isOverall) continue;
-      const k = `${h.date}|${h.storeId}|${h.period}`;
-      const cur = top.get(k);
-      if (!cur || h.rank < cur.rank) top.set(k, h);
-    }
-    history = [...top.values()].sort((a, b) => a.date.localeCompare(b.date));
-  }
-
   /*
-    🚨 '분야 최고' 는 날마다 다른 분야를 가리킬 수 있습니다.
-       그러면 그래프의 오르내림이 실제 움직임이 아닐 수 있습니다.
-       조용히 두면 안 되고, 몇 개 분야가 섞였는지 화면에 적습니다.
+    무엇을 보여줄지 정합니다.
+    · 주소로 고르신 것이 있으면 그것
+    · 없으면 종합(전체). 종합에 한 번도 안 올랐으면 가장 오래 머문 분야
+    어느 쪽이든 **한 가지 기준만** 그립니다. 섞지 않습니다.
   */
-  const mixedNames = !pickedCat && basis === "top"
-    ? [...new Set(history.map((h) => h.categoryName))]
-    : [];
+  const firstCat = categoryChoices[0]?.unifiedCode ?? null;
+  const shownCat =
+    pickedCat ?? (wanted === "overall" && hasOverall ? null : hasOverall ? null : firstCat);
+
+  const basis: Basis = shownCat ? `cat:${shownCat}` : "overall";
+
+  const history = shownCat
+    ? allHistory.filter((h) => h.unifiedCode === shownCat)
+    : allHistory.filter((h) => h.isOverall);
 
   /*
     판매지수는 **기준과 상관없습니다.** 서점이 책 한 권에 하나씩 매기는
@@ -400,9 +382,7 @@ export default async function BookPage({
           desc={
             basis === "overall"
               ? "종합(전체) 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
-              : pickedCat
-                ? `${categoryChoices.find((c) => c.unifiedCode === pickedCat)?.name ?? "분야"} 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일`
-                : "분야 중 가장 높은 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
+              : `${categoryChoices.find((c) => c.unifiedCode === shownCat)?.name ?? "분야"} 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일`
           }
           right={
             <BookExportButton
@@ -415,7 +395,7 @@ export default async function BookPage({
         />
 
         {/* 어느 기준으로 볼지 — 고를 것이 둘 이상일 때만 보여줍니다 */}
-        {(Number(hasOverall) + Number(hasCategory) + categoryChoices.length) > 1 && (
+        {Number(hasOverall) + categoryChoices.length > 1 && (
           <div className="border-b border-line-soft px-4 py-2.5 sm:px-5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="shrink-0 text-xs font-semibold text-ink-soft">
@@ -427,18 +407,13 @@ export default async function BookPage({
                     종합(전체)
                   </BasisChip>
                 )}
-                {categoryChoices.length > 1 && (
-                  <BasisChip id={id} basis="top" on={basis === "top"}>
-                    분야 최고
-                  </BasisChip>
-                )}
                 {/* 이 책이 실제로 올랐던 분야만 (오래 머문 것부터) */}
                 {categoryChoices.map((c) => (
                   <BasisChip
                     key={c.unifiedCode}
                     id={id}
                     basis={`cat:${c.unifiedCode}`}
-                    on={pickedCat === c.unifiedCode}
+                    on={shownCat === c.unifiedCode}
                   >
                     {c.name}
                     <span className="ml-1 opacity-70">{c.days}일</span>
@@ -446,27 +421,12 @@ export default async function BookPage({
                 ))}
               </div>
             </div>
-
-            {/* 🚨 '분야 최고' 는 날마다 다른 분야를 가리킬 수 있습니다 */}
-            {mixedNames.length > 1 ? (
-              <p className="mt-1.5 text-2xs leading-relaxed text-amber-700 dark:text-amber-400">
-                ⚠️ 이 줄은 날마다 <strong>가장 높은 분야</strong>를 따라갑니다.
-                지금 {mixedNames.length}개 분야({mixedNames.join(" · ")})가
-                섞여 있어서, 오르내림이 실제 움직임이 아닐 수 있습니다.
-                <br />
-                예: 『소설 5위』와 『한국소설 2위』에 함께 올라 있다가
-                한국소설에서 빠지면 2위 → 6위처럼 보이지만, 소설 순위는
-                5위 → 6위로 한 계단 움직였을 뿐입니다.{" "}
-                <strong>분야 하나를 골라서 보시는 편이 정확합니다.</strong>
-              </p>
-            ) : (
-              <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
-                기준이 다르면 숫자의 뜻도 다릅니다. 분야에서 3위이던 책이
-                종합에 처음 들면 150위가 되는데, 그래프만 보면 폭락 같지만
-                실제로는 <strong>더 잘 팔려서</strong> 종합에 든 것입니다.
-                그래서 섞지 않고 따로 그립니다.
-              </p>
-            )}
+            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
+              한 번에 <strong>한 가지 기준</strong>만 그립니다. 기준이
+              다르면 숫자의 뜻도 다르기 때문입니다. 소설에서 3위이던 책이
+              종합에 처음 들면 150위가 되는데, 섞어 그리면 폭락처럼 보이지만
+              실제로는 <strong>더 잘 팔려서</strong> 종합에 든 것입니다.
+            </p>
           </div>
         )}
         <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">

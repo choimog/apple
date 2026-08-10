@@ -40,3 +40,9 @@ jobs:
 
       - name: 빈 데이터베이스로 시험
         run: bash tests/test_auth_sql.sh
+
+      - name: 공유 링크 회원 공개 시험
+        # share.sql 과 share-open.sql 은 같은 이름의 함수를 각각 정의합니다.
+        # 어느 쪽이 이겼는지는 **화면으로는 절대 구분이 안 됩니다.**
+        # 실제로 그것 때문에 하루를 헤맸습니다 (2026-08-10).
+        run: bash tests/test_share_open.sh

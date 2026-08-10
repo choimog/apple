@@ -601,8 +601,24 @@ export type HistoryPoint = {
   sales: number | null;
   /** 이 순위가 나온 분야 */
   categoryName: string;
+  /**
+   * 통합 분야 코드 ('fiction', 'business' …). 서점이 달라도 같은 분야면
+   * 같은 값이라, 이걸로 3사를 나란히 비교할 수 있습니다.
+   * 'all' 이면 종합(전체)입니다.
+   */
+  unifiedCode: string;
   /** 그 분야가 '종합(전체)' 인지 */
   isOverall: boolean;
+};
+
+/** 이 책이 올랐던 분야 하나 (고르는 버튼을 만들 때 씁니다) */
+export type CategoryChoice = {
+  unifiedCode: string;
+  name: string;
+  /** 며칠이나 올라 있었나 (많은 것부터 보여주려고) */
+  days: number;
+  /** 그 분야에서의 최고 순위 */
+  bestRank: number;
 };
 
 export type CurrentPlacement = {
@@ -628,6 +644,7 @@ export type CurrentPlacement = {
 export async function getBookDetail(bookId: number): Promise<{
   stores: StoreBook[];
   history: HistoryPoint[];
+  categoryChoices: CategoryChoice[];
   placements: CurrentPlacement[];
   latestDate: string | null;
 }> {
@@ -642,7 +659,7 @@ export async function getBookDetail(bookId: number): Promise<{
   const stores = (sbs ?? []) as StoreBook[];
   const ids = stores.map((s) => s.id);
   if (!ids.length) {
-    return { stores: [], history: [], placements: [], latestDate: null };
+    return { stores: [], history: [], categoryChoices: [], placements: [], latestDate: null };
   }
 
   const [cats, raw] = await Promise.all([
@@ -702,10 +719,23 @@ export async function getBookDetail(bookId: number): Promise<{
       그래서 이제 **두 기준을 따로 담습니다.** 어느 쪽을 볼지는 화면에서
       대표님이 고르십니다 (app/book/[id]/page.tsx).
     */
-    const key = `${r.snapshot_date}|${storeId}|${period}|${isOverall ? "A" : "C"}`;
-    const cur = best.get(key);
+    /*
+      【2026-08-10 대표님 추가 지적】
+      "분야도 한번에 여러 분야 카테고리에 오르는 경우가 있잖아.
+       이런 경우는 어떡해?"
 
-    // 같은 기준 안에서는 가장 높은 순위 하나만 (분야 여러 곳에 올라 있을 때)
+      같은 문제가 한 단계 아래에서 그대로 반복되고 있었습니다.
+      '소설 5위' 와 '한국소설 2위' 에 동시에 올라 있으면 예전에는 2위만
+      남겼는데, 다음 날 한국소설에서 빠지면 갑자기 '소설 6위' 가 됩니다.
+      2위 → 6위 로 떨어진 것처럼 보이지만 소설 순위는 5위 → 6위,
+      한 계단 움직였을 뿐입니다.
+
+      그래서 **분야마다 따로 담습니다.** 무엇을 볼지는 화면에서 고릅니다.
+      (같은 분야 안에서 여러 줄이 오는 경우만 가장 높은 것을 남깁니다)
+    */
+    const uni = cat.unified_code ?? `x_${cat.id}`;
+    const key = `${r.snapshot_date}|${storeId}|${period}|${uni}`;
+    const cur = best.get(key);
     const better = !cur || r.rank < cur.rank;
 
     if (better) {
@@ -716,6 +746,7 @@ export async function getBookDetail(bookId: number): Promise<{
         rank: r.rank,
         sales: r.sales_point,
         categoryName: cat.name,
+        unifiedCode: uni,
         isOverall,
       });
     }
@@ -750,7 +781,36 @@ export async function getBookDetail(bookId: number): Promise<{
   );
 
   const history = [...best.values()].sort((a, b) => a.date.localeCompare(b.date));
-  return { stores, history, placements, latestDate };
+
+  /*
+    이 책이 올랐던 **분야 목록** — 화면에서 고르는 버튼을 만드는 재료입니다.
+    같은 분야는 서점이 달라도 하나로 묶습니다(통합 분야 코드).
+    오래 머문 분야를 앞에 둡니다. 하루 반짝 오른 분야가 맨 앞에 있으면
+    누를 것을 찾기 어렵습니다.
+  */
+  const catMap = new Map<string, CategoryChoice & { seen: Set<string> }>();
+  for (const h of history) {
+    if (h.isOverall) continue;
+    const cur = catMap.get(h.unifiedCode);
+    if (!cur) {
+      catMap.set(h.unifiedCode, {
+        unifiedCode: h.unifiedCode,
+        name: h.categoryName,
+        days: 0,
+        bestRank: h.rank,
+        seen: new Set(),
+      });
+    }
+    const it = catMap.get(h.unifiedCode)!;
+    it.seen.add(h.date);
+    it.days = it.seen.size;
+    if (h.rank < it.bestRank) it.bestRank = h.rank;
+  }
+  const categoryChoices: CategoryChoice[] = [...catMap.values()]
+    .map(({ seen: _seen, ...rest }) => rest)
+    .sort((a, b) => b.days - a.days || a.bestRank - b.bestRank);
+
+  return { stores, history, placements, latestDate, categoryChoices };
 }
 
 /** 최근 수집이 잘 됐는지 (화면 상단에 정직하게 표시하기 위함) */

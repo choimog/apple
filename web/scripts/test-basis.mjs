@@ -29,8 +29,10 @@ const chart = readFileSync("components/TrendChart.tsx", "utf8");
 
 console.log("\n[1] 🚨 종합과 분야를 한 줄에 섞지 않는다");
 // 섞으면 '소설 3위 → 종합 150위' 가 폭락으로 보입니다. 실제로는 승격입니다.
-check("두 기준을 따로 담는다 (열쇠에 기준이 들어감)",
-  /isOverall \? "A" : "C"/.test(q));
+// 종합의 통합 분야 코드는 'all' 이므로, 분야 코드로 나누면 종합도
+// 자동으로 따로 담깁니다 (한 번에 두 문제가 풀립니다).
+check("열쇠에 분야 코드가 들어가 종합·분야가 따로 담긴다",
+  /\|\$\{uni\}`/.test(q) && q.includes('cat.unified_code ?? '));
 check("'종합이 언제나 이긴다' 규칙을 없앴다",
   !q.includes("종합이 언제나 이깁니다"));
 check("같은 기준 안에서만 최고 순위를 고른다",
@@ -39,17 +41,42 @@ check("같은 기준 안에서만 최고 순위를 고른다",
 console.log("\n[2] 화면에서 고를 수 있다");
 check("주소로 기준을 받는다", page.includes("searchParams") && page.includes("sp.basis"));
 check("고르는 버튼이 있다", page.includes("BasisChip"));
-check("종합·분야 두 가지", page.includes('basis="overall"') && page.includes('basis="category"'));
+check("종합·분야 두 가지", page.includes('basis="overall"') && page.includes('basis="top"'));
 check("고른 기준으로 걸러서 그린다",
   /allHistory\.filter\([\s\S]{0,120}h\.isOverall/.test(page));
 check("무슨 기준인지 제목 옆에 적는다",
-  page.includes("종합(전체) 순위 기준") && page.includes("분야 순위 기준"));
+  page.includes("종합(전체) 순위 기준") &&
+  page.includes("분야 중 가장 높은 순위 기준"));
 // 한쪽밖에 없는 책에서 버튼을 보여주면 눌러도 아무 일이 없습니다
 check("한쪽만 있으면 버튼을 안 보여준다",
-  page.includes("hasOverall && hasCategory"));
+  page.includes("hasOverall &&") && page.includes("categoryChoices.length > 1"));
 // 종합에 한 번도 안 오른 책은 종합을 기본으로 두면 빈 그래프가 됩니다
 check("종합이 없으면 분야로 시작한다",
-  /hasOverall[\s\S]{0,60}"overall"[\s\S]{0,40}"category"/.test(page));
+  /hasOverall\s*\?\s*"overall"\s*:\s*"top"/.test(page));
+
+console.log("\n[2-1] 🚨 여러 분야에 동시에 올랐을 때 (2026-08-10 추가 지적)");
+// '소설 5위' 와 '한국소설 2위' 에 함께 올라 있다가 한국소설에서 빠지면
+// 2위 → 6위처럼 보이지만, 소설 순위는 5위 → 6위입니다.
+check("분야마다 따로 담는다 (열쇠에 분야 코드가 들어감)",
+  /\$\{r\.snapshot_date\}\|\$\{storeId\}\|\$\{period\}\|\$\{uni\}/.test(q));
+check("그 책이 올랐던 분야 목록을 만든다", q.includes("categoryChoices"));
+check("오래 머문 분야를 앞에 둔다", /b\.days - a\.days/.test(q));
+check("분야 하나를 콕 집어 고를 수 있다", page.includes('basis={`cat:'));
+check("모르는 분야 코드는 무시한다", page.includes("catCodes.has"));
+check("고른 분야만 걸러 그린다",
+  /h\.unifiedCode === pickedCat/.test(page));
+check("'분야 최고' 도 남아 있다", page.includes('basis="top"'));
+check("제목 옆에 고른 분야 이름을 적는다",
+  page.includes("순위 기준 · 위로 갈수록"));
+// 🚨 조용히 섞이면 안 됩니다
+check("분야가 섞이면 경고한다", page.includes("mixedNames"));
+check("몇 개 분야가 섞였는지 이름까지 알려준다",
+  page.includes("mixedNames.join"));
+check("분야 하나를 고르라고 권한다",
+  page.includes("분야 하나를 골라서 보시는 편이 정확합니다"));
+// 고를 것이 하나뿐이면 버튼 줄 자체가 방해입니다
+check("고를 것이 둘 이상일 때만 버튼을 보여준다",
+  /Number\(hasOverall\) \+ Number\(hasCategory\) \+ categoryChoices\.length\) > 1/.test(page));
 
 console.log("\n[3] 🚨 판매지수는 기준과 상관없이 그린다");
 // 기준으로 거르면 그날 판매지수가 통째로 사라져 없는 구멍이 생깁니다.

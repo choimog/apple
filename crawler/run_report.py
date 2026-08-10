@@ -370,6 +370,11 @@ def main() -> int:
         print("  ⚠️ 이 속도면 이번 달 안에 한도에 닿습니다. 닿으면 자동으로 멈춥니다.")
 
     # ---- 저장 ----
+    #
+    # ⚠️ 저장은 '시켰다' 와 '됐다' 가 다릅니다.
+    #    예전에는 명령을 보낸 뒤 확인 없이 "저장했습니다" 라고 찍었습니다.
+    #    그러면 실제로 안 들어갔을 때도 성공으로 보입니다.
+    #    (2026-08-10 대표님이 "리포트가 그대로야" 라고 하셔서 드러난 구멍)
     client.table("daily_reports").upsert(
         {
             "report_date": day,
@@ -382,7 +387,25 @@ def main() -> int:
         on_conflict="report_date",
     ).execute()
 
-    print(f"\n✅ 저장했습니다. 사이트 [오늘의 리포트] 에서 보실 수 있습니다.")
+    # ---- 진짜 들어갔는지 **다시 읽어서** 확인합니다 ----
+    saved = (
+        client.table("daily_reports")
+        .select("content_md,output_tokens,created_at")
+        .eq("report_date", day)
+        .maybe_single()
+        .execute()
+    ).data or {}
+
+    got = saved.get("content_md") or ""
+    if got != body:
+        raise SystemExit(
+            "❌ 저장이 제대로 안 됐습니다.\n"
+            f"   보낸 글 {len(body):,}자 · 실제로 들어간 글 {len(got):,}자\n"
+            "   돈은 이미 나갔습니다. 이 메시지를 그대로 알려 주세요."
+        )
+
+    print(f"\n✅ 저장했습니다 (다시 읽어서 확인함).")
+    print(f"   사이트 [오늘의 리포트] 에서 보실 수 있습니다.")
 
     # ⚠️ 리포트 본문을 여기에 통째로 찍지 않습니다 (2026-08-09 고침).
     #
@@ -395,6 +418,9 @@ def main() -> int:
     print(f"   첫 줄: {head[:40]}{'…' if len(head) > 40 else ''}")
     print(f"   길이: {len(body):,}자")
     print("   전문은 사이트에서 보세요 (로그는 공개라 싣지 않습니다)")
+    print()
+    print("   화면이 안 바뀐 것 같으면 리포트 상자 맨 아래 회색 글씨를 보세요.")
+    print(f"   '글자 조각 {tin:,} 넣고 {tout:,} 나옴' 이면 이 글이 맞습니다.")
     return 0
 
 

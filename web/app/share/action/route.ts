@@ -54,7 +54,32 @@ export async function POST(request: NextRequest) {
     const safeDays =
       days === null ? null : Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 1;
 
-    const res = await createShareLink(categoryId, label, safeDays);
+    /*
+      【2026-08-10 대표님 요청】 특정 일자 고정.
+
+      ⚠️ 형식이 조금이라도 어긋나면 데이터베이스가 날짜로 못 읽고
+         **오류를 냅니다.** 그래서 여기서 먼저 걸러냅니다.
+         · YYYY-MM-DD 모양인가
+         · 진짜 있는 날짜인가 (2026-02-31 같은 것 거르기)
+         · 미래가 아닌가 (아직 없는 순위는 빈 화면이 됩니다)
+    */
+    const rawDate = String(form.get("fixed") ?? "").trim();
+    let fixedDate: string | null = null;
+    if (rawDate !== "") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return to("msg=baddate");
+      const d = new Date(`${rawDate}T00:00:00Z`);
+      if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== rawDate) {
+        return to("msg=baddate");
+      }
+      // 한국 날짜로 오늘보다 뒤면 거절합니다
+      const todayKst = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+      }).format(new Date());
+      if (rawDate > todayKst) return to("msg=futuredate");
+      fixedDate = rawDate;
+    }
+
+    const res = await createShareLink(categoryId, label, safeDays, fixedDate);
     if (res.error || !res.token) {
       return to(res.error?.includes("db/share.sql") ? "msg=needsql" : "msg=failed");
     }

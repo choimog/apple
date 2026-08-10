@@ -136,15 +136,29 @@ export async function listShareLinks(): Promise<{
   };
 }
 
-/** 링크 만들기. 성공하면 주소값, 실패하면 사람이 읽을 수 있는 이유. */
+/**
+ * 링크 만들기. 성공하면 주소값, 실패하면 사람이 읽을 수 있는 이유.
+ *
+ * 【2026-08-10 대표님 요청】
+ * "공유 링크 생성 시, 특정 일자도 선택할 수 있게 해주면 좋겠네."
+ *
+ * 데이터베이스는 처음부터 이걸 지원하고 있었습니다. target_id 를
+ * "분야번호@날짜" 로 적으면 그 날짜로 고정됩니다 (db/share.sql).
+ * 화면에만 고를 자리가 없었습니다.
+ *
+ * · 날짜를 안 고르면 → 링크를 열 때마다 **그때의 최신 순위**
+ * · 날짜를 고르면   → 언제 열어도 **그날 순위** (기록용)
+ */
 export async function createShareLink(
   categoryId: number,
   label: string,
-  days: number | null
+  days: number | null,
+  fixedDate: string | null = null
 ): Promise<{ token?: string; error?: string }> {
+  const target = fixedDate ? `${categoryId}@${fixedDate}` : String(categoryId);
   const { data, error } = await db().rpc("create_share_link", {
     p_kind: "ranking",
-    p_target_id: String(categoryId),
+    p_target_id: target,
     p_label: label || null,
     p_days: days,
   });

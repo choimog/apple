@@ -169,8 +169,32 @@ export default function TrendChart({
   const values = series.flatMap((s) =>
     dates.map((d) => s.points.get(d)).filter((v): v is number => v !== undefined)
   );
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+
+  /*
+    【2026-08-10 대표님 지적】
+    "각 서점의 판매지수는 500점 정도는 엄청 큰 격차로 보여줄 필요는 없어."
+
+    맞습니다. 그래프는 늘 **있는 값에 딱 맞춰** 위아래를 잡습니다.
+    판매지수가 10,000 ~ 10,500 사이에서 움직이면, 그 500점이 화면 세로를
+    가득 채웁니다. 실제로는 5% 도 안 되는 흔들림인데 그림은 폭등·폭락처럼
+    보입니다. 숫자를 안 읽고 모양만 보면 정반대로 판단하게 됩니다.
+
+    그래서 판매지수에는 **최소 세로 폭**을 둡니다.
+    값의 15% 또는 2,000점 중 큰 쪽입니다. 그러면 500점 차이는 화면의
+    4분의 1을 넘지 않습니다. (순위는 그대로 둡니다 — 1위와 5위는
+    실제로 큰 차이이고, 숫자 범위도 좁아서 같은 문제가 없습니다)
+  */
+  if (metric === "sales") {
+    const minSpan = Math.max(2000, hi * 0.15);
+    if (hi - lo < minSpan) {
+      const mid = (lo + hi) / 2;
+      lo = Math.max(0, mid - minSpan / 2);
+      hi = lo + minSpan;
+    }
+  }
+
   // 값이 하나뿐이면 위아래로 여유를 줍니다 (0 으로 나누는 것 방지)
   const span = hi - lo || Math.max(1, Math.abs(hi) * 0.2);
 

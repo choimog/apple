@@ -28,10 +28,15 @@ import {
 } from "@/lib/queries";
 
 
+/** 순위를 어느 기준으로 볼지 */
+type Basis = "overall" | "category";
+
 export default async function BookPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ basis?: string }>;
 }) {
   if (configError) {
     return (
@@ -42,13 +47,57 @@ export default async function BookPage({
   }
 
   const { id } = await params;
+  const sp = await searchParams;
   let detail;
   try {
     detail = await getBookDetail(Number(id));
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
-  const { stores, history, placements, latestDate } = detail;
+  const { stores, history: allHistory, placements, latestDate } = detail;
+
+  /*
+    【2026-08-10 대표님 지적】
+    "분야에서 순위권에 있다가 종합 순위에 오르기 시작하면 어떡하려고
+     그래? 이걸 선택할 수 있도록 해주면 좋지 않을까?"
+
+    맞는 지적이었습니다. 예전에는 하루에 한 점만 남기면서 '종합이 있으면
+    종합, 없으면 분야' 를 골랐습니다. 그러면 어제까지 '소설 3위' 로
+    그리다가 오늘 종합에 처음 들면 '종합 150위' 가 됩니다. 그래프는
+    **폭락처럼** 보이는데, 실제로는 더 잘 팔려서 종합에 든 것입니다.
+
+    이제 두 기준을 따로 그립니다. 기본은 종합이고, 종합에 한 번도
+    오른 적이 없으면 분야로 시작합니다. 한쪽밖에 없으면 고르는 버튼을
+    아예 보여주지 않습니다 (누를 것이 없는 버튼은 방해만 됩니다).
+  */
+  const hasOverall = allHistory.some((h) => h.isOverall);
+  const hasCategory = allHistory.some((h) => !h.isOverall);
+  const basis: Basis =
+    sp.basis === "category" && hasCategory
+      ? "category"
+      : sp.basis === "overall" && hasOverall
+        ? "overall"
+        : hasOverall
+          ? "overall"
+          : "category";
+
+  const history = allHistory.filter((h) =>
+    basis === "overall" ? h.isOverall : !h.isOverall
+  );
+
+  /*
+    판매지수는 **기준과 상관없습니다.** 서점이 책 한 권에 하나씩 매기는
+    값이라, 종합에 올랐든 분야에만 올랐든 같은 숫자입니다.
+    그래서 기준으로 거르면 안 됩니다 — 거르면 그날 값이 통째로 사라져
+    그래프에 없는 구멍이 생깁니다.
+  */
+  const salesSeen = new Set<string>();
+  const salesHistory = allHistory.filter((h) => {
+    const k = `${h.date}|${h.storeId}|${h.period}`;
+    if (salesSeen.has(k)) return false;
+    salesSeen.add(k);
+    return true;
+  });
 
   if (!stores.length) {
     return (
@@ -123,7 +172,7 @@ export default async function BookPage({
 
   const online = placements.filter((p) => !p.branchName);
   const branches = placements.filter((p) => p.branchName);
-  const hasSales = history.some((h) => h.sales !== null);
+  const hasSales = salesHistory.some((h) => h.sales !== null);
 
   return (
     <div className="space-y-5">
@@ -298,7 +347,11 @@ export default async function BookPage({
       <Card>
         <CardHead
           title="순위 추이"
-          desc="위로 갈수록 높은 순위 · 최근 30일"
+          desc={
+            basis === "overall"
+              ? "종합(전체) 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
+              : "분야 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
+          }
           right={
             <BookExportButton
               history={history}
@@ -308,6 +361,31 @@ export default async function BookPage({
             />
           }
         />
+
+        {/* 어느 기준으로 볼지 — 둘 다 있을 때만 보여줍니다 */}
+        {hasOverall && hasCategory && (
+          <div className="border-b border-line-soft px-4 py-2.5 sm:px-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-ink-soft">
+                무슨 순위로 볼까요
+              </span>
+              <div className="flex gap-1.5">
+                <BasisChip id={id} basis="overall" on={basis === "overall"}>
+                  종합(전체)
+                </BasisChip>
+                <BasisChip id={id} basis="category" on={basis === "category"}>
+                  분야
+                </BasisChip>
+              </div>
+            </div>
+            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
+              두 기준을 한 줄에 섞으면 그 줄은 아무 뜻도 없습니다. 분야에서
+              3위이던 책이 종합에 처음 들면 150위가 되는데, 그래프만 보면
+              폭락처럼 보이지만 실제로는 <strong>더 잘 팔려서</strong> 종합에
+              든 것입니다. 그래서 따로 그립니다.
+            </p>
+          </div>
+        )}
         <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           {(["daily", "weekly"] as Period[]).map((p) => (
             <div key={p}>
@@ -335,7 +413,7 @@ export default async function BookPage({
           <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
             {SALES_STORES.map((sid) => {
               const s = store(sid);
-              const mine = history.filter((h) => h.storeId === sid);
+              const mine = salesHistory.filter((h) => h.storeId === sid);
               // 판매지수는 일간·주간이 같은 값이므로 한쪽만 그립니다.
               // 일간 기록이 없는 책도 있어 그때는 주간을 씁니다.
               const hasDaily = mine.some(
@@ -526,5 +604,32 @@ function PlacementCard({ rows }: { rows: CurrentPlacement[] }) {
         </div>
       )}
     </Card>
+  );
+}
+
+/** 순위 기준 고르기 버튼 (종합 / 분야) */
+function BasisChip({
+  id,
+  basis,
+  on,
+  children,
+}: {
+  id: string;
+  basis: Basis;
+  on: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={`/book/${id}?basis=${basis}`}
+      aria-current={on ? "true" : undefined}
+      className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+        on
+          ? "bg-accent font-semibold text-accent-ink"
+          : "border border-line text-ink-soft hover:bg-surface-2 hover:text-ink"
+      }`}
+    >
+      {children}
+    </Link>
   );
 }

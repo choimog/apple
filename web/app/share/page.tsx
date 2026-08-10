@@ -51,6 +51,11 @@ export default async function SharePage({
     return <DataError detail={String(e)} />;
   }
 
+  // 오늘(한국) — 날짜 칸에서 미래를 못 고르게 막는 데 씁니다
+  const todayKst = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+  }).format(new Date());
+
   const byId = new Map(cats.map((c) => [c.id, c]));
   const tree = buildStoreTree(cats);
 
@@ -119,7 +124,7 @@ export default async function SharePage({
           <Card>
             <CardHead
               title="새 주소 만들기"
-              desc="분야를 고르면 그 분야의 최신 순위표를 보여주는 주소가 만들어집니다."
+              desc="분야를 고르면 그 분야의 순위표를 보여주는 주소가 만들어집니다. 날짜를 고르면 그날로 고정됩니다."
             />
             <form
               action="/share/action"
@@ -198,6 +203,33 @@ export default async function SharePage({
                 </div>
                 <div>
                   {/*
+                    【2026-08-10 대표님 요청】
+                    "공유 링크 생성 시, 특정 일자도 선택할 수 있게 해주면 좋겠네."
+
+                    비워 두면 '늘 최신' 이고, 고르면 그날로 고정됩니다.
+                    max 를 걸어 미래를 못 고르게 합니다 (아직 없는 순위는
+                    빈 화면이 됩니다). 진짜 확인은 서버가 한 번 더 합니다.
+                  */}
+                  <label htmlFor="fixed" className="mb-1 block text-sm text-ink-soft">
+                    어느 날짜{" "}
+                    <span className="text-ink-faint">(안 고르면 늘 최신)</span>
+                  </label>
+                  <input
+                    id="fixed"
+                    name="fixed"
+                    type="date"
+                    max={todayKst}
+                    className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm"
+                  />
+                  <p className="mt-1 text-2xs leading-relaxed text-ink-faint">
+                    비워 두시면 <strong>여실 때마다 최신 순위</strong>가
+                    보입니다. 날짜를 고르시면 <strong>언제 열어도 그날
+                    순위</strong>로 고정됩니다 (기록으로 남길 때 쓰세요).
+                  </p>
+                </div>
+
+                <div>
+                  {/*
                     【2026-08-09 대표님 지시】
                     "한 사람이 2개까지 만들 수 있고, 최대 3시간까지 가능하도록."
 
@@ -268,6 +300,11 @@ export default async function SharePage({
               <ul className="divide-y divide-line-soft">
                 {links.rows.map((l) => {
                   const c = byId.get(Number(l.targetId.split("@")[0]));
+                  // "분야번호@날짜" 면 그날로 고정된 링크입니다.
+                  // 목록에 안 적으면 '최신' 인 줄 알고 다시 만드시게 됩니다.
+                  const fixedOn = l.targetId.includes("@")
+                    ? l.targetId.split("@")[1]
+                    : null;
                   const expired =
                     !!l.expiresAt && new Date(l.expiresAt).getTime() < Date.now();
                   const live = l.enabled && !expired;
@@ -297,6 +334,15 @@ export default async function SharePage({
                         </p>
                         <p className="scroll-x text-xs text-ink-faint">
                           /s/{l.token}
+                        </p>
+                        <p className="text-2xs text-ink-faint">
+                          {fixedOn ? (
+                            <span className="text-ink-soft">
+                              📌 {fixedOn} 순위로 고정
+                            </span>
+                          ) : (
+                            "열 때마다 최신 순위"
+                          )}
                         </p>
                         <p className="text-2xs text-ink-faint">
                           {l.expiresAt
@@ -362,6 +408,15 @@ function Message({ code }: { code: string }) {
     off: { text: "✅ 껐습니다. 그 주소는 이제 열리지 않습니다." },
     on: { text: "✅ 다시 켰습니다." },
     notadmin: { text: "관리자만 할 수 있습니다.", bad: true },
+    // 2026-08-10 — 날짜 고정을 넣으면서
+    baddate: {
+      text: "날짜를 알아볼 수 없습니다. 달력에서 골라 주세요.",
+      bad: true,
+    },
+    futuredate: {
+      text: "아직 오지 않은 날짜는 고를 수 없습니다. 그날 순위가 아직 없어서 빈 화면이 됩니다.",
+      bad: true,
+    },
     needsql: {
       text: "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 실행해 주세요.",
       bad: true,

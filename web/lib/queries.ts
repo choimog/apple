@@ -685,26 +685,28 @@ export async function getBookDetail(bookId: number): Promise<{
     if (cat.kind === "offline") continue;
 
     const period = periodOf(cat);
-    const key = `${r.snapshot_date}|${storeId}|${period}`;
-    const cur = best.get(key);
     const isOverall = cat.unified_code === "all";
 
     /*
-      【2026-08-09 대표님 지시】
-      "종합 순위에 올라있을 시 종합 순위를 우선적으로 표기해줘."
+      【2026-08-10 대표님 지적 — 이게 진짜 문제였습니다】
+      "분야에서 순위권에 있다가 종합 순위에 오르기 시작하면 어떡하려고
+       그래? 이걸 선택할 수 있도록 해주면 좋지 않을까?"
 
-      예전에는 그냥 '가장 높은 순위' 를 골랐습니다. 그러면 종합 120위인
-      책이 세부분야에서 3위면 화면에 3위로 나옵니다. 숫자만 보면 훨씬
-      잘 팔리는 것처럼 보이는데, 사실이 아닙니다.
+      맞습니다. 예전에는 하루에 한 점만 남기면서 **종합이 있으면 종합,
+      없으면 분야** 를 골랐습니다. 그러면 어제까지 '소설 3위' 로 그리다가
+      오늘 종합에 처음 들면 '종합 150위' 로 바뀝니다.
+      그래프는 3위 → 150위 로 **폭락한 것처럼** 보입니다.
+      실제로는 더 잘 팔려서 종합에 든 것인데 정반대로 읽힙니다.
 
-      이제 **종합(전체) 목록에 있으면 무조건 그것을 씁니다.**
-      종합에 없을 때만 세부분야 중 가장 높은 것을 씁니다.
-      (어느 목록인지는 화면에 함께 적으므로 오해할 일이 없습니다)
+      한 줄에 두 가지 기준을 섞으면 그 줄은 아무 뜻도 없습니다.
+      그래서 이제 **두 기준을 따로 담습니다.** 어느 쪽을 볼지는 화면에서
+      대표님이 고르십니다 (app/book/[id]/page.tsx).
     */
-    const better =
-      !cur ||
-      (isOverall && !cur.isOverall) ||          // 종합이 언제나 이깁니다
-      (isOverall === cur.isOverall && r.rank < cur.rank); // 같은 급이면 높은 순위
+    const key = `${r.snapshot_date}|${storeId}|${period}|${isOverall ? "A" : "C"}`;
+    const cur = best.get(key);
+
+    // 같은 기준 안에서는 가장 높은 순위 하나만 (분야 여러 곳에 올라 있을 때)
+    const better = !cur || r.rank < cur.rank;
 
     if (better) {
       best.set(key, {

@@ -194,12 +194,26 @@ def replace_rankings(
 
 
 def upsert_book_meta(client: Client, rows: list[dict]) -> None:
-    """해시태그·이벤트 저장. 같은 날 같은 책은 덮어씁니다."""
+    """해시태그·이벤트 저장. **책마다 한 줄**이고, 바뀌면 덮어씁니다.
+
+    【2026-08-10 대표님 승인으로 바뀐 부분】
+    예전에는 (책, 날짜) 마다 한 줄이었습니다. 재 보니 이랬습니다.
+
+        전체 131,351줄 중 60,685줄(46.2%)이 어제와 글자 하나 안 다름
+        실제로 값이 바뀐 줄은 2,240줄(1.7%)
+
+    게다가 이 자료를 **사이트 어디에서도 읽지 않습니다.** 아무도 안 보는
+    기록에 용량의 큰 몫을 쓰고 있었습니다. 그래서 최신 값만 들고 있습니다.
+
+    snapshot_date 는 '언제 본 값인지' 로 남겨 둡니다.
+    ⚠️ db/meta-slim.sql 을 먼저 실행해야 합니다. 안 하면 열쇠가 예전
+       그대로라 여기서 오류가 납니다 — 조용히 넘어가지 않습니다.
+    """
     if not rows:
         return
     for chunk in _chunks(rows):
         client.table("book_meta").upsert(
-            chunk, on_conflict="store_book_id,snapshot_date"
+            chunk, on_conflict="store_book_id"
         ).execute()
 
 

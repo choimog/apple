@@ -45,9 +45,14 @@ from common import db  # noqa: E402
 ABSOLUTE_MIN_KEEP_DAYS = 14
 
 # 옮길 표와, 그 표에서 읽을 열
+#
+# 【2026-08-10 — book_meta 가 여기서 빠졌습니다】
+# 이제 book_meta 는 날짜별로 쌓지 않고 **책마다 한 줄**입니다
+# (db/meta-slim.sql). 날짜로 옮길 것이 없으므로 보관 대상이 아닙니다.
+# ⚠️ 여기에 다시 넣으면 **최신 해시태그가 보관소로 실려 나가고
+#    사이트에서 사라집니다.** 넣지 마세요.
 TABLES = {
     "rankings": "snapshot_date,category_id,rank,store_book_id,sales_point",
-    "book_meta": "store_book_id,snapshot_date,hashtags,events",
 }
 
 

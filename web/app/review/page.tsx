@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
+import ExportAll from "@/components/ExportAll";
 import DataError from "@/components/DataError";
 import { Card, CardHead, Empty } from "@/components/ui";
 import { configError, currentRole } from "@/lib/supabase";
@@ -128,13 +129,10 @@ export default async function ReviewPage({
               >
                 이 조건만 내려받기
               </a>
-              {/* 2026-08-10 요청 — "갯수 제한 없이 한번에 다 다운로드" */}
-              <a
-                href="/review/sheet?tab=all"
-                className="inline-block rounded-xl border border-ink-faint bg-surface-2 px-3.5 py-2 text-sm font-medium hover:border-ink"
-              >
-                전체 한 번에 내려받기
-              </a>
+              {/* 2026-08-10 요청 — "갯수 제한 없이 한번에 다 다운로드"
+                  서버가 한 번에 만들다 두 번 잘려서(29,502 · 36,002줄),
+                  브라우저가 나눠 가져오는 방식으로 바꿨습니다. */}
+              <ExportAll />
             </div>
             <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
               <strong>전체</strong>는 세 가지(검토 대기·자동으로 묶은

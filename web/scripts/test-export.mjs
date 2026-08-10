@@ -144,6 +144,27 @@ try {
   check("막혀서 0줄 바뀐 것을 성공으로 세지 않는다",
     imp.includes("failed += r.n - r.got"));
 
+  console.log("\n[9] 🚨 전체 받기는 브라우저가 나눠서 가져온다 (두 번 잘린 뒤)");
+  // 29,502줄 · 36,002줄에서 두 번 잘렸습니다. 서버가 한 번에 다 만들려는
+  // 구조였기 때문입니다. 자료가 늘면 언젠가 또 걸립니다.
+  const comp = readFileSync("components/ExportAll.tsx", "utf8");
+  const chunk = readFileSync("app/review/sheet/chunk/route.ts", "utf8");
+  check("나눠 가져오는 주소가 있다", chunk.includes("getExportChunk"));
+  check("이어받을 번호를 돌려준다", chunk.includes("next"));
+  check("브라우저가 여러 번 부른다", comp.includes("/review/sheet/chunk?tab="));
+  check("어디까지 왔는지 보여준다", comp.includes("지금까지"));
+  // 🚨 한 조각이라도 실패하면 반쪽 파일을 저장하면 안 됩니다
+  check("실패하면 파일을 안 만든다",
+    comp.includes("throw new Error") && /catch[\s\S]{0,200}setError/.test(comp));
+  check("실패했다고 화면에 알린다", comp.includes("저장하지 않았습니다"));
+  check("끝 표시는 그대로 넣는다", comp.includes("여기까지가 전부입니다"));
+  check("조각이 실패하면 서버도 오류로 답한다",
+    chunk.includes("status: 500") && chunk.includes("관리자만"));
+
+  console.log("\n[10] 묶인 권수를 표 전체를 훑지 않고 센다");
+  check("이 조각에 나오는 책만 센다", lib.includes("groupSizesFor"));
+  check("못 세면 빈칸 (틀린 숫자 대신)", /catch \{[\s\S]{0,120}return null;/.test(lib));
+
   console.log();
   if (bad) {
     console.log(`❌ ${bad}개 실패`);

@@ -196,12 +196,17 @@ CREATE INDEX IF NOT EXISTS idx_rankings_date ON rankings(snapshot_date DESC, cat
 -- ============================================================================
 --  7. book_meta — 해시태그/이벤트 (목록 페이지에서 얻어지는 범위 내에서만)
 -- ============================================================================
+--  【2026-08-10 — 날짜별에서 책마다 한 줄로 바꿨습니다】
+--  재 보니 131,351줄 중 60,685줄(46.2%)이 어제와 글자 하나 안 달랐고,
+--  실제로 값이 바뀐 줄은 2,240줄(1.7%)뿐이었습니다. 게다가 사이트는
+--  이 자료를 읽지도 않습니다. 아무도 안 보는 기록에 용량을 쓰던 것을
+--  최신 값 하나만 두는 것으로 바꿨습니다.
+--  ⚠️ 이미 운영 중인 데이터베이스는 db/meta-slim.sql 을 실행해야 합니다.
 CREATE TABLE IF NOT EXISTS book_meta (
-    store_book_id   bigint     NOT NULL REFERENCES store_books(id) ON DELETE CASCADE,
-    snapshot_date   date       NOT NULL,
+    store_book_id   bigint     PRIMARY KEY REFERENCES store_books(id) ON DELETE CASCADE,
+    snapshot_date   date       NOT NULL,   -- 이 값을 마지막으로 본 날 (참고용)
     hashtags        text[]     NOT NULL DEFAULT '{}',  -- 예스24 해시태그 키워드
-    events          text[]     NOT NULL DEFAULT '{}',  -- 이벤트 문구
-    PRIMARY KEY (store_book_id, snapshot_date)
+    events          text[]     NOT NULL DEFAULT '{}'   -- 이벤트 문구
 );
 
 

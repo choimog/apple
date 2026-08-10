@@ -600,6 +600,105 @@ export async function* streamReviewPairs(
   if (status.sent >= maxRows || size !== null) status.capped = true;
 }
 
+/* ═══════════════════════════════ 전체 내려받기 — 브라우저가 나눠서 가져감 */
+
+/**
+ * 【2026-08-10 — 두 번 잘린 뒤에 방식을 바꿉니다】
+ * 29,502줄에서 끊겨서 읽는 방식을 고쳤더니 36,002줄에서 끊겼습니다.
+ * 나아지긴 했지만 **여전히 한 번의 요청 안에 끝내려는 구조**입니다.
+ * 서버에는 요청 하나에 60초 제한이 있어서, 자료가 늘면 언젠가 또 걸립니다.
+ * 같은 사고를 세 번째 겪으시게 할 수는 없습니다.
+ *
+ * 그래서 **한 번에 다 만들지 않습니다.**
+ * 브라우저가 500줄씩 여러 번 나눠서 가져가고, 다 모은 뒤에 파일로
+ * 저장합니다. 요청 하나하나는 1초도 안 걸리므로 제한에 걸릴 일이 없습니다.
+ * 대표님 화면에는 "지금까지 몇 줄" 이 계속 보입니다.
+ *
+ * 이 함수는 그 '한 조각' 을 만듭니다.
+ */
+export type ExportChunk = {
+  rows: ReviewPair[];
+  /** 다음에 이어서 가져갈 번호. null 이면 이 칸은 끝입니다. */
+  next: number | null;
+};
+
+export async function getExportChunk(
+  tab: ReviewTab,
+  after: number,
+  limit: number
+): Promise<ExportChunk> {
+  const supabase = db();
+
+  const { data, error } = await supabase
+    .from("book_matches")
+    .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
+    .in("decision", TAB_DECISIONS[tab])
+    .gt("id", after)
+    .order("id", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  const matches = (data ?? []) as Parameters<typeof shapePairs>[0];
+  if (!matches.length) return { rows: [], next: null };
+
+  // 묶인 권수도 **이 조각에 나오는 책만** 셉니다.
+  // 예전에는 표 전체(수십만 줄)를 훑었습니다. 그게 느림의 큰 몫이었습니다.
+  const sizes = await groupSizesFor(matches.map((m) => m.store_book_a));
+  const rows = await shapePairs(matches, sizes);
+
+  const last = matches[matches.length - 1].id;
+  return { rows, next: matches.length < limit ? null : last };
+}
+
+/**
+ * 주어진 서점도서들이 각각 몇 권짜리 묶음에 속하는지.
+ * 표 전체를 훑지 않고, **그 책들이 속한 묶음만** 봅니다.
+ */
+async function groupSizesFor(
+  storeBookIds: number[]
+): Promise<Map<number, number> | null> {
+  const supabase = db();
+  const ids = [...new Set(storeBookIds)];
+  if (!ids.length) return new Map();
+
+  try {
+    // ① 이 서점도서들이 어느 책(book_id)에 묶여 있는지
+    const bookOf = new Map<number, number>();
+    for (let i = 0; i < ids.length; i += 300) {
+      const { data, error } = await supabase
+        .from("store_books")
+        .select("id,book_id")
+        .in("id", ids.slice(i, i + 300));
+      if (error) throw new Error(error.message);
+      for (const r of data ?? []) {
+        if (r.book_id != null) bookOf.set(r.id as number, r.book_id as number);
+      }
+    }
+
+    // ② 그 책들에 묶인 서점도서가 모두 몇 개인지
+    const bookIds = [...new Set([...bookOf.values()])];
+    const perBook = new Map<number, number>();
+    for (let i = 0; i < bookIds.length; i += 300) {
+      const { data, error } = await supabase
+        .from("store_books")
+        .select("book_id")
+        .in("book_id", bookIds.slice(i, i + 300));
+      if (error) throw new Error(error.message);
+      for (const r of data ?? []) {
+        const b = r.book_id as number;
+        perBook.set(b, (perBook.get(b) ?? 0) + 1);
+      }
+    }
+
+    const out = new Map<number, number>();
+    for (const [sb, b] of bookOf) out.set(sb, perBook.get(b) ?? 0);
+    return out;
+  } catch {
+    // 못 세면 **틀린 숫자 대신 빈칸**입니다.
+    return null;
+  }
+}
+
 /** 탭마다 몇 건씩 남았는지 (탭 옆 숫자) */
 export async function getReviewCounts(): Promise<Record<ReviewTab, number>> {
   const supabase = db();

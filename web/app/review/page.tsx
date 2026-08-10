@@ -127,6 +127,32 @@ export default async function ReviewPage({
             >
               검토 목록 내려받기 (엑셀)
             </a>
+
+            {/*
+              【2026-08-10 대표님 요청】
+              "보이는 조건을 2천개씩 하는 버튼 말고도, 검토 대기와 자동으로
+               묶은 것, 내가 내린 결정까지 갯수 제한 없이 한번에 다 다운로드
+               할 수 있게 해줬으면 좋겠어. 한번에 정리할 수 있게."
+
+              위 버튼은 그대로 둡니다(조건 걸고 2,000건). 아래가 '전부' 입니다.
+              조건도 개수도 걸지 않습니다.
+            */}
+            <a
+              href="/review/sheet?tab=all"
+              className="mt-2 ml-2 inline-block rounded-xl border border-accent px-3.5 py-2 text-sm font-semibold text-accent hover:bg-accent/10"
+            >
+              ⬇ 전부 한 번에 받기
+            </a>
+            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
+              <strong>전부 한 번에 받기</strong>는 조건과 개수를 걸지 않고 세
+              탭(검토 대기 · 자동으로 묶은 것 · 내가 내린 결정)을 한 파일로
+              받습니다. 어느 탭에서 온 줄인지는 맨 뒤 <code>구분</code> 칸에
+              적힙니다.
+              <br />
+              자료가 아주 많으면 시간이 먼저 끝날 수 있습니다. 그때는 받다 만
+              것을 숨기지 않고 <strong>파일 마지막 줄에 몇 건까지 받았는지</strong>{" "}
+              적어 드립니다.
+            </p>
           </div>
 
           <div>
@@ -659,18 +685,23 @@ function Message({
       n("bad") ? `${n("bad")}건은 적힌 말을 못 알아봄` : "",
       n("noauto") ? `${n("noauto")}건은 원래 판단을 몰라 못 되돌림` : "",
       n("fail") ? `🚨 ${n("fail")}건은 반영되지 않음` : "",
+      // 시간이 다 되어 손도 못 댄 줄. 조용히 넘어가면 "다 됐다" 로 오해하십니다.
+      n("left") ? `⏱ ${n("left")}건은 시간이 다 되어 손도 못 댔음` : "",
     ].filter(Boolean);
     return (
       <p
         role="status"
         className={`rounded-xl border px-3 py-2.5 text-sm ${
-          n("fail")
+          n("fail") || n("left")
             ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
             : "border-line bg-surface-2 text-ink-soft"
         }`}
       >
         {bits.join(" · ")}
         {n("ok") > 0 && " — 순위 화면에는 내일 아침 반영됩니다."}
+        {n("left") > 0 &&
+          " 남은 줄은 그대로 있습니다. 같은 파일을 한 번 더 올리시면 " +
+            "이미 반영된 줄은 그대로 두고 나머지가 들어갑니다."}
       </p>
     );
   }
@@ -707,9 +738,9 @@ function Message({
     badid: { text: "잘못된 요청입니다.", bad: true },
     badaction: { text: "잘못된 요청입니다.", bad: true },
     nofile: { text: "파일을 고르지 않으셨습니다.", bad: true },
-    toobig: { text: "파일이 너무 큽니다 (5MB 넘음).", bad: true },
+    toobig: { text: "파일이 너무 큽니다 (30MB 넘음).", bad: true },
     toomany: {
-      text: "한 번에 2,000건까지만 반영합니다. 나눠서 올려 주세요.",
+      text: "한 번에 50,000건까지만 반영합니다. 나눠서 올려 주세요.",
       bad: true,
     },
     nothing: {

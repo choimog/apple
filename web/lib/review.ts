@@ -40,6 +40,45 @@ export function isReviewTab(v: string | undefined): v is ReviewTab {
   return v === "pending" || v === "merged" || v === "mine";
 }
 
+/**
+ * 내려받을 범위. 탭 하나이거나, **세 탭 전부**입니다.
+ *
+ * 【2026-08-10 대표님 요청】
+ * "검토 대기와 자동으로 묶은 것, 내가 내린 결정까지 갯수 제한 없이
+ *  한번에 다 다운로드 할 수 있게 해줬으면 좋겠어. 한번에 정리할 수 있게."
+ */
+export type ExportScope = ReviewTab | "all";
+
+export function isExportScope(v: string | undefined): v is ExportScope {
+  return v === "all" || isReviewTab(v);
+}
+
+/** 그 범위에서 읽어야 할 decision 값들 */
+function decisionsOf(scope: ExportScope): string[] {
+  if (scope !== "all") return TAB_DECISIONS[scope];
+  // 세 탭을 합칩니다. 중복은 없지만 Set 으로 한 번 걸러 둡니다.
+  return [...new Set(Object.values(TAB_DECISIONS).flat())];
+}
+
+/**
+ * 저장된 값 → 사람이 읽을 말.
+ *
+ * 세 탭을 한 파일로 받으면 **어느 탭에서 온 줄인지 알 수 없게 됩니다.**
+ * 그래서 '구분' 칸에 이 말을 적습니다.
+ * 모르는 값이 오면 감추지 않고 그대로 적습니다 (매칭 규칙이 바뀐 것을
+ * 아무도 눈치 못 채면 안 됩니다).
+ */
+export const DECISION_LABEL: Record<string, string> = {
+  auto_low: "검토 대기",
+  auto_high: "자동으로 묶은 것",
+  manual_merge: "내 결정 · 같은 책",
+  manual_split: "내 결정 · 다른 책",
+};
+
+export function decisionLabel(decision: string): string {
+  return DECISION_LABEL[decision] ?? decision;
+}
+
 /* ═══════════════════════════════════════════════ 묶음 크기 (몇 권이 묶였나) */
 
 /**
@@ -470,19 +509,41 @@ const EXPORT_CHUNK = 500;
 export type ExportStatus = {
   /** 지금까지 보낸 줄 수 */
   sent: number;
-  /** 너무 많아서 잘렸는지 */
+  /** 개수 상한에 걸려 잘렸는지 */
   capped: boolean;
+  /**
+   * 시간이 다 되어 멈췄는지.
+   *
+   * 【2026-08-10 대표님 요청 — "갯수 제한 없이 한번에 다"】
+   * 개수 상한은 없앴습니다. 그런데 서버가 한 요청에 쓸 수 있는 시간은
+   * 60초로 정해져 있어서(route 의 maxDuration), 자료가 아주 많으면
+   * 시간이 먼저 끝납니다. 그때 조용히 멈추면 **받다 만 파일을 전부로
+   * 오해**하십니다. 그래서 따로 표시하고 파일 안에도 적습니다.
+   */
+  timedOut: boolean;
 };
 
+/** 상태값의 기본형 — 부르는 쪽에서 칸을 빠뜨리지 않도록 */
+export function newExportStatus(): ExportStatus {
+  return { sent: 0, capped: false, timedOut: false };
+}
+
+/**
+ * 검토 짝을 조금씩 흘려보냅니다.
+ *
+ * @param maxRows  최대 줄 수. **null 이면 개수 제한 없음** (시간으로만 멈춥니다)
+ * @param deadline 이 시각(Date.now() 기준 ms)을 넘기면 멈춥니다. null 이면 무제한
+ */
 export async function* streamReviewPairs(
-  tab: ReviewTab,
+  scope: ExportScope,
   band: number | null,
   size: SizeGroup | null,
-  maxRows: number,
-  status: ExportStatus
+  maxRows: number | null,
+  status: ExportStatus,
+  deadline: number | null = null
 ): AsyncGenerator<ReviewPair[]> {
   const supabase = db();
-  const decisions = TAB_DECISIONS[tab];
+  const decisions = decisionsOf(scope);
   const range = band === null ? null : bandRange(band);
 
   // 여기서 딱 한 번만 셉니다 (예전에는 20줄마다 다시 셌습니다)
@@ -497,14 +558,34 @@ export async function* streamReviewPairs(
     );
   }
 
-  // 권수로 좁힐 때는 걸러지는 줄이 있으므로 더 많이 훑어야 합니다.
-  const scanCap = size === null ? maxRows : FILTER_SCAN_CAP;
+  const outOfTime = () => deadline !== null && Date.now() >= deadline;
 
-  for (let start = 0; start < scanCap && status.sent < maxRows; start += EXPORT_CHUNK) {
+  for (let start = 0; ; start += EXPORT_CHUNK) {
+    if (maxRows !== null && status.sent >= maxRows) {
+      status.capped = true;
+      return;
+    }
+    if (outOfTime()) {
+      status.timedOut = true;
+      return;
+    }
+    // 권수로 좁힐 때는 걸러지는 줄이 있어 훑는 양이 훨씬 많습니다.
+    // 이때만 훑는 한도를 둡니다.
+    if (size !== null && start >= FILTER_SCAN_CAP) {
+      status.capped = true;
+      return;
+    }
+
     let q = supabase
       .from("book_matches")
       .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
-      .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
+      .order(scope === "mine" ? "decided_at" : "score", { ascending: false })
+      // 🚨 두 번째 기준(id)이 없으면 안 됩니다.
+      //    점수가 같은 줄이 수천 건이면, 쪽을 넘길 때마다 순서가 달라져서
+      //    **어떤 줄은 두 번 나오고 어떤 줄은 아예 빠집니다.**
+      //    2,000건까지는 잘 드러나지 않던 자리인데, 제한을 푸는 순간
+      //    바로 문제가 됩니다.
+      .order("id", { ascending: true })
       .in("decision", decisions);
     if (range) q = q.gte("score", range.lo).lt("score", range.hiExclusive);
 
@@ -521,7 +602,7 @@ export async function* streamReviewPairs(
         return n !== undefined && sizeGroupOf(n) === size;
       });
     }
-    if (use.length > maxRows - status.sent) {
+    if (maxRows !== null && use.length > maxRows - status.sent) {
       use = use.slice(0, maxRows - status.sent);
       status.capped = true;
     }
@@ -532,13 +613,9 @@ export async function* streamReviewPairs(
       yield shaped;
     }
 
-    // 덜 받아 왔으면 더 없는 것입니다
+    // 덜 받아 왔으면 더 없는 것입니다 (여기서 끝나면 잘린 게 아닙니다)
     if (got.length < EXPORT_CHUNK) return;
   }
-
-  // 여기까지 왔는데 아직 남았다면 훑는 한도에 걸린 것입니다
-  if (status.sent >= maxRows) status.capped = true;
-  else if (size !== null) status.capped = true;
 }
 
 /** 탭마다 몇 건씩 남았는지 (탭 옆 숫자) */

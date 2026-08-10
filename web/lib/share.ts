@@ -104,11 +104,38 @@ export type ShareLink = {
  * 그 판단은 데이터베이스(my_share_links)가 합니다 — 화면 쪽 확인만
  * 믿으면, 화면 코드에서 조건 하나만 빠져도 남의 링크가 보입니다.
  */
+/**
+ * 안 될 때 **무엇이 문제인지** 구분합니다.
+ *
+ *  · "stale"    아직 아무것도 안 깔렸거나, 깐 사실이 전달되지 않음
+ *  · "adminonly" 옛 함수가 깔려 있음 — 회원 공개가 안 된 상태
+ *  · "other"    그 밖
+ */
+export type ShareSetupProblem = "stale" | "adminonly" | "other";
+
+/**
+ * 【2026-08-10 대표님 신고 — "여전히 안돼"】
+ * 데이터베이스가 '관리자만 볼 수 있습니다' 라고 답하면, 그건 **안 깔린 게
+ * 아니라 옛 함수(db/share.sql 의 my_share_links)가 깔려 있다**는 뜻입니다.
+ * 그런데 화면은 이걸 '안 깔림' 으로 보고 "db/share.sql 을 실행하세요" 라고
+ * 안내했습니다. 그대로 하시면 **옛 함수를 다시 덮어써서 더 확실히
+ * 되돌아갑니다.** 안내가 문제를 키우고 있었습니다.
+ *
+ * 그래서 여기서 갈라 놓습니다. 고쳐야 할 것은 share-open.sql 하나입니다.
+ */
+export function classifyShareError(message: string): ShareSetupProblem {
+  if (/관리자만/.test(message)) return "adminonly";
+  if (/function|does not exist|schema cache/i.test(message)) return "stale";
+  return "other";
+}
+
 export async function listShareLinks(): Promise<{
   rows: ShareLink[];
   ok: boolean;
   /** 안 될 때 데이터베이스가 실제로 한 말 */
   error?: string;
+  /** 그 말이 뜻하는 것 */
+  problem?: ShareSetupProblem;
 }> {
   const { data, error } = await db().rpc("my_share_links");
   if (error) {
@@ -116,7 +143,12 @@ export async function listShareLinks(): Promise<{
     //    라고만 적었습니다. 대표님이 db/share-open.sql 을 실행하신 뒤에도
     //    똑같은 문구가 떠서, 무엇이 문제인지 알 길이 없었습니다 (2026-08-10).
     //    이유를 버리지 말고 그대로 들고 나갑니다.
-    return { rows: [], ok: false, error: error.message };
+    return {
+      rows: [],
+      ok: false,
+      error: error.message,
+      problem: classifyShareError(error.message),
+    };
   }
   return {
     rows: (data ?? []).map((r: Record<string, unknown>) => ({
@@ -141,14 +173,19 @@ export async function createShareLink(
   categoryId: number,
   label: string,
   days: number | null
-): Promise<{ token?: string; error?: string }> {
+): Promise<{ token?: string; error?: string; problem?: ShareSetupProblem }> {
   const { data, error } = await db().rpc("create_share_link", {
     p_kind: "ranking",
     p_target_id: String(categoryId),
     p_label: label || null,
     p_days: days,
   });
-  if (error) return { error: readable(error.message) };
+  if (error) {
+    return {
+      error: readable(error.message),
+      problem: classifyShareError(error.message),
+    };
+  }
   if (!data) return { error: "주소를 만들지 못했습니다." };
   return { token: String(data) };
 }
@@ -156,12 +193,18 @@ export async function createShareLink(
 export async function setShareLink(
   token: string,
   enabled: boolean
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; problem?: ShareSetupProblem }> {
   const { data, error } = await db().rpc("set_share_link", {
     p_token: token,
     p_enabled: enabled,
   });
-  if (error) return { ok: false, error: readable(error.message) };
+  if (error) {
+    return {
+      ok: false,
+      error: readable(error.message),
+      problem: classifyShareError(error.message),
+    };
+  }
   // 데이터베이스가 false 를 돌려주면 '그런 링크가 없다' 는 뜻입니다.
   // 오류가 없다고 성공으로 치면 안 됩니다.
   if (data === false) return { ok: false, error: "그런 링크가 없습니다." };
@@ -169,7 +212,15 @@ export async function setShareLink(
 }
 
 function readable(message: string): string {
-  if (/관리자만/.test(message)) return "관리자만 할 수 있습니다.";
+  // 옛 함수(관리자 전용)가 깔려 있다는 뜻입니다. '권한이 없다' 고만 적으면
+  // 대표님도 회원도 무엇을 해야 하는지 알 수 없습니다.
+  if (/관리자만/.test(message)) {
+    return (
+      "아직 회원에게 열리지 않았습니다. " +
+      "Supabase 에서 db/share-open.sql 을 실행해 주세요. " +
+      "(db/share.sql 은 실행하지 마세요 — 옛 설정을 다시 덮어씁니다)"
+    );
+  }
   if (/function|does not exist|schema cache/i.test(message)) {
     return "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 실행해 주세요.";
   }

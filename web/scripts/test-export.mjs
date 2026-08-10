@@ -100,6 +100,79 @@ try {
   check("도중에 끊기면 파일 안에 적는다", route.includes("전부가 아닙니다"));
   check("한 건도 없으면 그렇다고 적는다", route.includes("해당하는 짝이 없습니다"));
 
+  /* ------------------------------------------------------------------ *
+   * 【2026-08-10 대표님 요청】
+   * "검토 대기와 자동으로 묶은 것, 내가 내린 결정까지 갯수 제한 없이
+   *  한번에 다 다운로드 할 수 있게. 한번에 정리할 수 있게."
+   * ------------------------------------------------------------------ */
+
+  console.log("\n[7] 세 탭을 한 파일로 받을 수 있다");
+  const page = readFileSync("app/review/page.tsx", "utf8");
+  check("전부 받는 버튼이 있다", page.includes("/review/sheet?tab=all"));
+  check("내려받기가 'all' 을 알아본다", route.includes("isExportScope"));
+  check(
+    "'all' 이면 세 탭의 값을 전부 읽는다",
+    ["auto_low", "auto_high", "manual_merge", "manual_split"].every((d) =>
+      lib.includes(`"${d}"`)
+    )
+  );
+  check(
+    "'all' 일 때는 개수 상한을 안 건다",
+    /unlimited\s*=[^\n]*scope === "all"/.test(route)
+  );
+
+  console.log("\n[8] 어느 탭에서 온 줄인지 알 수 있다");
+  check("'구분' 칸이 있다", SHEET_HEADER.includes("구분"));
+  // 🚨 맨 뒤가 아니면, 예전에 받아 두신 파일을 올릴 때 칸이 밀립니다.
+  check(
+    "'구분' 칸은 맨 뒤에 있다",
+    SHEET_HEADER[SHEET_HEADER.length - 1] === "구분",
+    SHEET_HEADER[SHEET_HEADER.length - 1]
+  );
+  check("첫 칸은 그대로 '짝번호'", SHEET_HEADER[0] === "짝번호");
+  check("둘째 칸은 그대로 '결정'", SHEET_HEADER[1] === "결정");
+  // 칸이 하나 늘기 전에 받아 두신 파일(15칸)도 그대로 올라가야 합니다.
+  const oldFile = parseSheet(
+    "짝번호,결정,점수,묶인권수,A서점,A제목,A저자,A출판사,A배본," +
+      "B서점,B제목,B저자,B출판사,B배본,근거\r\n" +
+      "7,같은책,90,3,교보문고,제목,저자,출판사,2024-01," +
+      "예스24,제목,저자,출판사,2024-01,제목 같음"
+  );
+  check("칸이 늘기 전 파일도 그대로 올라간다", oldFile.rows.length === 1, oldFile);
+  check("그 줄을 제대로 읽는다",
+    oldFile.rows[0]?.id === 7 && oldFile.rows[0]?.action === "merge",
+    oldFile.rows[0]);
+
+  console.log("\n[9] 🚨 제한을 풀어도 줄이 겹치거나 새지 않는다");
+  // 점수만으로 정렬하면 같은 점수가 수천 건일 때 쪽을 넘길 때마다 순서가
+  // 달라져서, 어떤 줄은 두 번 나오고 어떤 줄은 아예 빠집니다.
+  // 2,000건까지는 잘 안 드러나던 자리라 시험으로 못 박아 둡니다.
+  check(
+    "두 번째 정렬 기준(id)이 있다",
+    /\.order\("id",\s*\{\s*ascending:\s*true\s*\}\)/.test(body)
+  );
+
+  console.log("\n[10] 시간이 다 되면 조용히 멈추지 않는다");
+  check("내려받기에 시간 한도가 있다", /TIME_BUDGET_MS/.test(route));
+  check("시간에 걸린 것을 따로 표시한다", route.includes("status.timedOut"));
+  check("시간에 걸렸다고 파일 안에 적는다", route.includes("시간이 다 되어"));
+  // 개수 탓으로 적으면 "더 잘게 나눠 받으면 되겠지" 하고 엉뚱한 데를 고치십니다.
+  check(
+    "개수 때문에 잘린 것과 다르게 적는다",
+    route.includes("너무 많아 앞쪽") && route.includes("시간이 다 되어")
+  );
+
+  console.log("\n[11] 🚨 올리는 쪽도 같이 풀렸다 (안 그러면 '한번에' 가 아님)");
+  const imp = readFileSync("app/review/import/route.ts", "utf8");
+  check("올리기에도 시간 제한을 늘려 두었다",
+    /export const maxDuration\s*=\s*\d+/.test(imp));
+  const applyCap = Number(imp.match(/MAX_APPLY\s*=\s*(\d+)/)?.[1] ?? 0);
+  check("한 번에 반영할 수 있는 줄이 2,000건보다 많다", applyCap > 2000, applyCap);
+  check("번호를 나눠서 물어본다 (주소가 너무 길어지지 않게)",
+    imp.includes("ID_CHUNK"));
+  check("시간이 다 되면 몇 건이 남았는지 알려준다", imp.includes("left"));
+  check("남은 건수를 화면에도 적는다", page.includes("손도 못 댔음"));
+
   console.log();
   if (bad) {
     console.log(`❌ ${bad}개 실패`);

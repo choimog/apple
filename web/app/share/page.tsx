@@ -85,21 +85,54 @@ export default async function SharePage({
 
       {!links.ok ? (
         <Card className="p-6">
-          <p className="text-sm font-semibold text-red-700 dark:text-red-400">
-            아직 준비가 안 됐습니다
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Supabase → SQL Editor 에서 <code>db/share.sql</code> 을 먼저,
-            그 다음 <code>db/share-open.sql</code> 을 실행해 주세요.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            <strong>이미 실행하셨는데도 이 화면이면</strong>, 아래 한 줄을
-            SQL Editor 에서 실행해 보세요. 데이터베이스는 바뀌었는데 그
-            사실이 아직 전달되지 않은 경우입니다.
-          </p>
-          <code className="scroll-x mt-2 block rounded-lg border border-line bg-surface px-3 py-2 text-xs">
-            NOTIFY pgrst, &apos;reload schema&apos;;
-          </code>
+          {links.problem === "adminonly" ? (
+            /*
+              【2026-08-10 대표님 신고 — "여전히 안돼"】
+              데이터베이스가 '관리자만 볼 수 있습니다' 라고 답했습니다.
+              이건 **안 깔린 게 아니라 옛 함수가 깔려 있다**는 뜻입니다.
+              (db/share.sql 의 my_share_links 는 관리자가 아니면 무조건 막습니다)
+
+              🚨 예전에는 이때도 "db/share.sql 을 실행하세요" 라고 안내했습니다.
+                 그대로 하시면 옛 함수를 **다시 덮어써서** 더 확실히 되돌아갑니다.
+                 안내가 문제를 키우고 있었습니다. 이제 갈라서 말씀드립니다.
+            */
+            <>
+              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                아직 회원에게 열리지 않았습니다
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                데이터베이스에는 <strong>관리자 전용이던 옛 설정</strong>이 그대로
+                올라가 있습니다. Supabase → SQL Editor 에서{" "}
+                <code>db/share-open.sql</code> 을 실행해 주세요. 파일 맨 끝
+                확인 5줄이 전부 ✅ 면 된 것입니다.
+              </p>
+              <p className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                ⚠️ 이때 <code>db/share.sql</code> 은 <strong>실행하지 마세요.</strong>{" "}
+                그 파일이 옛 설정을 다시 덮어씁니다. 지금 상태가 된 원인이기도
+                합니다.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                아직 준비가 안 됐습니다
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                Supabase → SQL Editor 에서 <code>db/share.sql</code> 을 먼저,
+                그 다음 <code>db/share-open.sql</code> 을 실행해 주세요.{" "}
+                <strong>순서가 중요합니다</strong> — 거꾸로 하면 회원 공개가
+                되돌아갑니다.
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                <strong>이미 실행하셨는데도 이 화면이면</strong>, 아래 한 줄을
+                SQL Editor 에서 실행해 보세요. 데이터베이스는 바뀌었는데 그
+                사실이 아직 전달되지 않은 경우입니다.
+              </p>
+              <code className="scroll-x mt-2 block rounded-lg border border-line bg-surface px-3 py-2 text-xs">
+                NOTIFY pgrst, &apos;reload schema&apos;;
+              </code>
+            </>
+          )}
           {/* 🚨 이유를 감추면 대표님도 저도 무엇이 문제인지 알 수 없습니다.
               데이터베이스가 한 말을 그대로 보여줍니다. */}
           {links.error && (
@@ -361,9 +394,16 @@ function Message({ code }: { code: string }) {
   const map: Record<string, { text: string; bad?: boolean }> = {
     off: { text: "✅ 껐습니다. 그 주소는 이제 열리지 않습니다." },
     on: { text: "✅ 다시 켰습니다." },
-    notadmin: { text: "관리자만 할 수 있습니다.", bad: true },
+    notadmin: { text: "로그인이 필요합니다.", bad: true },
     needsql: {
       text: "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 실행해 주세요.",
+      bad: true,
+    },
+    // 옛(관리자 전용) 함수가 깔려 있을 때. share.sql 을 권하면 안 됩니다.
+    needopen: {
+      text:
+        "아직 회원에게 열리지 않았습니다. Supabase 에서 db/share-open.sql 을 " +
+        "실행해 주세요. (db/share.sql 은 실행하지 마세요 — 옛 설정을 다시 덮어씁니다)",
       bad: true,
     },
     badinput: { text: "분야를 골라 주세요.", bad: true },

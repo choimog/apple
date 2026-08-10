@@ -10,7 +10,24 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { currentRole } from "@/lib/supabase";
-import { createShareLink, setShareLink } from "@/lib/share";
+import {
+  createShareLink,
+  setShareLink,
+  type ShareSetupProblem,
+} from "@/lib/share";
+
+/**
+ * 실패 이유 → 화면에 띄울 쪽지.
+ *
+ * ⚠️ 예전에는 안내 문구에 "db/share.sql" 이라는 **글자가 들어 있는지**로
+ *    갈랐습니다. 문구를 조금만 고쳐도 조용히 엉뚱한 쪽지가 뜹니다.
+ *    (실제로 그랬습니다 — 2026-08-10) 이제는 분류값으로 봅니다.
+ */
+function msgFor(problem: ShareSetupProblem | undefined): string {
+  if (problem === "adminonly") return "msg=needopen";
+  if (problem === "stale") return "msg=needsql";
+  return "msg=failed";
+}
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -32,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     const res = await setShareLink(token, enabled);
     if (!res.ok) {
-      return to(res.error?.includes("db/share.sql") ? "msg=needsql" : "msg=failed");
+      return to(msgFor(res.problem));
     }
     return to(enabled ? "msg=on" : "msg=off");
   }
@@ -56,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     const res = await createShareLink(categoryId, label, safeDays);
     if (res.error || !res.token) {
-      return to(res.error?.includes("db/share.sql") ? "msg=needsql" : "msg=failed");
+      return to(msgFor(res.problem));
     }
     // 주소는 이때 한 번만 크게 보여줍니다 (목록에도 남습니다)
     return to(`new=${encodeURIComponent(res.token)}`);

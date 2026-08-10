@@ -16,10 +16,41 @@ import { NextResponse, type NextRequest } from "next/server";
 import { currentRole, db } from "@/lib/supabase";
 import { parseSheet } from "@/lib/review-sheet";
 
-/** 한 번에 반영할 수 있는 최대 줄 수 */
-const MAX_APPLY = 2000;
+/**
+ * 이 요청에 쓸 수 있는 시간(초).
+ *
+ * 【2026-08-10 — 여기에 이 줄이 없었습니다】
+ * 없으면 기본 10초입니다. 2,000건 상한은 사실 그 10초에 맞춘 숫자였습니다.
+ * 내려받기(sheet/route.ts)에는 이미 60초로 적혀 있었는데 올리기에는
+ * 빠져 있어서, 받는 쪽만 커지고 올리는 쪽이 못 따라가던 상태였습니다.
+ */
+export const maxDuration = 60;
+
+/**
+ * 한 번에 반영할 수 있는 최대 줄 수.
+ *
+ * 【2026-08-10 대표님 요청 — "한번에 정리할 수 있게"】
+ * 전부 내려받아 채우셨는데 올릴 때 2,000건에서 막히면 '한번에' 가
+ * 아닙니다. 그래서 크게 올렸습니다.
+ *
+ * ⚠️ 그래도 무제한은 아닙니다. 진짜 한계는 개수가 아니라 **위의 60초**라,
+ *    시간이 다 되면 **거기까지 반영하고 몇 건이 남았는지 알려 드립니다.**
+ *    (조용히 멈추면 "다 됐다" 고 오해하십니다)
+ */
+const MAX_APPLY = 50000;
+
+/** 시간이 다 되기 10초 전에 멈추고 결과를 알려 드립니다 */
+const TIME_BUDGET_MS = 50_000;
+
+/** 한 번에 물어볼 수 있는 짝번호 개수 (주소가 길어지면 거절당합니다) */
+const ID_CHUNK = 300;
 
 export async function POST(request: NextRequest) {
+  // ⚠️ 시계는 **맨 처음에** 맞춥니다. 큰 파일은 읽고 해석하는 데만도
+  //    몇 초가 걸리는데, 그 뒤에 시계를 맞추면 그 시간이 예산에서 빠져
+  //    결국 60초를 넘겨 서버가 요청을 끊습니다.
+  const deadline = Date.now() + TIME_BUDGET_MS;
+
   const back = new URL("/review", request.url);
   const to = (params: Record<string, string>) => {
     for (const [k, v] of Object.entries(params)) back.searchParams.set(k, v);
@@ -33,8 +64,9 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File) || file.size === 0) {
     return to({ msg: "nofile" });
   }
-  // 너무 큰 파일은 아예 안 읽습니다 (2,000줄이면 1MB 를 한참 밑돕니다)
-  if (file.size > 5_000_000) return to({ msg: "toobig" });
+  // 너무 큰 파일은 아예 안 읽습니다.
+  // (5만 줄이면 20MB 안쪽입니다 — 상한을 올렸으니 여기도 같이 올립니다)
+  if (file.size > 30_000_000) return to({ msg: "toobig" });
 
   const parsed = parseSheet(await file.text());
 
@@ -60,11 +92,14 @@ export async function POST(request: NextRequest) {
   // ---- '되돌리기' 는 원래 판단을 먼저 읽어야 합니다 ----
   const undoIds = parsed.rows.filter((r) => r.action === "undo").map((r) => r.id);
   const autoOf = new Map<number, string | null>();
-  if (undoIds.length) {
+  // ⚠️ 번호를 한 줄에 다 적어서 물어보면 주소가 너무 길어져 데이터베이스가
+  //    거절합니다. 2,000건까지는 안 걸리던 자리인데 상한을 올렸으니
+  //    여기도 나눠서 물어봐야 합니다. (lib/review.ts 와 같은 이유입니다)
+  for (let i = 0; i < undoIds.length; i += ID_CHUNK) {
     const { data } = await supabase
       .from("book_matches")
       .select("id,auto_decision")
-      .in("id", undoIds);
+      .in("id", undoIds.slice(i, i + ID_CHUNK));
     for (const r of data ?? []) {
       autoOf.set(Number(r.id), (r.auto_decision as string) ?? null);
     }
@@ -95,10 +130,21 @@ export async function POST(request: NextRequest) {
     groups.get(key)!.push(r.id);
   }
 
-  for (const [key, ids] of groups) {
+  // 시간이 다 되면 멈추고, **몇 건이 남았는지 세어서** 알려 드립니다.
+  // 조용히 멈추면 "다 반영됐다" 고 오해하십니다. (시계는 맨 위에서 맞췄습니다)
+  const planned = [...groups.values()].reduce((n, ids) => n + ids.length, 0);
+  let ranOutOfTime = false;
+
+  outer: for (const [key, ids] of groups) {
     const [decision, mode] = key.split("|");
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
+
+      if (Date.now() >= deadline) {
+        ranOutOfTime = true;
+        break outer;
+      }
+
       const { data, error } = await supabase
         .from("book_matches")
         .update({
@@ -122,6 +168,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 손도 못 댄 줄 수 = 하려던 것 − (반영 + 실패)
+  const left = ranOutOfTime ? Math.max(0, planned - applied - failed) : 0;
+
   return to({
     msg: "imported",
     ok: String(applied),
@@ -129,5 +178,6 @@ export async function POST(request: NextRequest) {
     bad: String(parsed.unknown.length + parsed.badId.length),
     noauto: String(noAuto),
     fail: String(failed),
+    left: String(left),
   });
 }

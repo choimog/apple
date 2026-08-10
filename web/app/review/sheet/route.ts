@@ -25,14 +25,15 @@ import { CSV_BOM, csvLine } from "@/lib/csv";
 import { currentRole } from "@/lib/supabase";
 import { store } from "@/lib/stores";
 import {
-  isReviewTab,
+  decisionLabel,
+  isExportScope,
+  newExportStatus,
   parseBand,
   parseSize,
   reasonText,
   streamReviewPairs,
-  type ExportStatus,
+  type ExportScope,
   type ReviewPair,
-  type ReviewTab,
 } from "@/lib/review";
 import { noteRow, SHEET_HEADER } from "@/lib/review-sheet";
 
@@ -45,8 +46,20 @@ export const maxDuration = 60;
 /** 미리 만들어 두지 말고 누를 때마다 새로 만듭니다 */
 export const dynamic = "force-dynamic";
 
-/** 한 번에 내려받을 수 있는 최대 줄 수 */
+/** 조건을 걸고 받을 때의 최대 줄 수 (limit=none 이면 안 씁니다) */
 const MAX_ROWS = 2000;
+
+/**
+ * 개수 제한 없이 받을 때, 여기까지만 모으고 멈춥니다(ms).
+ *
+ * 【2026-08-10 대표님 요청】
+ * "갯수 제한 없이 한번에 다 다운로드 할 수 있게. 한번에 정리할 수 있게."
+ *
+ * 개수 상한은 없앴습니다. 다만 위 maxDuration 이 60초라, 그 안에 못
+ * 끝내면 서버가 요청을 끊습니다. 끊기면 **파일이 아무 말 없이 잘립니다.**
+ * 그래서 10초 남겨 두고 우리가 먼저 멈추고, 파일 마지막 줄에 적습니다.
+ */
+const TIME_BUDGET_MS = 50_000;
 
 function rowOf(p: ReviewPair): unknown[] {
   return [
@@ -65,6 +78,7 @@ function rowOf(p: ReviewPair): unknown[] {
     p.b.publisher ?? "",
     p.b.pubYm ?? "",
     reasonText(p.reasons).map((r) => r.label).join(" · "),
+    decisionLabel(p.decision),
   ];
 }
 
@@ -74,14 +88,21 @@ export async function GET(request: NextRequest) {
   }
 
   const q = request.nextUrl.searchParams;
-  const tab: ReviewTab = isReviewTab(q.get("tab") ?? undefined)
-    ? (q.get("tab") as ReviewTab)
-    : "pending";
-  const band = parseBand(q.get("band") ?? undefined);
-  const size = parseSize(q.get("size") ?? undefined);
+  const raw = q.get("tab") ?? undefined;
+  const scope: ExportScope = isExportScope(raw) ? raw : "pending";
 
-  const status: ExportStatus = { sent: 0, capped: false };
-  const batches = streamReviewPairs(tab, band, size, MAX_ROWS, status);
+  // 'tab=all' 은 세 탭을 통째로 받는 것이라 점수·권수 조건을 걸지 않습니다.
+  // (조건을 함께 보내면 '전부' 라는 말과 어긋납니다)
+  const band = scope === "all" ? null : parseBand(q.get("band") ?? undefined);
+  const size = scope === "all" ? null : parseSize(q.get("size") ?? undefined);
+
+  // 개수 제한 없이 받기. 'all' 은 요청 자체가 그런 뜻이라 기본으로 켭니다.
+  const unlimited = q.get("limit") === "none" || scope === "all";
+  const maxRows = unlimited ? null : MAX_ROWS;
+  const deadline = Date.now() + TIME_BUDGET_MS;
+
+  const status = newExportStatus();
+  const batches = streamReviewPairs(scope, band, size, maxRows, status, deadline);
 
   // 🚨 첫 덩어리는 **흘려보내기 전에** 받아 봅니다.
   //    여기서 실패하면 아직 오류 화면을 띄울 수 있습니다.
@@ -114,6 +135,19 @@ export async function GET(request: NextRequest) {
 
         if (status.sent === 0) {
           push(csvLine(noteRow("고르신 조건에 해당하는 짝이 없습니다.")));
+        } else if (status.timedOut) {
+          // ⚠️ 시간에 걸려 멈췄습니다. 개수 때문이 아니므로 다르게 적습니다.
+          //    (개수 탓으로 적으면 "더 잘게 나눠 받으면 되겠지" 하고
+          //     엉뚱한 데를 고치시게 됩니다)
+          push(
+            csvLine(
+              noteRow(
+                `⚠️ 시간이 다 되어 ${status.sent}건까지만 받았습니다. ` +
+                  "자료가 아주 많을 때 그렇습니다. 이것부터 처리해서 " +
+                  "올리시면 그만큼 줄어들고, 다시 받으시면 이어서 받으실 수 있습니다."
+              )
+            )
+          );
         } else if (status.capped) {
           // ⚠️ 잘렸으면 **파일 안에 적습니다.** 조용히 자르면 "이게 전부" 로
           //    오해하십니다.
@@ -144,9 +178,9 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const name = `매칭검토_${tab}${band ? `_${band}점대` : ""}${
-    size ? `_${size}` : ""
-  }_${new Date().toISOString().slice(0, 10)}.csv`;
+  const name = `매칭검토_${scope === "all" ? "전체" : scope}${
+    band ? `_${band}점대` : ""
+  }${size ? `_${size}` : ""}_${new Date().toISOString().slice(0, 10)}.csv`;
 
   return new NextResponse(body, {
     headers: {

@@ -100,25 +100,42 @@ echo "=== [다] db/space-where.sql — 용량이 어디로 갔나 (2026-08-11) =
 # 오늘 [용량 확인] 이 '1년 뒤 528MB · 10일 뒤 한도' 라고 알려 왔습니다.
 # 어디를 줄일지 정하려면 먼저 재야 하는데, 재는 파일이 실행하자마자
 # 죽으면 아무것도 못 알아냅니다. 자료가 하나도 없을 때부터 봅니다.
+# 매칭 판정 줄이 있어야 ③ 이 나옵니다
+cat > "$DATA/seedm.sql" <<'SQL'
+INSERT INTO book_matches(store_book_a, store_book_b, score, reasons, decision)
+  VALUES (1, 2, 90, '{"title_sim":0.94}', 'auto_high');
+SQL
+chmod 644 "$DATA/seedm.sql"; q seedm.sql >/dev/null
+
 OUT3=$(q space-where.sql)
 echo "$OUT3" | grep -qi "ERROR" && { echo "$OUT3" | grep -i error; say 0 "죽지 않는다"; } \
   || say 1 "죽지 않는다"
 echo "$OUT3" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say 1 "0으로 안 나눈다"
-# 네 개의 표가 다 나와야 합니다. 하나라도 빠지면 판단 근거가 빕니다.
-echo "$OUT3" | grep -q "색인(목차) 이름" && say 1 "① 색인별 크기가 나온다" \
-  || say 0 "① 색인별 크기가 나온다"
-echo "$OUT3" | grep -q "색인 비중" && say 1 "② 자료/색인 비중이 나온다" \
-  || say 0 "② 자료/색인 비중이 나온다"
-echo "$OUT3" | grep -q "근거가 차지하는 양" && say 1 "③ 판정별 줄 수가 나온다" \
-  || say 0 "③ 판정별 줄 수가 나온다"
-echo "$OUT3" | grep -q "30일 넘게 순위에 안 나온 줄" && say 1 "④ 안 쓰는 줄을 세어낸다" \
-  || say 0 "④ 안 쓰는 줄을 세어낸다"
 
-# 🚨 진짜로 세는지 확인합니다. 위 seed 로 store_books 2줄이 들어 있고,
-#    first_seen_at 은 now() 이므로 '최근 7일에 새로 생긴 줄' 이 2 여야 합니다.
-#    0 이 나오면 '안 늘어난다' 는 틀린 결론을 내게 됩니다.
-echo "$OUT3" | grep -A2 "최근 7일에 새로 생긴 줄" | grep -qE '\|[[:space:]]*2[[:space:]]*\|' \
-  && say 1 "새로 생긴 줄을 실제로 센다" || say 0 "새로 생긴 줄을 실제로 센다"
+# 🚨 가장 중요한 시험 — **표가 딱 하나**여야 합니다.
+#    2026-08-11 에 이것 때문에 대표님 시간을 버렸습니다. 표를 네 개로
+#    나눠 드리고 "스크롤하면 이어서 나옵니다" 라고 안내했는데,
+#    Supabase SQL Editor 는 **맨 마지막 표 하나만** 보여줍니다.
+#    그래서 대표님께는 ④ 만 보였고, 나머지 세 개는 영영 못 보셨습니다.
+ROWS=$(echo "$OUT3" | grep -c "row)\|rows)")
+[ "$ROWS" = 1 ] && say 1 "표가 딱 하나로 나온다 (스크롤 필요 없음)" \
+  || say 0 "표가 딱 하나로 나온다 (스크롤 필요 없음)" "$ROWS"
+
+# 그 하나의 표 안에 세 가지가 다 들어 있어야 합니다
+echo "$OUT3" | grep -q "① 색인(목차)" && say 1 "① 색인별 크기가 들어 있다" \
+  || say 0 "① 색인별 크기가 들어 있다"
+echo "$OUT3" | grep -q "② 표 전체" && say 1 "② 자료/색인 비중이 들어 있다" \
+  || say 0 "② 자료/색인 비중이 들어 있다"
+echo "$OUT3" | grep -q "③ 매칭 판정" && say 1 "③ 판정별 줄 수가 들어 있다" \
+  || say 0 "③ 판정별 줄 수가 들어 있다"
+
+# 지워도 되는 목차를 실제로 짚어 주는지 (이게 자료를 안 잃고 줄이는 유일한 길)
+echo "$OUT3" | grep -qE "한 번도 안 씀|읽힌 횟수" \
+  && say 1 "안 쓰는 목차를 짚어 준다" || say 0 "안 쓰는 목차를 짚어 준다"
+echo "$OUT3" | grep -q "기본키 — 못 지웁니다" \
+  && say 1 "못 지우는 것을 못 지운다고 말한다" || say 0 "못 지우는 것을 못 지운다고 말한다"
+echo "$OUT3" | grep -q "auto_high" && say 1 "판정 이름이 실제로 나온다" \
+  || say 0 "판정 이름이 실제로 나온다"
 
 echo
 echo "=== [라] db/space-growth.sql — 날짜별 증가 속도 (2026-08-11) ==="
@@ -129,8 +146,12 @@ OUT4=$(q space-growth.sql)
 echo "$OUT4" | grep -qi "ERROR" && { echo "$OUT4" | grep -i error; say 0 "죽지 않는다"; } \
   || say 1 "죽지 않는다"
 echo "$OUT4" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say 1 "0으로 안 나눈다"
-echo "$OUT4" | grep -q "처음 본 날" && say 1 "① 날짜별 표가 나온다" \
-  || say 0 "① 날짜별 표가 나온다"
+# 🚨 여기도 표가 딱 하나여야 합니다 (Supabase 는 마지막 표만 보여줍니다)
+R4=$(echo "$OUT4" | grep -c "row)\|rows)")
+[ "$R4" = 1 ] && say 1 "표가 딱 하나로 나온다" || say 0 "표가 딱 하나로 나온다" "$R4"
+echo "$OUT4" | grep -q "새로 생긴 줄" && say 1 "① 날짜별 줄이 들어 있다" \
+  || say 0 "① 날짜별 줄이 들어 있다"
+echo "$OUT4" | grep -q "② 정리" && say 1 "② 정리가 들어 있다" || say 0 "② 정리가 들어 있다"
 echo "$OUT4" | grep -q "첫 수집일. 이 줄은 빼고 보세요" \
   && say 1 "첫 수집일을 표시해 준다" || say 0 "첫 수집일을 표시해 준다"
 

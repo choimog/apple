@@ -2,7 +2,7 @@
 --  도서 목록이 정말 계속 늘어나는가 — 날짜별로 갈라서 잽니다
 -- ===========================================================================
 --  【왜 다시 재나요? — 2026-08-11】
---  앞의 db/space-where.sql ④ 가 이렇게 나왔습니다.
+--  앞서 잰 값이 이렇게 나왔습니다.
 --
 --      전체 상품 줄            133,710
 --      최근 7일에 새로 생긴 줄  133,710   ← 전체와 똑같음 (100%)
@@ -33,83 +33,83 @@
 --  네. 세기만 합니다. 만들지도, 고치지도, 지우지도 않습니다.
 --
 --  실행: Supabase → SQL Editor → New query → 전체 붙여넣고 Run
---        표 두 개가 나옵니다. 둘 다 알려 주세요.
+--        표 **하나**가 나옵니다. 통째로 알려 주세요.
+--        (⚠️ Supabase 는 문장을 여러 개 실행하면 맨 마지막 표만
+--          보여줍니다. 그래서 일부러 하나로 합쳐 두었습니다)
 -- ===========================================================================
 
+WITH per_day AS (
+    SELECT (first_seen_at AT TIME ZONE 'Asia/Seoul')::date AS d,
+           count(*)                                        AS n,
+           count(*) FILTER (WHERE store_id = 1)            AS k,
+           count(*) FILTER (WHERE store_id = 2)            AS y,
+           count(*) FILTER (WHERE store_id = 3)            AS a
+      FROM store_books
+     GROUP BY 1
+),
+first_day AS (SELECT min(d) AS d FROM per_day),
+-- 첫 수집일을 뺀 나머지. **이것이 진짜 증가 속도입니다.**
+-- 첫날은 '그동안 쌓인 것을 한 번에 담은 날' 이라 앞으로의 속도가 아닙니다.
+rest AS (
+    SELECT * FROM per_day WHERE d > (SELECT d FROM first_day)
+),
+bpr AS (   -- 한 줄이 차지하는 크기 (색인 포함)
+    SELECT pg_total_relation_size('store_books')
+           / greatest((SELECT count(*) FROM store_books), 1) AS b
+),
 
 -- ---------------------------------------------------------------------------
 --  ① 날짜별로 몇 권이 '처음' 들어왔나
 -- ---------------------------------------------------------------------------
---  first_seen_at = 그 상품을 처음 본 날.
---  맨 윗줄(가장 오래된 날)이 첫 수집일이라 크게 나오는 것이 정상입니다.
---  **아랫줄들이 진짜 증가 속도입니다.**
--- ---------------------------------------------------------------------------
-SELECT
-    (first_seen_at AT TIME ZONE 'Asia/Seoul')::date   AS "처음 본 날(한국시간)",
-    to_char(count(*), 'FM999,999,999')                AS "새로 생긴 줄",
-    to_char(count(*) FILTER (WHERE store_id = 1), 'FM999,999')  AS "교보",
-    to_char(count(*) FILTER (WHERE store_id = 2), 'FM999,999')  AS "예스24",
-    to_char(count(*) FILTER (WHERE store_id = 3), 'FM999,999')  AS "알라딘",
-    CASE WHEN row_number() OVER (ORDER BY (first_seen_at AT TIME ZONE 'Asia/Seoul')::date) = 1
-         THEN '← 첫 수집일. 이 줄은 빼고 보세요' ELSE '' END    AS "비고"
-FROM store_books
-GROUP BY 1
-ORDER BY 1;
-
+days AS (
+    SELECT
+        1                                                   AS k1,
+        0                                                   AS k2,
+        p.d::text                                           AS "구분",
+        '새로 생긴 줄'                                       AS "항목",
+        to_char(p.n, 'FM999,999,999')                       AS "값",
+        '교보 ' || to_char(p.k, 'FM999,999')
+        || ' · 예스24 ' || to_char(p.y, 'FM999,999')
+        || ' · 알라딘 ' || to_char(p.a, 'FM999,999')
+        || CASE WHEN p.d = (SELECT d FROM first_day)
+                THEN '   ← 첫 수집일. 이 줄은 빼고 보세요' ELSE '' END
+                                                            AS "뜻"
+    FROM per_day p
+),
 
 -- ---------------------------------------------------------------------------
 --  ② 그래서 1년 뒤에 얼마나 될까
 -- ---------------------------------------------------------------------------
---  **첫 수집일을 뺀** 나머지 날의 평균으로만 계산합니다.
---  첫날은 '쌓인 것을 한 번에 담은 날' 이라 앞으로의 속도가 아닙니다.
---
 --  ⚠️ 아직 며칠 안 됐으면 이 값도 흔들립니다. 며칠 더 지나 다시 보세요.
--- ---------------------------------------------------------------------------
-WITH per_day AS (
-    SELECT (first_seen_at AT TIME ZONE 'Asia/Seoul')::date AS d,
-           count(*) AS n
-      FROM store_books
-     GROUP BY 1
-),
-rest AS (   -- 첫 수집일을 뺀 나머지
-    SELECT * FROM per_day
-     WHERE d > (SELECT min(d) FROM per_day)
-),
-bytes_per_row AS (
-    SELECT pg_total_relation_size('store_books')
-           / greatest((SELECT count(*) FROM store_books), 1) AS b
-)
-SELECT * FROM (
-    SELECT 1 AS "번호", '수집한 날수' AS "항목",
-           (SELECT count(*)::text FROM per_day) AS "값",
-           '첫날 포함' AS "뜻"
-
+sums AS (
+    SELECT 2, 1, '② 정리', '수집한 날수',
+           (SELECT count(*)::text FROM per_day), '첫날 포함'
     UNION ALL
-    SELECT 2, '첫 수집일에 담긴 줄',
+    SELECT 2, 2, '② 정리', '첫 수집일에 담긴 줄',
            to_char((SELECT n FROM per_day ORDER BY d LIMIT 1), 'FM999,999,999'),
            '이 값은 앞으로의 속도가 아닙니다'
-
     UNION ALL
-    SELECT 3, '그 뒤 하루 평균 새 줄',
+    SELECT 2, 3, '② 정리', '그 뒤 하루 평균 새 줄',
            CASE WHEN (SELECT count(*) FROM rest) = 0
                 THEN '(아직 하루도 안 지났습니다 — 판정 불가)'
                 ELSE to_char((SELECT avg(n) FROM rest)::bigint, 'FM999,999,999')
            END,
            '★ 이것이 진짜 증가 속도입니다'
-
     UNION ALL
-    SELECT 4, '한 줄당 크기(색인 포함)',
-           pg_size_pretty((SELECT b FROM bytes_per_row)),
-           ''
-
+    SELECT 2, 4, '② 정리', '한 줄당 크기(색인 포함)',
+           pg_size_pretty((SELECT b FROM bpr)), ''
     UNION ALL
-    SELECT 5, '1년 뒤 도서 목록 예상',
+    SELECT 2, 5, '② 정리', '1년 뒤 도서 목록 예상',
            CASE WHEN (SELECT count(*) FROM rest) = 0
                 THEN '(판정 불가)'
                 ELSE pg_size_pretty((
                     ((SELECT count(*) FROM store_books)
                      + (SELECT avg(n) FROM rest) * 365)
-                    * (SELECT b FROM bytes_per_row))::bigint)
+                    * (SELECT b FROM bpr))::bigint)
            END,
            'store_books 만. books·book_matches 는 별도'
-) x ORDER BY "번호";
+)
+
+SELECT "구분", "항목", "값", "뜻"
+FROM (SELECT * FROM days UNION ALL SELECT * FROM sums) x
+ORDER BY k1, k2, "구분";

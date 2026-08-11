@@ -91,7 +91,17 @@ import re as _re
 check("조건 없는 delete() 가 없다",
       _re.search(r'\.delete\(\)\s*\.execute\(\)', WIPE) is None,
       "delete().execute() 는 조건 없이 지웁니다")
-check("all 이어도 날짜 목록을 먼저 구한다", "snapshot_dates" in WIPE)
+# 🚨 2026-08-11 실제 오류:
+#    snapshot_dates 가 '2026-08-08' 이 아니라
+#    {'snapshot_date': '2026-08-08'} 같은 표 모양으로 돌려주는데
+#    그걸 그대로 날짜라고 넘겨서 죽었습니다.
+#      invalid input syntax for type date: "{'snapshot_date': '2026-08-08'}"
+#    이제 표에 남아 있는 날짜를 매번 직접 물어봅니다.
+check("날짜를 표에서 직접 꺼내 쓴다", 'rows[0]["snapshot_date"]' in WIPE)
+check("미리 만든 날짜 목록에 기대지 않는다", "snapshot_dates" not in WIPE,
+      "목록에서 빠진 날짜는 영영 안 지워집니다")
+check("남은 날짜가 없어질 때까지 돈다", "while True:" in WIPE)
+check("무한히 도는 것을 막는 장치가 있다", "done > 400" in WIPE)
 
 print("\n[4] 무엇을 지우는지 빠짐없이 다루는가")
 for t in ("rankings", "crawl_logs", "daily_reports"):

@@ -32,6 +32,11 @@ class Candidate:
     isbn13: str | None
     edition_tags: list[str] = field(default_factory=list)
     set_volumes: int | None = None
+    # 【2026-08-11 대표님 지시】
+    # "정가가 다르면 확실히 다른 도서가 되는 거고,
+    #  정가가 같다는 전제 하에 지금의 규칙은 조금 수정해서 조정할 필요가 있다"
+    list_price: int | None = None
+    norm_subtitle: str | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -130,15 +135,69 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
             "a": a.set_volumes, "b": b.set_volumes,
         })
 
+    # -------------------------------------------------------------------------
+    #  정가가 다르면 다른 책입니다 — 2026-08-11 대표님 지시
+    #
+    #  도서정가제상 정가는 출판사가 정한 **하나의 값**입니다. 3사가 같아야
+    #  정상이고, 다르면 판형·개정판이 다른 별개 상품입니다.
+    #  ⚠️ 한쪽이라도 모르면 거부하지 않습니다. '모른다' 를 '다르다' 로
+    #     바꾸면 값이 아직 없는 책이 전부 갈라집니다.
+    #     (정가는 2026-08-11 부터 걷기 시작해서, 그 전 자료에는 없습니다)
+    # -------------------------------------------------------------------------
+    same_price = None                    # None = 한쪽이라도 모름
+    if a.list_price and b.list_price:
+        same_price = a.list_price == b.list_price
+        if not same_price and th.get("price_hard", True):
+            return _reject("정가가 다름", {"a": a.list_price, "b": b.list_price})
+
+    # -------------------------------------------------------------------------
+    #  '같은 책일 가능성이 아주 높은 상태' 인지 봅니다 — 2026-08-11
+    #
+    #  대표님이 주신 예시들입니다.
+    #    원소 원정대            / 원소 원정대: 118개 캐릭터로 마스터하는…
+    #    오디세이아 (영화 원작) / 오디세이아(고대 그리스어 완역본)
+    #    날개 : 이상 소설전집   / 날개
+    #
+    #  전부 저자·출판사·출간월·정가가 같고 **제목의 꾸밈말만** 다릅니다.
+    #  이럴 때는 제목 규칙을 조금 풀어 줍니다. 대신 조건이 하나라도
+    #  어긋나면 절대 풀지 않습니다.
+    # -------------------------------------------------------------------------
+    relax = (
+        a.norm_author and b.norm_author and a.norm_author == b.norm_author
+        and a.norm_publisher and b.norm_publisher
+        and a.norm_publisher == b.norm_publisher
+        and a.pub_ym and b.pub_ym and a.pub_ym == b.pub_ym
+        and same_price is not False          # 정가를 알면 같아야 함
+    )
+
     # 에디션 표기가 다르면 다른 책 (개정판/리커버/양장본은 별도 도서)
-    if set(a.edition_tags or []) != set(b.edition_tags or []):
-        return _reject("에디션 표기가 다름", {
-            "a": sorted(a.edition_tags or []),
-            "b": sorted(b.edition_tags or []),
-        })
+    #
+    # ⚠️ 다만 '완역본' 처럼 **판형이 아니라 내용을 설명하는 말**은, 위 조건이
+    #    전부 같으면 무시합니다. 『오디세이아(고대 그리스어 완역본)』이
+    #    이것 때문에 갈라져 있었습니다.
+    #    개정판·양장본 같은 진짜 판형 차이는 여전히 갈라냅니다.
+    soft = set(th.get("edition_soft_words") or [])
+    ed_a, ed_b = set(a.edition_tags or []), set(b.edition_tags or [])
+    if ed_a != ed_b:
+        if not (relax and (ed_a ^ ed_b) <= soft):
+            return _reject("에디션 표기가 다름", {
+                "a": sorted(ed_a), "b": sorted(ed_b),
+            })
 
     # 제목이 이 정도로 다르면 나머지가 다 맞아도 다른 책
     title_sim = similarity(a.norm_title, b.norm_title)
+
+    # 한쪽 제목이 다른 쪽의 **앞부분**이면 부제가 붙은 것뿐입니다.
+    #   '원소원정대' ⊂ '원소원정대118개캐릭터로…'
+    # 위 조건이 전부 같을 때만 인정합니다.
+    prefix = False
+    if relax and a.norm_title and b.norm_title:
+        x, y = sorted((a.norm_title, b.norm_title), key=len)
+        # 너무 짧은 제목은 우연히 겹칩니다 ('밤' ⊂ '밤의 여행자들')
+        if len(x) >= th.get("prefix_min_len", 4) and y.startswith(x):
+            prefix = True
+            title_sim = max(title_sim, th.get("prefix_title_sim", 0.95))
+
     if title_sim < th["title_hard_floor"]:
         return _reject("제목이 너무 다름", {"title_sim": round(title_sim, 3)})
 
@@ -204,6 +263,13 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     #  2단계 — 점수 매기기
     # =========================================================================
     reasons: dict = {"title_sim": round(title_sim, 3)}
+    # 왜 그렇게 봤는지 화면에 그대로 보여 주기 위해 남깁니다
+    if same_price is True:
+        reasons["price"] = f"same({a.list_price:,})"
+    elif same_price is None:
+        reasons["price"] = "missing"
+    if prefix:
+        reasons["title_prefix"] = "부제만 붙음"
     score = title_sim * w["title"]
 
     # --- 저자 ---

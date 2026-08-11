@@ -276,6 +276,15 @@ export default async function BookPage({
                       <span>{main.pub_ym}</span>
                     </>
                   )}
+                  {/* 정가 — 2026-08-11 추가. 3사가 같아야 정상입니다 */}
+                  {main.list_price && (
+                    <>
+                      <span className="text-ink-faint">·</span>
+                      <span className="tnum">
+                        {main.list_price.toLocaleString()}원
+                      </span>
+                    </>
+                  )}
                 </span>
               }
             />

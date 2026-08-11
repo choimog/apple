@@ -61,11 +61,13 @@ function rowOf(p: ReviewPair, tab: ReviewTab): unknown[] {
     p.a.author ?? "",
     p.a.publisher ?? "",
     p.a.pubYm ?? "",
+    p.a.listPrice ?? "",
     store(p.b.storeId).name,
     p.b.title,
     p.b.author ?? "",
     p.b.publisher ?? "",
     p.b.pubYm ?? "",
+    p.b.listPrice ?? "",
     reasonText(p.reasons).map((r) => r.label).join(" · "),
   ];
 }

@@ -168,6 +168,8 @@ export type ReviewBook = {
   author: string | null;
   publisher: string | null;
   pubYm: string | null;
+  /** 정가 — 3사가 같아야 정상입니다. 다르면 다른 판형입니다 */
+  listPrice: number | null;
   isbn13: string | null;
   coverUrl: string | null;
   bookId: number | null;
@@ -477,7 +479,7 @@ async function shapePairs(
       parts.slice(i, i + LANES).map(async (part) => {
         const { data, error } = await supabase
           .from("store_books")
-          .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,isbn13,cover_url,book_id")
+          .select("id,store_id,raw_title,raw_author,raw_publisher,pub_ym,list_price,isbn13,cover_url,book_id")
           .in("id", part);
         if (error) throw new Error(error.message);
         return (data ?? []) as Record<string, unknown>[];
@@ -496,6 +498,7 @@ async function shapePairs(
       author: (b.raw_author as string) ?? null,
       publisher: (b.raw_publisher as string) ?? null,
       pubYm: (b.pub_ym as string) ?? null,
+      listPrice: (b.list_price as number) ?? null,
       isbn13: (b.isbn13 as string) ?? null,
       coverUrl: (b.cover_url as string) ?? null,
       bookId: (b.book_id as number) ?? null,

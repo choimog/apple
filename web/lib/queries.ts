@@ -38,6 +38,14 @@ export type StoreBook = {
   raw_author: string | null;
   raw_publisher: string | null;
   pub_ym: string | null;
+  /**
+   * 정가 — 도서정가제상 출판사가 정한 하나의 값입니다.
+   * 3사가 같아야 정상이고, 다르면 다른 판형입니다.
+   * (2026-08-11 부터 걷습니다. 그 전 자료에는 없어서 null 입니다)
+   */
+  list_price: number | null;
+  /** 실제 판매가. 서점마다 할인율이 달라 다를 수 있습니다 */
+  sale_price: number | null;
   cover_url: string | null;
   isbn13: string | null;
   book_id: number | null;
@@ -186,7 +194,7 @@ export function buildStoreTree(cats: Category[]): StoreTree[] {
 /** 순위 한 줄에 딸려오는 도서 정보 (rankings → store_books 이어붙이기) */
 const STORE_BOOK_JOIN = `store_book:store_books!inner (
     id, store_id, raw_title, raw_author, raw_publisher,
-    pub_ym, cover_url, isbn13, book_id
+    pub_ym, list_price, sale_price, cover_url, isbn13, book_id
   )`;
 
 const RANKING_COLUMNS = `rank, sales_point, ${STORE_BOOK_JOIN}`;
@@ -583,7 +591,7 @@ export async function searchBooks(q: string, limit = 60) {
   const { data, error } = await db()
     .from("store_books")
     .select(
-      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13,book_id"
+      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,list_price,sale_price,cover_url,isbn13,book_id"
     )
     .or(
       `raw_title.ilike.${like},raw_author.ilike.${like},raw_publisher.ilike.${like}`
@@ -651,7 +659,7 @@ export async function getBookDetail(bookId: number): Promise<{
   const { data: sbs, error } = await db()
     .from("store_books")
     .select(
-      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,cover_url,isbn13,book_id"
+      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,list_price,sale_price,cover_url,isbn13,book_id"
     )
     .eq("book_id", bookId);
   if (error) throw error;

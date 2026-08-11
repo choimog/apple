@@ -704,7 +704,8 @@ function ReasonChip({ reason }: { reason: Reason }) {
  */
 function BookSide({ book, other }: { book: ReviewBook; other: ReviewBook }) {
   const s = store(book.storeId);
-  const diff = (a: string | null, b: string | null) =>
+  // 두 값이 다르면 진하게 — 어디가 다른지 눈에 바로 들어와야 합니다
+  const diff = (a: string | number | null, b: string | number | null) =>
     (a ?? "") !== (b ?? "") ? "font-semibold text-ink" : "text-ink-soft";
 
   return (
@@ -725,6 +726,16 @@ function BookSide({ book, other }: { book: ReviewBook; other: ReviewBook }) {
         </p>
         <p className={diff(book.pubYm, other.pubYm)}>
           출간 {book.pubYm || <NoValue />}
+        </p>
+        {/*
+          정가 — 2026-08-11 대표님 지시로 추가.
+          도서정가제상 출판사가 정한 하나의 값이라 **3사가 같아야 정상**입니다.
+          다르면 판형이 다른 별개 상품이므로, 판단에 가장 빠른 단서입니다.
+          (다르면 빨갛게 보입니다 — diff 가 그렇게 해 줍니다)
+        */}
+        <p className={`tnum ${diff(book.listPrice, other.listPrice)}`}>
+          정가{" "}
+          {book.listPrice ? `${book.listPrice.toLocaleString()}원` : <NoValue />}
         </p>
         <p className={`tnum ${diff(book.isbn13, other.isbn13)}`}>
           ISBN {book.isbn13 || <NoValue />}

@@ -30,11 +30,13 @@ export const SHEET_HEADER = [
   "A저자",
   "A출판사",
   "A배본",
+  "A정가",
   "B서점",
   "B제목",
   "B저자",
   "B출판사",
   "B배본",
+  "B정가",
   "근거",
 ] as const;
 

@@ -355,6 +355,153 @@ def rejoin_manual_merges(
     return [sorted(v) for v in out.values()]
 
 
+def split_same_store(
+    cluster: list[int],
+    by_id: dict[int, dict],
+    pair_score: dict[tuple[int, int], float],
+) -> list[list[int]]:
+    """
+    한 무리에 **같은 서점 상품이 둘 이상** 들어가면 갈라냅니다.
+
+    【2026-08-11 대표님 지시】
+    "온라인 3사에 등록된 건데, 짝을 4개 넘긴 건 잘못 등록된다는 거지?
+     기본적으로 짝이 4개를 넘기게끔 세팅하면 안 돼."
+
+    맞습니다. 서점이 셋이므로 한 책은 **최대 3권**입니다. 4권이 되려면
+    한 서점에 같은 책이 두 번 올라와야 하는데, 그건 실제로는 다른 판형인
+    경우가 대부분입니다.
+
+    예전에는 이런 무리를 **세기만** 하고 그냥 뒀습니다("검토 필요로
+    표시합니다"). 그래서 4권·5권짜리 무리가 계속 남아 있었습니다.
+
+    가르는 방법: 각 서점에서 **가장 잘 맞는 한 권씩만** 남깁니다.
+    남은 것들은 각자 혼자가 됩니다 (나중에 2단계 보충에서 다시 붙을
+    기회가 있습니다).
+    """
+    by_store: dict[int, list[int]] = defaultdict(list)
+    for i in cluster:
+        by_store[by_id[i]["store_id"]].append(i)
+
+    if all(len(v) == 1 for v in by_store.values()):
+        return [cluster]        # 이미 서점마다 한 권씩입니다
+
+    def score_with(i: int, others: list[int]) -> float:
+        total = 0.0
+        for j in others:
+            lo, hi = (i, j) if i < j else (j, i)
+            total += pair_score.get((lo, hi), 0.0)
+        return total
+
+    # 가장 많은 서점이 걸린 쪽을 중심으로, 서점마다 한 권씩 뽑습니다
+    keep: list[int] = []
+    for sid, members in by_store.items():
+        if len(members) == 1:
+            keep.append(members[0])
+            continue
+        others = [x for x in cluster if by_id[x]["store_id"] != sid]
+        best = max(members, key=lambda i: (score_with(i, others), -i))
+        keep.append(best)
+
+    dropped = [i for i in cluster if i not in set(keep)]
+    return [sorted(keep)] + [[i] for i in dropped]
+
+
+def fill_missing_store(
+    clusters: dict[int, list[int]],
+    by_id: dict[int, dict],
+    mcfg: dict,
+    forbidden: set[tuple[int, int]],
+) -> tuple[dict[int, list[int]], int]:
+    """
+    2개만 묶인 무리에, **홀로 남은 한 권**을 붙여 3권으로 채웁니다.
+
+    【2026-08-11 대표님 지시】
+    "묶을 수 있는 충분한 근거가 있는데, 짝이 2개는 묶여있는데 1개가
+     부족한 상황에서 그 1개라고 추정할 수 있는 도서가 있다면, 이건
+     사실상 하나의 도서로 봐도 괜찮지 않을까?
+     엄격한 규칙으로 짝을 다 맞추고 난 후에, 2개의 짝끼리 모여서 이렇게
+     하나씩만 빠져있는 경우, 명확하게 홀로 남은 한 개의 도서가 어느 정도
+     유사성을 보인다면, 그 경우에 한해서는 해도 된다는 말이지."
+
+    말씀대로 **엄격한 규칙을 다 돌린 뒤에** 마지막으로 한 번만 합니다.
+    조건을 아주 좁게 잡았습니다.
+
+      · 2권짜리 무리여야 합니다 (1권·3권은 손대지 않습니다)
+      · 붙일 후보는 **그 무리에 없는 서점**의 것이어야 합니다
+      · 후보는 **아직 아무 데도 안 묶인** 책이어야 합니다 (뺏어오지 않음)
+      · 무리의 **두 권 모두**와 기준 점수를 넘어야 합니다 (한 권만 닮은
+        것으로는 안 됩니다)
+      · 사람이 '다른 책' 이라고 한 짝은 절대 붙이지 않습니다
+      · 후보가 여럿이면 **가장 높은 점수 하나만**. 애매하면 아예 안 붙입니다
+    """
+    fill = mcfg.get("thresholds", {}).get("fill_min_score")
+    if not fill:
+        return clusters, 0
+
+    # 어디에도 안 묶인 책 (혼자인 무리)
+    alone: dict[int, list[int]] = defaultdict(list)
+    for root, part in clusters.items():
+        if len(part) == 1:
+            alone[by_id[part[0]]["store_id"]].append(part[0])
+
+    added = 0
+    for root, part in list(clusters.items()):
+        if len(part) != 2:
+            continue
+        have = {by_id[i]["store_id"] for i in part}
+        if len(have) != 2:
+            continue                     # 같은 서점 둘이면 손대지 않습니다
+
+        best_id, best_score = None, -1.0
+        for sid, ids in alone.items():
+            if sid in have:
+                continue                 # 이미 있는 서점은 채울 자리가 아닙니다
+            for cid in ids:
+                scores = []
+                ok = True
+                for i in part:
+                    lo, hi = (cid, i) if cid < i else (i, cid)
+                    if (lo, hi) in forbidden:
+                        ok = False
+                        break
+                    r = compare(_cand(by_id[cid]), _cand(by_id[i]), mcfg)
+                    if r.decision == "rejected" or r.score < fill:
+                        ok = False
+                        break
+                    scores.append(r.score)
+                if not ok:
+                    continue
+                # 🚨 두 권 **모두** 와 맞아야 합니다. 가장 약한 쪽으로 봅니다.
+                s = min(scores)
+                if s > best_score:
+                    best_id, best_score = cid, s
+
+        if best_id is not None:
+            clusters[root] = sorted(part + [best_id])
+            del clusters[best_id]
+            alone[by_id[best_id]["store_id"]].remove(best_id)
+            added += 1
+
+    return clusters, added
+
+
+def _cand(r: dict) -> Candidate:
+    """store_books 한 줄 → 비교용 값"""
+    return Candidate(
+        id=r["id"],
+        store_id=r["store_id"],
+        norm_title=r.get("norm_title") or "",
+        norm_author=r.get("norm_author"),
+        norm_publisher=r.get("norm_publisher"),
+        pub_ym=r.get("pub_ym"),
+        isbn13=r.get("isbn13"),
+        edition_tags=r.get("edition_tags") or [],
+        set_volumes=r.get("set_volumes"),
+        list_price=r.get("list_price"),
+        norm_subtitle=r.get("norm_subtitle"),
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="DB에 저장하지 않고 확인만")
@@ -391,6 +538,8 @@ def main() -> int:
             isbn13=r.get("isbn13"),
             edition_tags=r.get("edition_tags") or [],
             set_volumes=r.get("set_volumes"),
+            list_price=r.get("list_price"),
+            norm_subtitle=r.get("norm_subtitle"),
         )
         for r in rows
     ]
@@ -474,6 +623,7 @@ def main() -> int:
 
     # 사람이 누른 결정을 다시 적용하기 위한 재료 (아래 split_by_manual 설명)
     forbidden = {p for p, d in manual.items() if d == "manual_split"}
+    same_store_split = 0
     edges: list[tuple[float, int, int]] = [
         (float(m["score"]), m["store_book_a"], m["store_book_b"])
         for m in match_rows
@@ -508,8 +658,13 @@ def main() -> int:
                 manual_split_count += 1
             final_parts.extend(pieces)
 
+        # 🚨 한 서점 상품이 둘 이상 들어간 무리를 갈라냅니다 (4권 이상 방지)
+        #    2026-08-11 대표님 지시: "짝이 4개를 넘기게끔 세팅하면 안 돼."
         for part in final_parts:
-            clusters[min(part)] = sorted(part)
+            for piece in split_same_store(part, by_id, pair_score):
+                if len(piece) > 1:
+                    same_store_split += 1 if piece is not part else 0
+                clusters[min(piece)] = sorted(piece)
 
     if split_count:
         print(f"  ⚠️ 출판사가 섞여 있어 갈라낸 무리 {split_count:,}종 "
@@ -521,8 +676,26 @@ def main() -> int:
         print(f"  🤝 출판사 표기가 달라 갈라졌지만 사람이 '같은 책' 이라고 한 "
               f"무리 {rejoined:,}종 → 다시 합쳤습니다.")
 
+    # -------------------------------------------------------------------------
+    #  마지막 단계 — 2권짜리 무리에 홀로 남은 한 권을 채웁니다 (2026-08-11)
+    #
+    #  대표님 말씀대로 **엄격한 규칙을 다 돌린 뒤에** 한 번만 합니다.
+    #  두 권 모두와 기준 점수를 넘어야 하고, 후보가 애매하면 안 붙입니다.
+    # -------------------------------------------------------------------------
+    clusters, filled = fill_missing_store(clusters, by_id, mcfg, forbidden)
+    if filled:
+        print(f"  🧩 2권만 묶여 있던 무리에 남은 한 권을 채웠습니다 — {filled:,}종")
+
     # 갈라낸 뒤의 소속을 다시 계산합니다 (아래 경고에서 씁니다)
     owner = {i: root for root, part in clusters.items() for i in part}
+
+    # 🚨 이제 4권 이상인 무리는 없어야 합니다. 있으면 규칙이 새는 것입니다.
+    too_big = [c for c in clusters.values() if len(c) > 3]
+    if too_big:
+        print(f"  🚨 4권 이상 묶인 무리가 {len(too_big):,}종 남았습니다 "
+              f"(서점이 셋이므로 있을 수 없습니다). 알려 주세요.")
+    else:
+        print("  ✅ 4권 이상 묶인 무리 없음 (서점이 셋이므로 최대 3권)")
 
     multi = {k: v for k, v in clusters.items() if len(v) > 1}
     print(f"\n▶ 결과: 도서 {len(clusters):,}종 "
@@ -541,8 +714,10 @@ def main() -> int:
         if len({by_id[i]["store_id"] for i in c}) < len(c)
     ]
     if dup_store:
-        print(f"  ⚠️ 같은 서점 상품이 2개 이상 섞인 무리 {len(dup_store):,}종 "
-              f"→ '검토 필요' 로 표시합니다 (다른 판형일 가능성).")
+        print(f"  🚨 같은 서점 상품이 2개 이상 섞인 무리가 {len(dup_store):,}종 "
+              f"남았습니다. 갈라내는 규칙이 새는 것이니 알려 주세요.")
+    else:
+        print("  ✅ 같은 서점 상품이 두 번 들어간 무리 없음")
 
     # 위에서 갈라냈는데도 여전히 한 무리인 짝이 있는지 확인합니다.
     #

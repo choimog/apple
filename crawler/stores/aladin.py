@@ -22,6 +22,7 @@ from .base import (
     BookRow,
     ParseError,
     diagnose_empty,
+    box_text,
     parse_prices,
     check_yield,
     first,
@@ -98,7 +99,7 @@ def parse_page(
             cover_url = (cover_node.attributes.get("src") or "").strip() or None
 
         # --- 정가 / 판매가 (2026-08-11 추가) ---
-        list_price, sale_price = parse_prices(box.text())
+        list_price, sale_price = parse_prices(box_text(box))
 
         # --- 저자 / 출간월 (같은 <li> 안에 함께 들어 있음) ---
         authors: list[tuple[str, str]] = []

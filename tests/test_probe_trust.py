@@ -34,7 +34,9 @@ _fake.Client = object
 _fake.create_client = lambda *a, **k: None
 sys.modules.setdefault("supabase", _fake)
 
-from probe_trust import check_cover_isbn, check_prices, isbn_of, sim  # noqa: E402
+from probe_trust import (  # noqa: E402
+    check_cover_isbn, check_prices, isbn_of, plain, sim,
+)
 
 failures: list[str] = []
 
@@ -85,6 +87,25 @@ check("같으면 1.0", sim("아버지의해방일지", "아버지의해방일지
 check("전혀 다르면 낮다", sim("아버지의해방일지", "총균쇠") < 0.4,
       sim("아버지의해방일지", "총균쇠"))
 check("빈 값이면 0", sim(None, "가") == 0.0)
+
+print("\n[2-1] 🚨 부제 차이를 '다른 책' 이라고 하지 않는다 (실제 오판)")
+# 2026-08-11 저녁, 이 판정기가 내놓은 '안 맞은 예시' 세 개는
+# **전부 같은 책**이었습니다. 서점마다 부제를 떼는 자리가 달라서
+# norm_title 이 갈라진 것뿐인데 0.42·0.50 이 나왔습니다.
+# 그 숫자를 믿었으면 멀쩡한 ISBN 을 못 쓴다고 결론낼 뻔했습니다.
+real = [
+    ("체스 챔피언", "체스 챔피언:이기는 체스 게임의 법칙"),
+    ("소설 보다 : 여름 2026", "소설 보다: 여름 2026"),
+    ("사피엔스 : 그래픽 히스토리 Vol.1", "사피엔스: 그래픽 히스토리 Vol.1"),
+]
+for a, b in real:
+    got = max(sim(a, b), sim(plain(a), plain(b)))
+    check(f"「{a}」 = 「{b}」", got >= 0.60, round(got, 2))
+
+# 그렇다고 아무거나 통과시키면 안 됩니다. 경계는 그대로 지킵니다.
+check("앞부분이 짧으면 우연으로 봅니다", sim("밤", "밤의 여행자들") < 0.60,
+      sim("밤", "밤의 여행자들"))
+check("진짜 다른 책은 여전히 낮다", sim(plain("총, 균, 쇠"), plain("아버지의 해방일지")) < 0.60)
 
 print("\n[3] ① 표지 ISBN 판정 — 맞는 경우")
 rows_ok = [

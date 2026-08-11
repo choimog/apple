@@ -143,11 +143,22 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     #  ⚠️ 한쪽이라도 모르면 거부하지 않습니다. '모른다' 를 '다르다' 로
     #     바꾸면 값이 아직 없는 책이 전부 갈라집니다.
     #     (정가는 2026-08-11 부터 걷기 시작해서, 그 전 자료에는 없습니다)
+    #
+    #  ⚠️ 【2026-08-11 저녁 — 확인 안 된 서점의 정가로는 갈라내지 않습니다】
+    #  교보 정가를 알라딘과 대조해 보니 2,663쌍 중 132쌍(5%)이 어긋났습니다.
+    #      교보 2,918,000원  vs  알라딘 18,000원   ('29' + '18,000' 이 이어붙음)
+    #  원인은 고쳤지만(stores/base.py 의 box_text), **고친 값이 실제로
+    #  맞는지는 다음 수집이 돌아야 알 수 있습니다.** 그때까지 교보 정가로
+    #  짝을 갈라내면 멀쩡한 짝이 계속 갈라집니다.
+    #  확인이 끝나면 config/matching.yaml 의 price_hard_stores 에 1 을
+    #  넣으시면 됩니다. (점수 계산에는 계속 씁니다. 확정 거부만 안 합니다)
     # -------------------------------------------------------------------------
     same_price = None                    # None = 한쪽이라도 모름
     if a.list_price and b.list_price:
         same_price = a.list_price == b.list_price
-        if not same_price and th.get("price_hard", True):
+        trusted = set(th.get("price_hard_stores") or [])
+        both_trusted = a.store_id in trusted and b.store_id in trusted
+        if not same_price and th.get("price_hard", True) and both_trusted:
             return _reject("정가가 다름", {"a": a.list_price, "b": b.list_price})
 
     # -------------------------------------------------------------------------

@@ -118,6 +118,9 @@ jobs:
           python tests/test_dedupe_ranks.py
           python tests/test_fail_alert.py
           python tests/test_schedule.py
+          # 정가를 잘못 읽으면 매칭이 멀쩡한 짝을 갈라냅니다.
+          # 2026-08-11 에 실제로 그랬습니다 (교보 2,918,000원).
+          python tests/test_prices.py
 
       - name: 브라우저(크로미움) 설치
         # 교보문고만 '화면 없는 브라우저' 로 읽습니다.

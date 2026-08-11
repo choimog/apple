@@ -57,6 +57,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from collections import defaultdict
 from difflib import SequenceMatcher
@@ -74,10 +75,36 @@ TITLE_OK = 0.60
 
 
 def sim(a: str | None, b: str | None) -> float:
-    """두 제목이 얼마나 닮았는지 0~1 로."""
+    """
+    두 제목이 얼마나 닮았는지 0~1 로.
+
+    【2026-08-11 저녁 — 처음 만든 것이 헛것을 잡았습니다】
+    '안 맞은 예시' 라고 내놓은 것들이 사실은 **같은 책**이었습니다.
+
+        알라딘: 체스 챔피언            교보: 체스 챔피언:이기는 체스 게임의 법칙
+        알라딘: 소설 보다 : 여름 2026  교보: 소설 보다: 여름 2026
+        알라딘: 사피엔스 : 그래픽 …    교보: 사피엔스: 그래픽 …
+
+    서점마다 부제를 떼는 자리가 달라서 norm_title 이 갈라진 것뿐인데,
+    글자를 통째로 견주니 0.42 · 0.50 같은 낮은 점수가 나왔습니다.
+    그 숫자를 그대로 믿었으면 **멀쩡한 ISBN 을 못 쓴다고 결론**낼 뻔했습니다.
+
+    그래서 두 가지를 함께 봅니다.
+      · 한쪽이 다른 쪽의 **앞부분**이면 같은 책으로 봅니다 (부제 차이)
+      · 그 밖에는 글자 견주기
+    """
     if not a or not b:
         return 0.0
+    x, y = (a, b) if len(a) <= len(b) else (b, a)
+    # 부제만 더 붙은 경우. 너무 짧으면 우연히 겹치므로 4글자 이상만.
+    if len(x) >= 4 and y.startswith(x):
+        return 1.0
     return SequenceMatcher(None, a, b).ratio()
+
+
+def plain(text: str | None) -> str:
+    """제목에서 띄어쓰기와 기호를 걷어냅니다. '체스 챔피언:이기는…' 비교용."""
+    return re.sub(r"[^0-9A-Za-z가-힣]+", "", text or "")
 
 
 def isbn_of(row: dict) -> str | None:
@@ -133,7 +160,13 @@ def check_cover_isbn(rows: list[dict]) -> None:
             if other is None:
                 continue          # 교보에 없는 책. 맞는지 틀린지 알 수 없음
             matched += 1
-            s = sim(r.get("norm_title"), other.get("norm_title"))
+            # 정리한 제목(norm)과 서점이 적은 그대로(raw) 를 둘 다 보고
+            # **더 닮은 쪽**을 씁니다. 서점마다 부제를 떼는 자리가 달라서
+            # 한쪽만 보면 같은 책을 다르다고 하게 됩니다.
+            s = max(
+                sim(r.get("norm_title"), other.get("norm_title")),
+                sim(plain(r.get("raw_title")), plain(other.get("raw_title"))),
+            )
             line = (f"      {hit[0]}  닮은 정도 {s:.2f}\n"
                     f"        {name}: {r.get('raw_title')}\n"
                     f"        교보  : {other.get('raw_title')}")

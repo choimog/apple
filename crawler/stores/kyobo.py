@@ -35,6 +35,7 @@ from .base import (
     BookRow,
     ParseError,
     diagnose_empty,
+    box_text,
     parse_prices,
     check_yield,
     first,
@@ -189,7 +190,7 @@ def parse_page(
         #    그래서 선택자를 찍지 않고 칸 전체 글자에서 읽습니다.
         #    안 나오면 빈 값으로 남습니다 — 지어내지 않습니다.
         #    (실제 표기를 확인하면 선택자로 바꾸는 편이 안전합니다)
-        list_price, sale_price = parse_prices(box.text())
+        list_price, sale_price = parse_prices(box_text(box))
 
         # --- 표지 + ISBN13 ---
         cover_url, isbn13 = parse_cover_and_isbn(box, selectors)

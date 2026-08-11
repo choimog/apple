@@ -139,6 +139,48 @@ def scan_html(html: str) -> list[tuple[str, str]]:
     return hits
 
 
+def scan_prices(html: str) -> list[tuple[str, str]]:
+    """
+    HTML 에서 가격처럼 생긴 것을 찾습니다.
+    돌려주는 값: [(찾은 값, 그 자리 앞뒤 글자)]
+
+    【왜 필요한가요? — 2026-08-11 대표님 질문】
+    "4번 탐침에 '교보 가격 표기가 있는지 확인'은 왜 하는 거야?
+     지금 교보는 가격 표기가 없는 상태인거야?"
+
+    **모릅니다. 확인을 안 했습니다.**
+    알라딘·예스24 는 저희가 보관 중인 실제 HTML 로 확인했지만, 교보는
+    샘플이 없어서 못 봤습니다. 그래서 '칸 전체 글자에서 읽기' 라는
+    두루뭉술한 방법으로 만들어 뒀습니다. 되는지 안 되는지 모르는 채로요.
+
+    그런데 제가 만든 탐침은 ISBN 만 보고 **가격은 안 보고 있었습니다.**
+    "탐침으로 확인하겠다" 고 해 놓고 확인할 코드를 안 넣은 것입니다.
+    """
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    # ⚠️ 숫자와 '원' 사이에 태그가 낀 경우가 많습니다.
+    #    <span>22,000</span>원  ← 이걸 놓치면 "가격이 없다" 고 잘못 답합니다.
+    for m in re.finditer(r"([0-9][0-9,]{2,})\s*(?:<[^>]*>\s*)*원", html):
+        raw = m.group(1)
+        try:
+            val = int(raw.replace(",", ""))
+        except ValueError:
+            continue
+        if val < 1000 or val > 500_000:
+            continue                     # 마일리지·포인트 같은 값 제외
+        lo = max(0, m.start() - CONTEXT)
+        hi = min(len(html), m.end() + CONTEXT)
+        around = re.sub(r"\s+", " ", html[lo:hi]).strip()
+        # ⚠️ 앞뒤 글자만으로 묶으면, 한 줄에 나란히 있는 정가와 판매가가
+        #    같은 것으로 뭉쳐 하나만 보입니다. 값도 함께 봅니다.
+        key = f"{val}|{around[:50]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        hits.append((f"{val:,}원", around))
+    return hits
+
+
 def main() -> int:
     from common import db  # 여기서 불러야 시험이 DB 없이 돕니다
 
@@ -197,6 +239,22 @@ def main() -> int:
             print("   못 찾은 예시:")
             for s in misses[sid]:
                 print(f"      {s}")
+
+    # ---- 정가가 서점별로 얼마나 채워졌나 (2026-08-11) ----
+    #      "교보는 가격 표기가 없는 상태인거야?" 에 대한 **실제 자료** 답입니다.
+    print("-" * 66)
+    print("■ 정가가 채워진 비율 (수집을 한 번 돌린 뒤에 봐야 의미가 있습니다)")
+    for sid in sorted(total):
+        name = STORE_NAME.get(sid, f"서점{sid}")
+        n = total[sid]
+        got = sum(
+            1 for r in rows
+            if (r.get("store_id") or 0) == sid and r.get("list_price")
+        )
+        pct = (100.0 * got / n) if n else 0.0
+        mark = "✅" if pct >= 50 else ("⚠️" if pct > 0 else "❌")
+        print(f"   {mark} {name}: {got:,} / {n:,}권 ({pct:.1f}%)")
+    print("      ❌ 0% 면 그 서점 목록에는 가격이 없거나 읽는 규칙이 틀린 것입니다.")
 
     print("-" * 66)
     print("\n【읽는 법】")

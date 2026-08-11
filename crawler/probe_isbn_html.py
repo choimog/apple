@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import config as cfg  # noqa: E402
 from common.http import PoliteClient  # noqa: E402
 from common.robots import parse as parse_robots  # noqa: E402
-from probe_isbn import scan_html  # noqa: E402
+from probe_isbn import scan_html, scan_prices  # noqa: E402
 
 SHOW = 12          # 서점마다 보여줄 예시 수
 
@@ -110,6 +110,19 @@ def probe_store(store: dict, defaults: dict) -> None:
         return
 
     print(f"   받은 글자 수 {len(html):,}자")
+
+    # ---- ② 가격이 목록에 있는지 (2026-08-11 대표님 질문) ----
+    #     알라딘·예스24 는 실제 HTML 로 확인했지만 교보는 못 봤습니다.
+    #     "있는지 확인하겠다" 고 해 놓고 확인할 코드가 없었습니다.
+    prices = scan_prices(html)
+    if prices:
+        print(f"   💰 가격 표기 {len(prices):,}군데 — 앞 3개")
+        for got, around in prices[:3]:
+            print(f"      {got}")
+            print(f"        … {around} …")
+    else:
+        print("   💰 ❌ 가격 표기가 **하나도** 없습니다.")
+        print("      → 이 서점은 목록에서 정가를 얻을 수 없습니다.")
 
     hits = scan_html(html)
     if not hits:

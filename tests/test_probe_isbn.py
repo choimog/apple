@@ -31,7 +31,7 @@ _fake.create_client = lambda *a, **k: None
 sys.modules.setdefault("supabase", _fake)
 
 from probe_isbn import (  # noqa: E402
-    find_isbn, isbn10_ok, isbn13_ok, scan_html, to_isbn13,
+    find_isbn, isbn10_ok, isbn13_ok, scan_html, scan_prices, to_isbn13,
 )
 
 failures: list[str] = []
@@ -111,6 +111,27 @@ check("긴 숫자 가운데를 잘라 쓰지 않는다",
       scan_html("<a>97911994895610000</a>") == [], scan_html("<a>97911994895610000</a>"))
 check("붙임표로 이어진 번호도 안 자른다",
       scan_html("<a>9791199489561-77</a>") == [], scan_html("<a>9791199489561-77</a>"))
+
+print("\n[6-1] 가격 표기 찾기 — 2026-08-11 대표님 질문")
+# "교보 가격 표기가 있는지 확인은 왜 하는 거야?"
+# 알라딘·예스24 는 실제 HTML 로 확인했지만 교보는 못 봤습니다.
+# 그런데 탐침이 ISBN 만 보고 가격은 안 보고 있었습니다.
+# 🚨 숫자와 '원' 사이에 태그가 끼는 경우가 아주 많습니다.
+#    이걸 놓치면 "가격이 없다" 고 **잘못 답합니다.**
+tagged = '<span class="">22,000</span>원 → <span class="ss_p2"><em>19,800원</em></span>'
+found = [v for v, _ in scan_prices(tagged)]
+check("태그가 끼어 있어도 찾는다", "22,000원" in found, found)
+check("할인가도 함께 찾는다", "19,800원" in found, found)
+
+yes = '<strong><em class="yes_b">16,200</em>원</strong><span><em class="yes_m">18,000</em>원</span>'
+check("예스24 모양도 찾는다",
+      {"16,200원", "18,000원"} <= set(v for v, _ in scan_prices(yes)),
+      [v for v, _ in scan_prices(yes)])
+
+# 마일리지·포인트 같은 작은 값과 말도 안 되는 값은 뺍니다
+check("작은 값(마일리지)은 안 센다",
+      "500원" not in [v for v, _ in scan_prices("마일리지 500원")])
+check("가격이 없으면 빈 목록", scan_prices("<p>가격 없음</p>") == [])
 
 print("\n[7] 빈 값·이상한 값에도 안 터진다")
 check("빈 주소", find_isbn("") is None)

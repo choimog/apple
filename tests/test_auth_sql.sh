@@ -231,6 +231,28 @@ check "순위는 못 고친다" "blocked" \
   "$(try "$BOSS" "UPDATE store_books SET raw_title='바뀜' WHERE id=1;")"
 
 echo ""
+echo "[4-1] 이미 내린 결정을 엑셀로 다시 바꾸기 (2026-08-10 대표님 질문)"
+# "이미 내가 내린 결정으로 넘어갔던 것들도, 엑셀에서 바꿔서 올리면
+#  그 엑셀 파일을 반영해주나?"
+#
+# 코드를 읽으면 '될 것 같다' 지만, 보안 규칙이 조용히 막으면 화면에는
+# "0건 반영" 만 뜹니다. 실제로 시켜 봐야 압니다.
+run "psql -h $SOCK -p $PORT -U postgres -q -c \
+  \"UPDATE book_matches SET decision='manual_merge', decided_by='$BOSS' WHERE id=1;\"" >/dev/null 2>&1
+check "먼저 '같은 책' 으로 결정해 둔다" "manual_merge" \
+  "$(ask "SELECT decision FROM book_matches WHERE id=1;")"
+check "🚨 이미 내린 결정을 반대로 바꿀 수 있다" "ok" \
+  "$(try "$BOSS" "UPDATE book_matches SET decision='manual_split', decided_by='$BOSS' WHERE id=1;")"
+check "실제로 '다른 책' 으로 바뀌었다" "manual_split" \
+  "$(ask "SELECT decision FROM book_matches WHERE id=1;")"
+check "다시 '같은 책' 으로도 바꿀 수 있다" "ok" \
+  "$(try "$BOSS" "UPDATE book_matches SET decision='manual_merge', decided_by='$BOSS' WHERE id=1;")"
+check "사람이 내린 결정도 되돌릴 수 있다" "ok" \
+  "$(try "$BOSS" "UPDATE book_matches SET decision='auto_low', decided_by=NULL, decided_at=NULL WHERE id=1;")"
+check "되돌린 뒤에는 사람 이름이 지워진다" "" \
+  "$(ask "SELECT coalesce(decided_by::text,'') FROM book_matches WHERE id=1;")"
+
+echo ""
 echo "[5] 공유 링크 — 로그인 없이 순위표 하나만"
 
 # 관리자인 척하고 링크를 하나 만듭니다

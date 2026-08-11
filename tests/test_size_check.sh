@@ -39,7 +39,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
 cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
    "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" \
-   "$ROOT/db/space-why.sql" "$ROOT/db/space-free.sql" "$ROOT/db/space-trim.sql" "$DATA/"
+   "$ROOT/db/space-why.sql" "$ROOT/db/space-free.sql" "$ROOT/db/space-trim.sql" "$ROOT/db/decision-check.sql" \
+   "$ROOT/db/auth.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -247,7 +248,7 @@ echo "=== [사] 🚨 Supabase 에서 못 도는 문장이 섞여 있지 않은�
 # VACUUM 은 그 안에서 못 돌고, 죽으면서 앞의 지우기까지 통째로 되돌립니다.
 # 그런데 제 컴퓨터의 psql 은 통과시키기 때문에 위 시험들은 속습니다.
 # 그래서 글자로 직접 막습니다.
-for f in space-where space-growth space-why space-free space-trim; do
+for f in space-where space-growth space-why space-free space-trim decision-check; do
   if grep -qiE '^[[:space:]]*(VACUUM|REINDEX CONCURRENTLY|CREATE INDEX CONCURRENTLY)' \
        "$ROOT/db/$f.sql"; then
     say 0 "db/$f.sql 에 Supabase 에서 못 도는 문장이 있다"
@@ -301,6 +302,45 @@ K=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM store_bo
 # 순위도 결정도 없는 상품(11,13)은 지워져야 합니다
 G=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM store_books WHERE id IN (11,13)\"" 2>&1)
 [ "$G" = "0" ] && say 1 "쓸모없어진 상품은 지운다" || say 0 "쓸모없어진 상품이 남았다" "$G"
+
+echo
+echo "=== [자] db/decision-check.sql — 결정 8만 5천 건의 출처 (2026-08-11) ==="
+# 대표님: "나는 결정한 건이 없어. 전부 다 되돌려놓은 상태야."
+# 그런데 DB 에는 manual 85,215줄. 둘 중 하나가 사실이 아닙니다.
+# 이 파일이 답을 냅니다. 죽으면 답을 못 얻습니다.
+cat > "$DATA/seedc.sql" <<'SQL'
+ALTER TABLE book_matches ADD COLUMN IF NOT EXISTS auto_decision text;
+-- 되돌릴 수 있는 것 1건 (auto_decision 있음)
+UPDATE book_matches SET decision='manual_merge', auto_decision='auto_low',
+       decided_by=NULL, decided_at=now() WHERE id=(SELECT min(id) FROM book_matches);
+-- 되돌릴 수 없는 것 1건 (auto_decision 이 비어 있음) ← 대표님 상황 재현
+INSERT INTO book_matches(store_book_a, store_book_b, score, reasons, decision,
+                         auto_decision, decided_at)
+  VALUES (10, 11, 70, '{}', 'manual_split', NULL, now());
+SQL
+chmod 644 "$DATA/seedc.sql"; q seedc.sql >/dev/null
+OUTC=$(q decision-check.sql)
+echo "$OUTC" | grep -qi "ERROR" && { echo "$OUTC" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUTC"
+RC=$(echo "$OUTC" | grep -c "row)\|rows)")
+[ "$RC" = 1 ] && say 1 "표가 딱 하나로 나온다" || say 0 "표가 딱 하나로 나온다" "$RC"
+
+# 🚨 핵심 — 되돌릴 수 없는 결정을 실제로 세어내는지.
+#    0 이 나오면 원인을 못 찾고 엉뚱한 데를 파게 됩니다.
+echo "$OUTC" | grep -A1 "★ 되돌릴 수 없는 결정" | grep -qE '\| 1 +\|' \
+  && say 1 "🚨 되돌릴 수 없는 결정을 세어낸다" || say 0 "🚨 되돌릴 수 없는 결정을 세어낸다"
+echo "$OUTC" | grep -A1 "되돌릴 수 있는 결정" | grep -qE '\| 1 +\|' \
+  && say 1 "되돌릴 수 있는 것과 구분한다" || say 0 "되돌릴 수 있는 것과 구분한다"
+echo "$OUTC" | grep -q "누른 사람이 비어 있는 것" && say 1 "누른 사람 유무를 본다" \
+  || say 0 "누른 사람 유무를 본다"
+
+# 🚨 db/auth.sql 의 채워넣기가 manual 을 건너뛰는 것이 이 문제의 원인입니다.
+#    누가 이 조건을 '고쳐서' manual 까지 채우면, 되돌리기가 manual 을
+#    manual 로 되돌리게 되어 영영 안 풀립니다. 조건을 못박아 둡니다.
+grep -q "AND decision IN ('auto_high', 'auto_low', 'rejected')" "$ROOT/db/auth.sql" \
+  && say 1 "auth.sql 이 사람 결정을 원래 판단으로 덮지 않는다" \
+  || say 0 "auth.sql 의 채워넣기 조건이 바뀌었다"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

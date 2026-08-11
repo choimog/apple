@@ -30,7 +30,9 @@ _fake.Client = object
 _fake.create_client = lambda *a, **k: None
 sys.modules.setdefault("supabase", _fake)
 
-from probe_isbn import find_isbn, isbn10_ok, isbn13_ok, to_isbn13  # noqa: E402
+from probe_isbn import (  # noqa: E402
+    find_isbn, isbn10_ok, isbn13_ok, scan_html, to_isbn13,
+)
 
 failures: list[str] = []
 
@@ -88,7 +90,29 @@ check("ISBN10 을 찾아 13자리로 바꿔 준다",
       got5 is not None and got5[0] == "9788932917245", got5)
 check("어떻게 찾았는지 알려준다", got5 is not None and "10자리" in got5[1], got5)
 
-print("\n[6] 빈 값·이상한 값에도 안 터진다")
+print("\n[6] HTML 전체 뒤지기 — 표지 말고 다른 자리도 봅니다")
+# 목록 페이지에는 표지 말고도 수십 가지 값이 들어 있습니다.
+kyobo_html = '<img src="https://contents.kyobobook.co.kr/sih/fit-in/300x0/pdt/9791199489561.jpg">'
+check("교보 표지 주소에서 찾는다",
+      [g for g, _ in scan_html(kyobo_html)] == ["9791199489561"], scan_html(kyobo_html))
+
+attr = '<li data-isbn="9788932917245" data-goods="12345">책</li>'
+check("data-isbn 속성에서도 찾는다",
+      [g for g, _ in scan_html(attr)] == ["9788932917245"], scan_html(attr))
+check("어디서 찾았는지 앞뒤 글자를 함께 준다",
+      "data-isbn" in scan_html(attr)[0][1], scan_html(attr)[0][1])
+
+# 🚨 상품번호가 잔뜩 든 목록에서 하나도 안 잡혀야 합니다
+goods = "".join(f'<a href="/goods/{192474512 + i}">책</a>' for i in range(50))
+check("상품번호만 잔뜩 있으면 하나도 안 잡는다", scan_html(goods) == [], scan_html(goods)[:3])
+
+# 긴 숫자의 일부를 잘라내 ISBN 이라고 하면 안 됩니다
+check("긴 숫자 가운데를 잘라 쓰지 않는다",
+      scan_html("<a>97911994895610000</a>") == [], scan_html("<a>97911994895610000</a>"))
+check("붙임표로 이어진 번호도 안 자른다",
+      scan_html("<a>9791199489561-77</a>") == [], scan_html("<a>9791199489561-77</a>"))
+
+print("\n[7] 빈 값·이상한 값에도 안 터진다")
 check("빈 주소", find_isbn("") is None)
 check("숫자 없는 주소", find_isbn("https://x.com/cover.jpg") is None)
 

@@ -96,6 +96,49 @@ def find_isbn(url: str) -> tuple[str, str] | None:
     return None
 
 
+# HTML 안에서 찾은 자리 앞뒤로 보여줄 글자 수
+CONTEXT = 70
+
+
+def scan_html(html: str) -> list[tuple[str, str]]:
+    """
+    HTML **전체**에서 ISBN 처럼 생긴 것을 찾습니다.
+    돌려주는 값: [(ISBN13, 그 자리 앞뒤 글자)]
+
+    【왜 표지 주소만 보면 안 되나요? — 2026-08-11】
+    목록 페이지는 표지 말고도 수십 가지 값을 담고 있습니다.
+    링크 주소, data-* 속성, 페이지에 박힌 자바스크립트 변수 …
+    그 안에 ISBN 이 있을 수 있는데 한 번도 안 봤습니다.
+
+    ⚠️ 검사식이 맞는 것만 담습니다. 상품번호를 ISBN 이라고 하면
+       엉뚱한 두 책이 영원히 한 권이 됩니다.
+    """
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    # 앞뒤에 숫자나 붙임표가 더 붙어 있으면 다른 번호의 일부입니다
+    for m in re.finditer(r"(?<![\d-])(\d{13}|\d{9}[\dXx])(?![\d-])", html):
+        raw = m.group(1)
+        if len(raw) == 13:
+            if not isbn13_ok(raw):
+                continue
+            got = raw
+        else:
+            if not isbn10_ok(raw):
+                continue
+            got = to_isbn13(raw)
+
+        lo = max(0, m.start() - CONTEXT)
+        hi = min(len(html), m.end() + CONTEXT)
+        around = re.sub(r"\s+", " ", html[lo:hi]).strip()
+        key = f"{got}|{around[:40]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        hits.append((got, around))
+    return hits
+
+
 def main() -> int:
     from common import db  # 여기서 불러야 시험이 DB 없이 돕니다
 

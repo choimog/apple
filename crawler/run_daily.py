@@ -145,6 +145,32 @@ def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
     }
 
 
+def count_floor(baseline: int, want: int, reached_end: bool,
+                first_day_floor: int = 10) -> tuple[int, int]:
+    """
+    '이만큼도 못 걷었으면 고장이다' 하는 기준을 정합니다.
+    돌려주는 값: (비교 기준이 된 양, 최소 건수)
+
+    【🚨 우리가 일부러 줄인 것을 '고장' 이라고 하면 안 됩니다 — 2026-08-11】
+    대표님 결정으로 일간 1,000위 → 300위, 주간 → 500위로 줄였습니다.
+    그런데 '평소' 는 아직 1,000권으로 남아 있어서, 제대로 300권을 걷어
+    놓고도 40개 넘는 분야를 전부 실패로 몰았습니다.
+
+        수집 건수가 비정상적으로 적습니다: 300권 (기준 499권, 평소 999권)
+        서점 화면 개편 가능성 → config/selectors.yaml 확인 필요
+
+    화면이 개편된 것도, 막힌 것도 아닌데 엉뚱한 곳을 가리켰습니다.
+    그 말을 믿고 멀쩡한 설정을 고치면 진짜로 망가집니다.
+
+    '평소' 는 과거 기록이고, max_items 는 **지금 우리가 받기로 한 양**
+    입니다. 300권만 달라고 해 놓고 1,000권을 기대할 수는 없습니다.
+    둘 중 작은 쪽을 기준으로 삼습니다.
+    """
+    base = min(baseline, want) if (baseline and want) else baseline
+    ratio = 0.25 if reached_end else 0.5
+    return base, (int(base * ratio) if base else first_day_floor)
+
+
 def crawl_category(client_http: PoliteClient, task, parser, selectors,
                    role_priority: list[str] | None = None) -> tuple[list, bool]:
     """
@@ -173,7 +199,7 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
                 page=page,
                 page_size=task.page_size,
             )
-        except END_OF_LIST_SIGNS:
+        except END_OF_LIST_SIGNS as exc:
             # ---------------------------------------------------------------
             # 【목록의 끝을 '고장' 으로 착각하지 않기 — 2026-08-08 실제 사고】
             #
@@ -189,7 +215,21 @@ def crawl_category(client_http: PoliteClient, task, parser, selectors,
             #   1페이지부터 안 된다  → 진짜 고장. 그대로 예외를 냅니다.
             #   앞 페이지는 받았는데 뒤가 안 된다 → 그냥 목록이 끝난 것입니다.
             # ---------------------------------------------------------------
-            if page > 1 and all_rows:
+            # ---------------------------------------------------------------
+            # 🚨 【막힌 것을 '끝났다' 라고 하면 안 됩니다 — 2026-08-11】
+            #
+            # 위 규칙만 두면, 2페이지가 **막혀서** 비어 온 것도 '목록 끝' 으로
+            # 칩니다. 예전에는 '평소' 가 1,000권이라 건수 점검이 잡아냈지만,
+            # 일간을 300위로 줄인 지금은 다릅니다.
+            #   교보 300권 = 2페이지. 2페이지가 막히면 200권만 받고
+            #   '끝까지 봤다' 로 기록됩니다. 기준은 300×0.25 = 75권이라
+            #   **그냥 통과합니다.** 200권만 조용히 저장되는 것입니다.
+            #
+            # diagnose_empty 가 이미 '막힌 것 같다' 를 가려내 줍니다.
+            # 막힌 것이면 목록의 끝이 아니므로 그대로 실패시킵니다.
+            # ---------------------------------------------------------------
+            blocked = "막은 것 같습니다" in str(exc) or "너무 짧습니다" in str(exc)
+            if page > 1 and all_rows and not blocked:
                 print(f"    page {page}: 도서 없음 → 목록이 여기서 끝났습니다 "
                       f"(누적 {len(all_rows)}권 유지)")
                 reached_end = True
@@ -372,21 +412,40 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
     #   목록 끝까지 봤다      → 25% 미만일 때만 실패 (그래도 급감은 신호)
     #   끝을 못 보고 멈췄다   → 예전대로 50% 미만이면 실패
     # -----------------------------------------------------------------------
-    ratio = 0.25 if reached_end else 0.5
-    threshold = int(baseline * ratio) if baseline else FIRST_DAY_FLOOR
+    # -----------------------------------------------------------------------
+    # 【🚨 우리가 일부러 줄인 것을 '고장' 이라고 하면 안 됩니다 — 2026-08-11】
+    #
+    # 대표님 결정으로 일간 1,000위 → 300위, 주간 → 500위로 줄였습니다.
+    # 그런데 '평소' 는 아직 1,000권으로 남아 있어서, 제대로 300권을
+    # 걷어 놓고도 전부 실패로 몰았습니다.
+    #
+    #     수집 건수가 비정상적으로 적습니다: 300권 (기준 499권, 평소 999권)
+    #
+    # 40개 넘는 분야가 이렇게 죽었습니다. 화면이 개편된 것도 아니고
+    # 막힌 것도 아닌데 "selectors.yaml 을 확인하세요" 라고 엉뚱한 곳을
+    # 가리켰습니다. 그 말을 믿고 멀쩡한 설정을 고치면 진짜로 망가집니다.
+    #
+    # '평소' 는 과거 기록이고, max_items 는 **지금 우리가 받기로 한 양**
+    # 입니다. 우리가 300권만 달라고 해 놓고 1,000권을 기대할 수는 없습니다.
+    # 둘 중 작은 쪽을 기준으로 삼습니다.
+    # -----------------------------------------------------------------------
+    want = task.max_items or 0
+    base, threshold = count_floor(baseline, want, reached_end, FIRST_DAY_FLOOR)
 
     if threshold and collected < threshold:
+        capped = bool(baseline and want and want < baseline)
         raise RuntimeError(
             f"수집 건수가 비정상적으로 적습니다: {collected}권 "
             f"(기준 {threshold}권, 평소 {baseline}권"
-            f"{', 목록 끝까지 확인함' if reached_end else ''}). "
+            + (f", 받기로 한 양 {want}권" if capped else "")
+            + f"{', 목록 끝까지 확인함' if reached_end else ''}). "
             f"서점 화면 개편 가능성 → config/selectors.yaml 확인 필요."
         )
 
     # 실패까지는 아니어도, 평소의 절반 밑으로 떨어졌으면 알려는 드립니다.
     # (서점이 목록 길이를 줄였을 수 있습니다. 저장은 정상적으로 합니다)
-    if baseline and collected < baseline * 0.5:
-        print(f"  ℹ️ 평소({baseline}권)보다 적은 {collected}권입니다. "
+    if base and collected < base * 0.5:
+        print(f"  ℹ️ 평소({base}권)보다 적은 {collected}권입니다. "
               f"목록의 끝을 확인했으므로 그대로 저장합니다. "
               f"서점이 목록 길이를 줄였을 수 있습니다.")
 

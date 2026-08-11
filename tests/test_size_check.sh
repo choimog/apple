@@ -38,7 +38,7 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
 cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
-   "$ROOT/db/space-where.sql" "$DATA/"
+   "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -119,6 +119,43 @@ echo "$OUT3" | grep -q "30일 넘게 순위에 안 나온 줄" && say 1 "④ 안
 #    0 이 나오면 '안 늘어난다' 는 틀린 결론을 내게 됩니다.
 echo "$OUT3" | grep -A2 "최근 7일에 새로 생긴 줄" | grep -qE '\|[[:space:]]*2[[:space:]]*\|' \
   && say 1 "새로 생긴 줄을 실제로 센다" || say 0 "새로 생긴 줄을 실제로 센다"
+
+echo
+echo "=== [라] db/space-growth.sql — 날짜별 증가 속도 (2026-08-11) ==="
+# 🚨 앞의 ④ 는 '최근 7일' 을 뭉쳐서 나눴다가, 첫 수집일에 몰린 몇 만 권
+#    때문에 하루 19,101권이라는 헛된 값을 냈습니다. 이 파일은 그걸
+#    날짜별로 갈라서 봅니다. **첫날을 빼고** 세는지가 핵심입니다.
+OUT4=$(q space-growth.sql)
+echo "$OUT4" | grep -qi "ERROR" && { echo "$OUT4" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUT4" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say 1 "0으로 안 나눈다"
+echo "$OUT4" | grep -q "처음 본 날" && say 1 "① 날짜별 표가 나온다" \
+  || say 0 "① 날짜별 표가 나온다"
+echo "$OUT4" | grep -q "첫 수집일. 이 줄은 빼고 보세요" \
+  && say 1 "첫 수집일을 표시해 준다" || say 0 "첫 수집일을 표시해 준다"
+
+# 🚨 하루치밖에 없으면 '판정 불가' 여야 합니다.
+#    여기서 숫자를 지어내면 또 틀린 예측을 하게 됩니다.
+#    (seed 의 store_books 2줄은 둘 다 오늘 = 첫 수집일 하나뿐)
+echo "$OUT4" | grep -q "판정 불가" && say 1 "하루뿐이면 판정 불가라고 말한다" \
+  || say 0 "하루뿐이면 판정 불가라고 말한다"
+echo "$OUT4" | grep -qE '1년 뒤 도서 목록 예상.*\| *[0-9]+ [kMG]B' \
+  && say 0 "하루뿐인데 1년치를 지어내지 않는다" \
+  || say 1 "하루뿐인데 1년치를 지어내지 않는다"
+
+# 이틀치가 있으면 첫날을 뺀 평균을 실제로 낸다
+cat > "$DATA/seed2.sql" <<'SQL'
+INSERT INTO store_books(id, store_id, store_book_key, raw_title, first_seen_at)
+  VALUES (3,1,'k3','다', now() - interval '1 day'),
+         (4,1,'k4','라', now() - interval '1 day'),
+         (5,2,'k5','마', now() - interval '1 day');
+SQL
+chmod 644 "$DATA/seed2.sql"; q seed2.sql >/dev/null
+OUT5=$(q space-growth.sql)
+echo "$OUT5"
+# 어제 3줄(첫날) · 오늘 2줄 → 첫날을 뺀 평균은 2 여야 합니다
+echo "$OUT5" | grep -A1 "그 뒤 하루 평균 새 줄" | grep -qE '\| 2 +\|' \
+  && say 1 "첫 수집일을 빼고 평균을 낸다" || say 0 "첫 수집일을 빼고 평균을 낸다"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

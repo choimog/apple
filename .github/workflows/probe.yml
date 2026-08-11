@@ -39,7 +39,9 @@ jobs:
 
       - name: 규칙 시험 (ISBN 을 잘못 읽지 않는지)
         # 잘못된 ISBN 하나가 엉뚱한 두 책을 영원히 한 권으로 만듭니다.
-        run: python tests/test_probe_isbn.py
+        run: |
+          python tests/test_probe_isbn.py
+          python tests/test_probe_trust.py
 
       - name: 탐침 실행
         env:
@@ -70,3 +72,20 @@ jobs:
       # -----------------------------------------------------------------
       - name: ② 목록 페이지 HTML 전체에 ISBN 이 숨어 있는지
         run: python crawler/probe_isbn_html.py
+
+      # -----------------------------------------------------------------
+      #  ③ 🚨 찾아낸 것을 **믿어도 되는지** 확인 (2026-08-11 탐침 결과)
+      # -----------------------------------------------------------------
+      #  ① 에서 알라딘 표지 ISBN 34.8%, 교보 정가 44.4% 가 나왔습니다.
+      #  둘 다 좋은 소식이지만 아직 믿으면 안 됩니다.
+      #    · ISBN10 검사식은 11분의 1 확률로 우연히 통과합니다
+      #    · 교보 정가는 실제 화면을 못 봐서 두루뭉술하게 읽고 있습니다
+      #  틀린 ISBN 은 엉뚱한 두 책을 영원히 한 권으로 만들고,
+      #  틀린 정가는 지금 규칙(정가가 다르면 다른 책)에서 멀쩡한 짝을
+      #  조용히 갈라냅니다. 그래서 교보 ISBN 을 기준 삼아 맞대 봅니다.
+      # -----------------------------------------------------------------
+      - name: ③ 찾아낸 ISBN·정가를 믿어도 되는지
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/probe_trust.py

@@ -149,6 +149,67 @@ def pick_representative_author(
     return min(authors, key=score)[0]
 
 
+# 서점이 막았을 때 흔히 나오는 말들
+_BLOCK_WORDS = (
+    "비정상적인 접근", "자동입력", "보안문자", "캡차", "captcha",
+    "접근이 차단", "일시적으로 접속", "잠시 후 다시", "robot",
+    "Access Denied", "Too Many Requests", "서비스 점검", "점검 중",
+)
+
+
+def diagnose_empty(html: str, store_name: str, selector: str) -> str:
+    """
+    도서 칸을 하나도 못 찾았을 때, **왜 그런지 갈라서** 말해 줍니다.
+
+    【왜 필요한가요? — 2026-08-11 대표님 신고】
+    예스24 10개 분야에서 이런 오류가 났습니다.
+
+        선택자 'div.itemUnit' 가 더 이상 안 맞는 것 같습니다.
+        config/selectors.yaml 의 yes24.book_box 를 확인하세요.
+
+    그런데 같은 날 아침 정기 수집은 멀쩡했고, 28개 분야 중 10개만,
+    그것도 **연속된 두 덩어리**로 실패했습니다. 화면이 개편됐다면
+    28개가 전부 실패해야 합니다.
+
+    즉 **화면 개편이 아니라 일시적으로 막힌 것**인데, 오류 문구는
+    "선택자를 확인하세요" 라고 엉뚱한 곳을 가리켰습니다.
+    그 말을 믿고 멀쩡한 설정을 고치면 진짜 망가집니다.
+
+    이제 세 가지를 갈라서 말합니다.
+      · 막힌 것 같다      → 잠시 뒤 다시 (설정 건드리지 마세요)
+      · 페이지가 너무 짧다 → 빈 응답. 역시 다시
+      · 진짜 구조가 바뀜   → 설정 확인
+    """
+    body = html or ""
+    head = body[:4000]
+
+    for w in _BLOCK_WORDS:
+        if w.lower() in body.lower():
+            return (
+                f"{store_name}: 서점이 **일시적으로 막은 것 같습니다** "
+                f"(페이지에 '{w}' 라는 말이 있습니다).\n"
+                f"   설정은 건드리지 마세요. 잠시 뒤 다시 수집하면 됩니다.\n"
+                f"   같은 날 여러 번 수집하면 이런 일이 생길 수 있습니다."
+            )
+
+    if len(body) < 3000:
+        return (
+            f"{store_name}: 받은 페이지가 너무 짧습니다({len(body):,}자). "
+            f"내용이 안 온 것으로 보입니다.\n"
+            f"   설정 문제가 아닐 가능성이 큽니다. 잠시 뒤 다시 해 보세요."
+        )
+
+    return (
+        f"{store_name}: 도서 칸을 하나도 못 찾았습니다. "
+        f"선택자 '{selector}' 가 더 이상 안 맞는 것 같습니다.\n"
+        f"   페이지는 정상 크기({len(body):,}자)이고 막힌 흔적도 없습니다.\n"
+        f"   ⚠️ 다른 분야도 함께 실패했는지 보세요. **전부** 실패했으면\n"
+        f"      화면 개편입니다 → config/selectors.yaml 확인.\n"
+        f"      **일부만** 실패했으면 일시적인 문제일 가능성이 큽니다.\n"
+        f"   페이지 앞부분: {head[:200]!r}"
+    )
+
+
 def check_yield(rows: list, boxes: list, selectors: dict, store_name: str) -> None:
     """
     자가 점검: 도서 칸은 찾았는데 실제로 뽑아낸 게 너무 적으면

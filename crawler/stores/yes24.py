@@ -22,6 +22,7 @@ from selectolax.parser import HTMLParser, Node
 from .base import (
     BookRow,
     ParseError,
+    diagnose_empty,
     parse_prices,
     check_yield,
     first,
@@ -108,9 +109,7 @@ def parse_page(
 
     if not boxes:
         raise ParseError(
-            f"예스24: 도서 칸을 하나도 못 찾았습니다. "
-            f"선택자 '{selectors['book_box']}' 가 더 이상 안 맞는 것 같습니다. "
-            f"config/selectors.yaml 의 yes24.book_box 를 확인하세요."
+            diagnose_empty(html, "예스24", selectors["book_box"])
         )
 
     rows: list[BookRow] = []

@@ -34,6 +34,7 @@ from selectolax.parser import HTMLParser, Node
 from .base import (
     BookRow,
     ParseError,
+    diagnose_empty,
     parse_prices,
     check_yield,
     first,
@@ -148,9 +149,7 @@ def parse_page(
 
     if not boxes:
         raise ParseError(
-            "교보문고: 도서 칸을 하나도 못 찾았습니다. "
-            "화면이 다 그려지기 전에 읽었거나, 교보가 화면을 개편했을 수 있습니다. "
-            "config/selectors.yaml 의 kyobo.book_box / book_box_requires 를 확인하세요."
+            diagnose_empty(html, "교보문고", selectors["book_box"])
         )
 
     rows: list[BookRow] = []

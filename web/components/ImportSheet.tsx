@@ -162,16 +162,43 @@ export default function ImportSheet() {
             )}
           </ul>
           {result.applied > 0 && (
-            <p className="mt-1.5 text-ink-faint">
-              순위 화면 반영은 <strong>다음 날 아침</strong>입니다.{" "}
-              <button
-                type="button"
-                onClick={() => location.reload()}
-                className="underline underline-offset-2"
-              >
-                목록 새로고침
-              </button>
-            </p>
+            <div className="mt-1.5 space-y-1 text-ink-faint">
+              <p>
+                <button
+                  type="button"
+                  onClick={() => location.reload()}
+                  className="underline underline-offset-2"
+                >
+                  목록 새로고침
+                </button>
+              </p>
+              {/*
+                【2026-08-10 대표님 질문】
+                "순위 화면 반영은 다음날이라는데, 오늘 바로 할 수는 없나?"
+
+                할 수 있습니다. 그런데 화면에는 '다음 날 아침' 이라고만
+                적혀 있어서, 방법이 있는 줄 모르셨습니다. 안내가 빠진
+                것이지 기능이 없던 게 아니었습니다.
+              */}
+              <p className="leading-relaxed">
+                결정은 <strong>바로 저장됐습니다.</strong> 다만 순위 화면에
+                반영되려면 <strong>같은 책 묶기</strong>를 한 번 다시
+                돌려야 합니다. 그냥 두시면 내일 아침에 저절로 됩니다.
+              </p>
+              <p className="leading-relaxed">
+                <strong>지금 바로 보고 싶으시면</strong>{" "}
+                <a
+                  href="https://github.com/choimog/apple/actions/workflows/match.yml"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  [도서 매칭] 페이지
+                </a>
+                에서 오른쪽 <strong>Run workflow</strong> 를 누르시면 됩니다.
+                약 5분 걸리고 돈은 안 듭니다.
+              </p>
+            </div>
           )}
         </div>
       )}

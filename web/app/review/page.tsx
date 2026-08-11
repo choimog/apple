@@ -164,8 +164,20 @@ export default async function ReviewPage({
         <p className="border-t border-line-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-faint sm:px-5">
           ⚠️ 다른 파일을 올리시면 <strong>한 줄도 반영하지 않고</strong> 왜 안
           되는지 알려 드립니다. 반영 뒤에는 몇 건이 들어갔는지 숫자로 보여
-          드립니다. 순위 화면 반영은 다른 결정과 마찬가지로 <strong>다음 날
-          아침</strong>입니다.
+          드립니다.
+          <br />
+          결정은 곧바로 저장되지만, <strong>순위 화면</strong>에 보이려면
+          같은 책 묶기를 한 번 다시 돌려야 합니다. 그냥 두시면 내일 아침에
+          저절로 되고, 지금 보고 싶으시면{" "}
+          <a
+            href="https://github.com/choimog/apple/actions/workflows/match.yml"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2"
+          >
+            [도서 매칭]
+          </a>{" "}
+          에서 <strong>Run workflow</strong> 를 누르세요 (약 5분 · 무료).
         </p>
       </Card>
 
@@ -340,11 +352,40 @@ export default async function ReviewPage({
           <p>
             결정은 <strong>지금 바로 저장</strong>됩니다. 다만 책을 실제로
             묶고 푸는 계산은 <strong>매일 새벽 수집이 끝난 뒤</strong> 한꺼번에
-            돌아갑니다. 그래서 순위 화면에 반영되는 것은 다음 날 아침입니다.
+            돌아갑니다. 그래서 그냥 두시면 순위 화면에는 다음 날 아침에
+            반영됩니다.
           </p>
+          {/*
+            【2026-08-10 대표님 질문】
+            "순위 화면 반영은 다음날이라는데, 오늘 바로 할 수는 없나?"
+
+            할 수 있었는데 화면에 안 적혀 있었습니다. 기능이 없던 게
+            아니라 **안내가 빠진** 것이었습니다.
+          */}
+          <p className="mt-2">
+            <strong>오늘 바로 보고 싶으시면</strong> 직접 한 번 돌리시면
+            됩니다.{" "}
+            <a
+              href="https://github.com/choimog/apple/actions/workflows/match.yml"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline underline-offset-2"
+            >
+              [도서 매칭] 페이지 열기
+            </a>
+          </p>
+          <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-xs text-ink-faint">
+            <li>위 링크를 엽니다 (GitHub 로그인이 되어 있어야 합니다)</li>
+            <li>
+              오른쪽 <strong>Run workflow</strong> 버튼 → 다시{" "}
+              <strong>Run workflow</strong>
+            </li>
+            <li>약 5분 뒤 순위 화면에 반영됩니다. 돈은 들지 않습니다</li>
+          </ol>
           <p className="mt-2 text-xs text-ink-faint">
             한 짝을 고치면 그 책이 속한 무리 전체를 다시 계산해야 해서,
-            누를 때마다 돌리면 몇 분씩 걸립니다. 그래서 모아서 합니다.
+            누를 때마다 돌리면 몇 분씩 걸립니다. 그래서 평소에는 모아서
+            합니다.
           </p>
         </div>
       </Card>

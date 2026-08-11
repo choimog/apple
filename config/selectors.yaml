@@ -135,6 +135,12 @@ yes24:
 
   sales_point: "span.saleNum"
 
+  # 정가·판매가 (2026-08-11 추가)
+  #   <em class="yes_b">16,200</em>원   ← 판매가(할인 적용)
+  #   <em class="yes_m">18,000</em>원   ← 정가 (취소선)
+  sale_price: "div.info_price em.yes_b"
+  list_price: "div.info_price em.yes_m"
+
   # 해시태그 (예스24만 제공)
   hashtags: "div.info_tag span.tag a"
 

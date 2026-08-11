@@ -22,6 +22,7 @@ from selectolax.parser import HTMLParser, Node
 from .base import (
     BookRow,
     ParseError,
+    parse_prices,
     check_yield,
     first,
     parse_number,
@@ -148,6 +149,16 @@ def parse_page(
             attr = selectors.get("cover_attr", "src")
             cover_url = (cover_node.attributes.get(attr) or "").strip() or None
 
+        # --- 정가 / 판매가 (2026-08-11 추가) ---
+        #   <em class="yes_b">16,200</em>원  ← 판매가(할인 적용)
+        #   <em class="yes_m">18,000</em>원  ← 정가(취소선)
+        # ⚠️ 할인이 없으면 취소선 쪽이 아예 없습니다. 그때는 판매가 자리의
+        #    값이 곧 정가입니다. 없는 값을 지어내지 않습니다.
+        sale_price = parse_number(text_of(first(box, selectors.get("sale_price", ""))))
+        list_price = parse_number(text_of(first(box, selectors.get("list_price", ""))))
+        if list_price is None:
+            list_price, sale_price = sale_price, None
+
         # --- 저자 ---
         authors = parse_authors(box, selectors)
         raw_author = pick_representative_author(authors, role_priority)
@@ -179,6 +190,8 @@ def parse_page(
                 raw_pub_date=raw_pub_date,
                 pub_ym=pub_ym,
                 sales_point=sales_point,
+                list_price=list_price,
+                sale_price=sale_price,
                 cover_url=cover_url,
                 series=None,
                 isbn13=None,      # 예스24 목록에는 ISBN13 이 없습니다

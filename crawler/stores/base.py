@@ -26,6 +26,12 @@ class BookRow:
     raw_pub_date: Optional[str] = None     # 서점이 보여준 원본 문자열
     pub_ym: Optional[str] = None           # 'YYYY-MM' 로 통일한 값
     sales_point: Optional[int] = None      # 판매지수/세일즈포인트. 교보는 항상 None
+    # 【2026-08-11 대표님 지적】 "왜 우리 지금까지 정가를 고려하지 않았지?"
+    #  목록 페이지에 정가와 판매가가 둘 다 나와 있는데 안 걷고 있었습니다.
+    #  정가는 도서정가제상 출판사가 정한 값이라 **3사가 같아야 정상**입니다.
+    #  판형·개정판이 다르면 정가가 다르므로, 갈라내는 근거로도 씁니다.
+    list_price: Optional[int] = None       # 정가 (원)
+    sale_price: Optional[int] = None       # 실제 판매가 (할인 적용)
     cover_url: Optional[str] = None
     series: Optional[str] = None
     isbn13: Optional[str] = None           # 3사 모두 목록에 없음 → 항상 None
@@ -35,6 +41,43 @@ class BookRow:
     # 서점이 알려주는 등락 (예스24만 제공). 우리 계산값과 교차 검증용.
     rank_change_dir: Optional[str] = None   # 'up' | 'down' | 'even' | 'new'
     rank_change_amount: Optional[int] = None
+
+
+# 가격 표기 예시
+#   알라딘 : "22,000원 → 19,800원 (10%할인)"   ← 앞이 정가, 뒤가 판매가
+#   예스24 : "16,200원  18,000원"              ← 앞이 판매가, 뒤가(취소선) 정가
+#   할인이 없으면 하나만 나옵니다.
+_PRICE = re.compile(r"([0-9][0-9,]{2,})\s*원")
+
+
+def parse_prices(text: str | None, list_first: bool = True) -> tuple[
+    Optional[int], Optional[int]
+]:
+    """
+    글자에서 정가와 판매가를 뽑습니다. 돌려주는 값: (정가, 판매가)
+
+    【왜 정가가 중요한가요? — 2026-08-11 대표님 지적】
+    도서정가제상 정가는 출판사가 정한 하나의 값이라 **3사가 같아야
+    정상**입니다. 판형·개정판이 다르면 정가가 다르므로, 다른 책을
+    갈라내는 근거로도 씁니다.
+
+    ⚠️ 값이 하나뿐이면 **정가로만** 봅니다. 판매가를 지어내지 않습니다.
+       (할인 중이 아닌 책은 정가 = 판매가지만, 그건 우리가 정할 일이
+        아니라 서점이 보여준 대로 두는 것이 맞습니다)
+    """
+    if not text:
+        return None, None
+    nums = [int(m.group(1).replace(",", "")) for m in _PRICE.finditer(text)]
+    # 마일리지·적립금 같은 작은 값이 섞일 수 있습니다. 너무 작은 값은 뺍니다.
+    nums = [n for n in nums if n >= 1000]
+    if not nums:
+        return None, None
+    if len(nums) == 1:
+        return nums[0], None
+    a, b = nums[0], nums[1]
+    lo, hi = (b, a) if a > b else (a, b)
+    # 정가가 판매가보다 쌀 수는 없습니다. 큰 쪽이 정가입니다.
+    return (hi, lo) if list_first or True else (hi, lo)
 
 
 class ParseError(RuntimeError):

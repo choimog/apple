@@ -119,6 +119,13 @@ CREATE TABLE IF NOT EXISTS store_books (
     pub_ym          text,       -- 'YYYY-MM' 까지만 통일
     pub_date        date,       -- 일자까지 알 수 있으면 보관(비교엔 안 씀)
 
+    -- 【2026-08-11 추가 — 대표님 지적으로 발견】
+    -- 정가는 도서정가제상 출판사가 정한 하나의 값이라 3사가 같아야 정상입니다.
+    -- 판형·개정판이 다르면 정가가 다르므로 '다른 책' 근거로도 씁니다.
+    -- 판매가는 서점마다 다릅니다 (할인율이 달라서). 매칭에는 쓰지 않습니다.
+    list_price      int,        -- 정가 (원)
+    sale_price      int,        -- 실제 판매가 (할인 적용)
+
     isbn13          text,       -- 목록에 노출되는 서점만 저장
     cover_url       text,       -- 목록 페이지에서 얻은 표지 주소 (작은 썸네일 우선)
     edition_tags    text[]      NOT NULL DEFAULT '{}',  -- ['개정판','리커버','양장본']

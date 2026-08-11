@@ -21,6 +21,7 @@ from selectolax.parser import HTMLParser
 from .base import (
     BookRow,
     ParseError,
+    parse_prices,
     check_yield,
     first,
     parse_number,
@@ -97,6 +98,9 @@ def parse_page(
         if cover_node is not None:
             cover_url = (cover_node.attributes.get("src") or "").strip() or None
 
+        # --- 정가 / 판매가 (2026-08-11 추가) ---
+        list_price, sale_price = parse_prices(box.text())
+
         # --- 저자 / 출간월 (같은 <li> 안에 함께 들어 있음) ---
         authors: list[tuple[str, str]] = []
         raw_author = None
@@ -134,6 +138,10 @@ def parse_page(
                 raw_pub_date=raw_pub_date,
                 pub_ym=pub_ym,
                 sales_point=sales_point,
+                # 정가·판매가 — "22,000원 → 19,800원 (10%할인)"
+                # 클래스가 없는 span 이라 칸 전체 글자에서 읽습니다.
+                list_price=list_price,
+                sale_price=sale_price,
                 cover_url=cover_url,
                 series=series,
                 isbn13=None,      # 알라딘 목록에는 ISBN13 이 없습니다

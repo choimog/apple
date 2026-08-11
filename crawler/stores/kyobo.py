@@ -34,6 +34,7 @@ from selectolax.parser import HTMLParser, Node
 from .base import (
     BookRow,
     ParseError,
+    parse_prices,
     check_yield,
     first,
     text_of,
@@ -184,6 +185,13 @@ def parse_page(
             first(box, selectors["info_line"]), selectors
         )
 
+        # --- 정가 / 판매가 (2026-08-11 추가) ---
+        # ⚠️ 교보 목록의 가격 표기는 아직 실물로 확인하지 못했습니다.
+        #    그래서 선택자를 찍지 않고 칸 전체 글자에서 읽습니다.
+        #    안 나오면 빈 값으로 남습니다 — 지어내지 않습니다.
+        #    (실제 표기를 확인하면 선택자로 바꾸는 편이 안전합니다)
+        list_price, sale_price = parse_prices(box.text())
+
         # --- 표지 + ISBN13 ---
         cover_url, isbn13 = parse_cover_and_isbn(box, selectors)
 
@@ -199,6 +207,8 @@ def parse_page(
                 sales_point=None,   # 교보는 판매지수를 제공하지 않습니다
                 cover_url=cover_url,
                 series=None,
+                list_price=list_price,
+                sale_price=sale_price,
                 isbn13=isbn13,      # 표지 주소에서 얻음 (상세 페이지 진입 없음)
                 authors=[(author, "")] if author else [],
                 events=texts_of(box, selectors.get("event")),

@@ -239,7 +239,8 @@ def fetch_all_store_books(client: Client) -> list[dict]:
     # ※ store_book_key 를 빠뜨리면 나중에 연결할 때 그 칸이 비어서 저장이 실패합니다.
     #   (2026-08-07 실제로 겪음: null value in column "store_book_key")
     cols = ("id,store_id,store_book_key,raw_title,raw_author,raw_publisher,"
-            "norm_title,norm_author,norm_publisher,pub_ym,isbn13,cover_url,"
+            "norm_title,norm_subtitle,norm_author,norm_publisher,pub_ym,"
+            "isbn13,list_price,sale_price,cover_url,"
             "edition_tags,set_volumes,book_id")
     return _select_all(lambda: client.table("store_books").select(cols).order("id"))
 

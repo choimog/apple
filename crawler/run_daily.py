@@ -135,6 +135,9 @@ def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
         ),
         "pub_ym": row.pub_ym,
         "isbn13": row.isbn13,
+        # 정가·판매가 (2026-08-11 추가)
+        "list_price": row.list_price,
+        "sale_price": row.sale_price,
         "cover_url": row.cover_url,
         "edition_tags": t["editions"],
         "set_volumes": t["set_volumes"],

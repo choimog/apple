@@ -85,7 +85,7 @@ print("\n[3] wipe_day 는 날짜를 제대로 가려 받는가")
 check("날짜 모양을 검사한다", r'\d{4}-\d{2}-\d{2}' in WIPE)
 check("all 이면 전부를 뜻한다", 'target.lower() == "all"' in WIPE)
 check("날짜가 비면 아무것도 안 하고 끝낸다", "지울 날짜를 안 알려" in WIPE)
-check("날짜 하나씩만 건드린다", '.eq("snapshot_date", day)' in WIPE)
+check("날짜 하나씩만 건드린다", '.eq(col, day)' in WIPE)
 # 🚨 조건 없는 지우기는 절대 안 됩니다. 한 줄 실수로 전부 날아갑니다.
 import re as _re
 check("조건 없는 delete() 가 없다",
@@ -97,11 +97,46 @@ check("조건 없는 delete() 가 없다",
 #    그걸 그대로 날짜라고 넘겨서 죽었습니다.
 #      invalid input syntax for type date: "{'snapshot_date': '2026-08-08'}"
 #    이제 표에 남아 있는 날짜를 매번 직접 물어봅니다.
-check("날짜를 표에서 직접 꺼내 쓴다", 'rows[0]["snapshot_date"]' in WIPE)
+check("날짜를 표에서 직접 꺼내 쓴다", "rows[0][col]" in WIPE)
 check("미리 만든 날짜 목록에 기대지 않는다", "snapshot_dates" not in WIPE,
       "목록에서 빠진 날짜는 영영 안 지워집니다")
 check("남은 날짜가 없어질 때까지 돈다", "while True:" in WIPE)
 check("무한히 도는 것을 막는 장치가 있다", "done > 400" in WIPE)
+
+print("\n[3-1] 🚨 칸 이름을 짐작하지 않는가 — db/schema.sql 과 대조 (실제 사고)")
+# 2026-08-11: daily_reports 의 날짜 칸을 snapshot_date 라고 짐작해서 썼는데
+# 실제로는 report_date 였습니다.
+#     column daily_reports.snapshot_date does not exist
+# 순위·수집기록은 이미 지워진 뒤라 **반쯤 지워진 채로** 멈췄습니다.
+# 이제 진짜 표 설계도와 맞대 봅니다.
+from trim_ranks import caps_from_config  # noqa: F401  (crawler 경로 확인용)
+from wipe_day import TABLES  # noqa: E402
+
+SCHEMA = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
+
+
+def columns_of(table: str) -> set[str]:
+    """db/schema.sql 에서 그 표의 칸 이름을 뽑습니다."""
+    m = re.search(
+        r"CREATE TABLE IF NOT EXISTS " + table + r"\s*\((.*?)\n\);",
+        SCHEMA, re.S)
+    if not m:
+        return set()
+    return set(re.findall(r"^\s{4}([a-z_]+)\s+\S", m.group(1), re.M))
+
+
+check("지울 표가 셋 다 들어 있다", len(TABLES) == 3, TABLES)
+for table, col, label in TABLES:
+    cols = columns_of(table)
+    check(f"{table} 를 설계도에서 찾는다", bool(cols), sorted(cols))
+    check(f"🚨 {table}.{col} 칸이 진짜 있다", col in cols,
+          f"있는 칸: {sorted(cols)}")
+
+# 한 표가 잘못돼도 나머지는 끝까지 해야 합니다.
+# 중간에 통째로 멈추면 반쯤 지워진 채로 남습니다.
+check("표 하나가 실패해도 나머지를 계속한다",
+      "나머지는 계속 진행합니다" in WIPE)
+check("실패한 표를 끝에 모아서 알려준다", "이 표는 못 지웠습니다" in WIPE)
 
 print("\n[4] 무엇을 지우는지 빠짐없이 다루는가")
 for t in ("rankings", "crawl_logs", "daily_reports"):

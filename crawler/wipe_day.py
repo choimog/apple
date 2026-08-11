@@ -44,6 +44,19 @@ from common import db  # noqa: E402
 
 BATCH = 300
 
+# 날짜별로 지울 표들. (표 이름, 날짜 칸 이름, 화면에 보일 말)
+#
+# ⚠️ 날짜 칸 이름이 표마다 다릅니다. **짐작하면 안 됩니다.**
+#    daily_reports 만 report_date 이고 나머지는 snapshot_date 입니다.
+#    2026-08-11 에 이걸 확인 안 하고 snapshot_date 라고 썼다가
+#    지우기가 도중에 죽었습니다 (순위·수집기록은 지워지고 리포트만 남음).
+#    tests/test_wipe_day.py 가 db/schema.sql 과 대조해서 막습니다.
+TABLES = (
+    ("rankings", "snapshot_date", "순위"),
+    ("crawl_logs", "snapshot_date", "수집 기록"),
+    ("daily_reports", "report_date", "AI 리포트"),
+)
+
 
 def main() -> int:
     target = (os.environ.get("WIPE_DATE") or "").strip()
@@ -76,7 +89,7 @@ def main() -> int:
     #     날짜 하나씩 끊어서 지웁니다. 이유가 둘입니다.
     #       · 60만 줄을 한 문장으로 지우면 도중에 끊길 수 있습니다
     #       · 어디까지 했는지 화면에 남아, 끊겨도 이어서 할 수 있습니다
-    def oldest_day(table: str) -> str | None:
+    def oldest_day(table: str, col: str) -> str | None:
         """
         그 표에 남아 있는 가장 이른 날짜. 없으면 None.
 
@@ -85,45 +98,57 @@ def main() -> int:
            표에 아직 남아 있는지를 **매번 다시 물어봅니다.**
            그러면 어느 표에 어떤 날짜가 있든 하나도 안 남습니다.
         """
-        rows = (client.table(table).select("snapshot_date")
-                .order("snapshot_date").limit(1).execute().data or [])
-        return str(rows[0]["snapshot_date"]) if rows else None
+        rows = (client.table(table).select(col)
+                .order(col).limit(1).execute().data or [])
+        return str(rows[0][col]) if rows else None
 
     # ---- ① 순위·기록·리포트 ----
+    #  ⚠️ 표마다 날짜 칸 이름이 다릅니다. 짐작하면 안 됩니다.
+    #     daily_reports 는 snapshot_date 가 아니라 report_date 입니다.
+    #     (2026-08-11: 이걸 확인 안 하고 써서 지우기가 도중에 죽었습니다.
+    #      tests/test_wipe_day.py 가 db/schema.sql 과 대조해서 막습니다)
+    failed: list[str] = []
     print("-" * 66)
     print("① 순위·수집기록·리포트를 날짜별로 지웁니다")
-    for table, label in (("rankings", "순위"),
-                         ("crawl_logs", "수집 기록"),
-                         ("daily_reports", "AI 리포트")):
-        if not all_days:
-            n = (client.table(table).select("snapshot_date", count="exact")
-                 .eq("snapshot_date", target).limit(1).execute().count or 0)
-            print(f"   {label} {n:,}줄", end="")
-            if n and not dry:
-                client.table(table).delete().eq("snapshot_date", target).execute()
-                print("  ✅")
-            else:
-                print("  (확인만)" if dry else "  — 없음")
-            continue
+    for table, col, label in TABLES:
+        # 표 하나가 잘못돼도 나머지는 끝까지 합니다.
+        # 중간에 통째로 멈추면 반쯤 지워진 채로 남습니다.
+        try:
+            if not all_days:
+                n = (client.table(table).select(col, count="exact")
+                     .eq(col, target).limit(1).execute().count or 0)
+                print(f"   {label} {n:,}줄", end="")
+                if n and not dry:
+                    client.table(table).delete().eq(col, target).execute()
+                    print("  ✅")
+                else:
+                    print("  (확인만)" if dry else "  — 없음")
+                continue
 
-        # 전부 지우기: 남은 날짜가 없어질 때까지 하나씩
-        done = 0
-        while True:
-            day = oldest_day(table)
-            if day is None:
-                break
-            n = (client.table(table).select("snapshot_date", count="exact")
-                 .eq("snapshot_date", day).limit(1).execute().count or 0)
-            print(f"   {label} {day} — {n:,}줄", end="")
-            if dry:
-                print("  (확인만)")
-                break          # 확인만 할 때는 첫 날짜만 보여 주고 멈춥니다
-            client.table(table).delete().eq("snapshot_date", day).execute()
-            print("  ✅")
-            done += 1
-            if done > 400:     # 무한히 도는 것을 막는 안전장치
-                print(f"   ⚠️ {label}: 400일을 넘겨 멈춥니다. 다시 실행해 주세요.")
-                break
+            # 전부 지우기: 남은 날짜가 없어질 때까지 하나씩
+            done = 0
+            while True:
+                day = oldest_day(table, col)
+                if day is None:
+                    if done == 0:
+                        print(f"   {label} — 없음")
+                    break
+                n = (client.table(table).select(col, count="exact")
+                     .eq(col, day).limit(1).execute().count or 0)
+                print(f"   {label} {day} — {n:,}줄", end="")
+                if dry:
+                    print("  (확인만)")
+                    break      # 확인만 할 때는 첫 날짜만 보여 주고 멈춥니다
+                client.table(table).delete().eq(col, day).execute()
+                print("  ✅")
+                done += 1
+                if done > 400:   # 무한히 도는 것을 막는 안전장치
+                    print(f"   ⚠️ {label}: 400일을 넘겨 멈춥니다. 다시 실행해 주세요.")
+                    break
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n   ❌ {label}({table}.{col}) 실패: {exc}")
+            print("      나머지는 계속 진행합니다.")
+            failed.append(f"{table}.{col}")
 
     # ---- ② 순위가 한 줄도 안 남은 상품 ----
     print("-" * 66)
@@ -188,6 +213,10 @@ def main() -> int:
         print(f"🚨 대표님 결정이 {before:,} → {after:,} 로 줄었습니다! 알려 주세요.")
         return 1
     print(f"🔒 대표님이 내리신 결정 {after:,}건 — 그대로입니다. ✅")
+    if failed:
+        print(f"\n⚠️ 이 표는 못 지웠습니다: {', '.join(failed)}")
+        print("   나머지는 다 지웠습니다. 위 ❌ 문구를 알려 주세요.")
+        return 1
     print("\n이제 [매일 수집] 을 돌리시면 그 날짜가 새로 채워집니다.")
     return 0
 

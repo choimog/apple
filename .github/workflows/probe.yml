@@ -37,9 +37,25 @@ jobs:
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
+      - name: 규칙 시험 (ISBN 을 잘못 읽지 않는지)
+        # 잘못된 ISBN 하나가 엉뚱한 두 책을 영원히 한 권으로 만듭니다.
+        run: python tests/test_probe_isbn.py
+
       - name: 탐침 실행
         env:
           # GitHub Secrets 에서 값을 가져옵니다. 코드에는 값이 없습니다.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python crawler/probe.py
+
+      # -----------------------------------------------------------------
+      #  2026-08-11 대표님 질문 — "알라딘·예스는 ISBN 을 절대 못 따나?"
+      # -----------------------------------------------------------------
+      #  이미 저장해 둔 표지 주소 13만 건을 세어서 답합니다.
+      #  서점에 요청을 보내지 않고, 아무것도 저장하지 않습니다.
+      # -----------------------------------------------------------------
+      - name: 표지 주소에 ISBN 이 들어 있는지 세어 보기
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/probe_isbn.py

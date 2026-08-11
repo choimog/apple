@@ -38,7 +38,8 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
 cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
-   "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" "$DATA/"
+   "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" \
+   "$ROOT/db/space-why.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -177,6 +178,39 @@ echo "$OUT5"
 # 어제 3줄(첫날) · 오늘 2줄 → 첫날을 뺀 평균은 2 여야 합니다
 echo "$OUT5" | grep -A1 "그 뒤 하루 평균 새 줄" | grep -qE '\| 2 +\|' \
   && say 1 "첫 수집일을 빼고 평균을 낸다" || say 0 "첫 수집일을 빼고 평균을 낸다"
+
+echo
+echo "=== [마] db/space-why.sql — 왜 하루 2만 줄씩 늘어나는가 (2026-08-11) ==="
+# 하루 2만 줄이 (가) 진짜 새 책인지 (나) 같은 책이 다시 등록되는 고장인지
+# 가려내는 파일입니다. 어느 쪽이냐에 따라 대책이 정반대라, 이 파일이
+# 죽거나 숫자를 지어내면 정반대 방향으로 일하게 됩니다.
+OUT6=$(q space-why.sql)
+echo "$OUT6" | grep -qi "ERROR" && { echo "$OUT6" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUT6" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say 1 "0으로 안 나눈다"
+R6=$(echo "$OUT6" | grep -c "row)\|rows)")
+[ "$R6" = 1 ] && say 1 "표가 딱 하나로 나온다" || say 0 "표가 딱 하나로 나온다" "$R6"
+echo "$OUT6" | grep -q "그중 이미 있던 책" && say 1 "🚨 갈림길 줄이 나온다" \
+  || say 0 "🚨 갈림길 줄이 나온다"
+echo "$OUT6" | grep -q "같은 서점에 두 줄 이상인 책" && say 1 "중복 줄을 센다" \
+  || say 0 "중복 줄을 센다"
+echo "$OUT6" | grep -q "301위 이하" && say 1 "뒤쪽 순위 비중이 나온다" \
+  || say 0 "뒤쪽 순위 비중이 나온다"
+echo "$OUT6" | grep -q "아무도 안 읽는 book_meta" && say 1 "book_meta 크기가 나온다" \
+  || say 0 "book_meta 크기가 나온다"
+
+# 🚨 진짜로 중복을 잡아내는지 확인합니다. 같은 서점(1)에 같은 제목·저자를
+#    두 줄 넣어 두고, 4번이 1 이상으로 나와야 합니다. 0 이 나오면
+#    '고장이 아니다' 라는 틀린 결론을 내고 엉뚱한 대책을 세우게 됩니다.
+cat > "$DATA/seedd.sql" <<'SQL'
+UPDATE store_books SET norm_title = '같은책', norm_author = '같은저자'
+ WHERE id IN (1, 3);
+SQL
+chmod 644 "$DATA/seedd.sql"; q seedd.sql >/dev/null
+OUT7=$(q space-why.sql)
+echo "$OUT7"
+echo "$OUT7" | grep -A1 "같은 서점에 두 줄 이상인 책" | grep -qE '\| 1 +\|' \
+  && say 1 "중복을 실제로 잡아낸다" || say 0 "중복을 실제로 잡아낸다"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

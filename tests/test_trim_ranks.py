@@ -103,7 +103,22 @@ check("시작할 때 건수를 센다", "before = " in src)
 check("끝날 때 다시 세어 비교한다", "after == before" in src)
 check("줄었으면 실패로 끝낸다", "return 1" in src)
 
-print("\n[5] 확인만 하는 길(dry run)이 있는가")
+print("\n[5] 🚨 확인만 했을 때 숫자가 진짜와 같은가 (2026-08-11 실제 사고)")
+# 대표님께 "지울 상품 19,717개" 라고 알려 드리고 승인을 받았는데,
+# 진짜로 돌리니 80,411개였습니다. **4배 틀린 숫자로 승인을 받은 것**입니다.
+#
+# 원인: 확인만 할 때는 ① 이 순위를 안 지웁니다. 그런데 ② 는 '순위가
+#      한 줄도 없는 상품' 을 세므로, ① 이 지웠을 줄이 아직 남아 있어
+#      멀쩡한 상품처럼 보였습니다.
+#
+# 고친 뒤에는 ② 가 '① 이 지웠을 상태' 를 흉내 내서 셉니다.
+check("분야별 기준을 미리 모아 둔다", "cap_by_cat" in src)
+check("순위를 셀 때 등수도 함께 읽는다",
+      'select("store_book_id,category_id,rank")' in src)
+check("🚨 확인만 할 때 기준 넘는 줄은 없는 셈 친다",
+      'if not dry or r["rank"] <= cap_by_cat' in src)
+
+print("\n[6] 확인만 하는 길(dry run)이 있는가")
 # 되돌릴 수 없는 작업이라, 먼저 보고 나서 지울 수 있어야 합니다.
 check("DRY_RUN 을 읽는다", 'os.environ.get("DRY_RUN"' in src)
 check("dry 면 순위를 안 지운다", "if dry:\n            print" in src or "if dry:" in src)

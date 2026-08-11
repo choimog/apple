@@ -125,8 +125,11 @@ def main() -> int:
     print("-" * 66)
     print("① 기준을 넘는 순위 기록을 지웁니다 (분야 하나씩)")
     total = 0
+    # ② 에서 '① 이 지웠을 상태' 를 흉내 내려면 분야별 기준이 필요합니다
+    cap_by_cat: dict[int, int] = {}
     for i, cat in enumerate(cats, 1):
         cap = cap_for(cat, caps, store_code)
+        cap_by_cat[cat["id"]] = cap
         q = (client.table("rankings")
              .select("snapshot_date", count="exact")
              .eq("category_id", cat["id"]).gt("rank", cap).limit(1))
@@ -159,9 +162,21 @@ def main() -> int:
     for start in range(0, len(ids), BATCH):
         chunk = ids[start:start + BATCH]
 
-        alive = {r["store_book_id"] for r in (
-            client.table("rankings").select("store_book_id")
-            .in_("store_book_id", chunk).execute().data or [])}
+        # 🚨 【2026-08-11 저녁 — 확인만 했을 때 숫자가 4배 틀렸습니다】
+        # 확인만(dry) 하면 ① 이 아직 안 지웠으므로, 여기서 순위를 그냥
+        # 세면 **지울 것이 없는 것처럼** 보입니다. 실제로 대표님께
+        # "19,717개" 라고 말씀드렸는데 진짜로 돌리니 80,411개였습니다.
+        # 대표님은 4배 작은 숫자를 보고 승인하신 셈입니다.
+        #
+        # 그래서 확인만 할 때는 **① 이 지웠을 상태를 흉내 내서** 셉니다.
+        # 기준을 넘는 순위 줄은 없는 셈 칩니다.
+        rows = (client.table("rankings")
+                .select("store_book_id,category_id,rank")
+                .in_("store_book_id", chunk).execute().data or [])
+        alive = {
+            r["store_book_id"] for r in rows
+            if not dry or r["rank"] <= cap_by_cat.get(r["category_id"], 300)
+        }
 
         cand = [i for i in chunk if i not in alive]
         if not cand:

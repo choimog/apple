@@ -382,6 +382,29 @@ export default async function ReviewPage({
             </li>
             <li>약 5분 뒤 순위 화면에 반영됩니다. 돈은 들지 않습니다</li>
           </ol>
+          {/*
+            2026-08-11 — 실제로 확인한 것.
+            매칭이 끝나면 리포트 작업이 자동으로 이어서 돌긴 하지만,
+            그날 리포트가 이미 있으면 **건너뜁니다** (돈이 두 번 나가지
+            않게 해 둔 규칙입니다). 그래서 묶음을 바꾼 뒤 리포트를 새로
+            받으려면 따로 돌려야 합니다. 이걸 안 적어 두면 "저절로
+            바뀌었겠지" 하고 옛 리포트를 보시게 됩니다.
+          */}
+          <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+            ⚠️ <strong>AI 리포트는 따로입니다.</strong> 매칭을 다시 돌려도
+            그날 리포트가 이미 있으면 다시 쓰지 않습니다 (돈이 두 번 나가지
+            않게). 새 묶음 기준으로 리포트를 다시 받으시려면{" "}
+            <a
+              href="https://github.com/choimog/apple/actions/workflows/report.yml"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              [AI 일일 리포트]
+            </a>
+            에서 <strong>force</strong> 를 <code>true</code> 로 두고 돌리세요
+            (1회 약 85원).
+          </p>
           <p className="mt-2 text-xs text-ink-faint">
             한 짝을 고치면 그 책이 속한 무리 전체를 다시 계산해야 해서,
             누를 때마다 돌리면 몇 분씩 걸립니다. 그래서 평소에는 모아서

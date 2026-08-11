@@ -562,6 +562,10 @@ def main() -> int:
 
     match_rows: list[dict] = []
     seen_pairs: set[tuple[int, int]] = set()
+    # 정가가 달라서 갈라낸 짝의 수 (서점 짝별)
+    price_reject: dict[tuple[int, int], int] = {}
+    # 양쪽 다 정가를 아는 짝의 수 (비율을 내려면 분모가 필요합니다)
+    price_seen: dict[tuple[int, int], int] = {}
     counts = {"auto_high": 0, "auto_low": 0, "rejected": 0, "by_isbn": 0}
 
     for group in blocks:
@@ -581,6 +585,11 @@ def main() -> int:
                 if decided == "manual_split":
                     continue
 
+                if a.list_price and b.list_price:
+                    key = (min(a.store_id, b.store_id),
+                           max(a.store_id, b.store_id))
+                    price_seen[key] = price_seen.get(key, 0) + 1
+
                 # ISBN 이 양쪽에 다 있으면 그것으로 확정
                 result = compare_with_isbn(a, b, mcfg)
                 if result is not None:
@@ -591,6 +600,17 @@ def main() -> int:
 
                 if result.decision == "rejected":
                     counts["rejected"] += 1
+                    # 【2026-08-11 — 정가로 갈라낸 짝을 서점 짝별로 셉니다】
+                    # 정가가 다르면 다른 책으로 확정 거부합니다. 그런데
+                    # 어느 서점이 가격을 잘못 읽으면 **멀쩡한 짝이 조용히
+                    # 갈라집니다.** 실제로 교보에서 할인율과 가격이
+                    # 이어붙어 2,918,000원이 저장된 적이 있습니다.
+                    # 화면에 아무 표시도 안 나기 때문에, 여기서 세어
+                    # 두고 아래에서 서점 짝별로 보여 줍니다.
+                    if result.reasons.get("rejected_by") == "정가가 다름":
+                        key = (min(a.store_id, b.store_id),
+                               max(a.store_id, b.store_id))
+                        price_reject[key] = price_reject.get(key, 0) + 1
                     continue
 
                 counts[result.decision] += 1
@@ -610,6 +630,29 @@ def main() -> int:
     print(f"  자동병합 {counts['auto_high']:,}쌍 "
           f"(그중 ISBN 확정 {counts['by_isbn']:,}쌍) · "
           f"검토대기 {counts['auto_low']:,}쌍 · 거부 {counts['rejected']:,}쌍")
+
+    # ---- 정가 건강 점검 (2026-08-11) ----
+    #  도서정가제상 정가는 출판사가 정한 하나의 값이라 3사가 같아야 합니다.
+    #  그러니 '정가가 달라서 갈라낸 비율' 은 원래 낮아야 정상입니다.
+    #  한 서점만 유난히 높으면 **그 서점 가격을 잘못 읽고 있는 것**입니다.
+    #  (교보에서 할인율과 가격이 이어붙어 2,918,000원이 저장된 적이 있습니다)
+    if price_seen:
+        names = {1: "교보", 2: "예스24", 3: "알라딘"}
+        print("  · 정가 점검 — 양쪽 다 정가를 아는 짝 중, 정가가 달라 갈라낸 비율")
+        worst = 0.0
+        for key in sorted(price_seen):
+            seen_n = price_seen[key]
+            bad_n = price_reject.get(key, 0)
+            pct = 100.0 * bad_n / seen_n if seen_n else 0.0
+            worst = max(worst, pct)
+            mark = "✅" if pct < 10 else ("⚠️" if pct < 25 else "🚨")
+            print(f"      {mark} {names.get(key[0], key[0])}↔{names.get(key[1], key[1])}: "
+                  f"{bad_n:,} / {seen_n:,}쌍 ({pct:.1f}%)")
+        if worst >= 25:
+            print("      🚨 한 서점 짝만 유난히 높으면 그 서점 가격을 잘못")
+            print("         읽고 있는 것입니다. config/matching.yaml 의")
+            print("         price_hard_stores 에서 그 서점 번호를 빼시고")
+            print("         저에게 알려 주세요. (그때까지 멀쩡한 짝이 갈라집니다)")
 
     # ---- 무리 만들기 ----
     raw_clusters = groups.clusters()

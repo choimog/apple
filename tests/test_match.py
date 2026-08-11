@@ -354,7 +354,7 @@ check("800권 무리도 두 출판사로 갈라진다", len(big_parts), 2)
 check(f"800권 무리를 1초 안에 처리한다 ({_elapsed:.2f}초)", _elapsed < 1.0, True)
 
 
-print("\n[정가] 🚨 확인 안 된 서점의 정가로는 짝을 갈라내지 않는다")
+print("\n[정가] 정가가 다르면 다른 책 — 2026-08-11 대표님 지시")
 # 【2026-08-11 저녁 — 실제로 사고가 났습니다】
 # 교보 정가를 알라딘과 맞대 보니 2,663쌍 중 132쌍(5%)이 어긋났습니다.
 #     교보 2,918,000원 vs 알라딘 18,000원   ← '29'+'18,000' 이 이어붙음
@@ -371,22 +371,35 @@ def priced(store_id: int, price: int, sb_id: int) -> Candidate:
 
 
 TRUSTED = set(CFG["thresholds"].get("price_hard_stores") or [])
-check("교보(1)는 아직 못 믿는 서점에 들어 있다", 1 in TRUSTED, False)
-check("예스24(2)·알라딘(3)은 믿는다", {2, 3} <= TRUSTED, True)
+check("지금은 3사 정가를 모두 근거로 씁니다", sorted(TRUSTED), [1, 2, 3])
 
-# 예스24 ↔ 알라딘: 둘 다 확인된 서점 → 정가가 다르면 갈라냅니다
-yes_al = compare(priced(2, 18000, 20), priced(3, 22000, 30), CFG)
-check("예스24↔알라딘: 정가가 다르면 갈라낸다", yes_al.decision, "rejected")
-check("갈라낸 이유를 적는다", yes_al.reasons.get("rejected_by"), "정가가 다름")
+# 정가가 다르면 갈라냅니다 (지금 설정)
+for a_id, b_id, name in ((1, 3, "교보↔알라딘"), (2, 3, "예스24↔알라딘"),
+                         (1, 2, "교보↔예스24")):
+    r = compare(priced(a_id, 18000, a_id * 10), priced(b_id, 22000, b_id * 10), CFG)
+    check(f"{name}: 정가가 다르면 갈라낸다", r.decision, "rejected")
+    check(f"{name}: 이유를 적는다", r.reasons.get("rejected_by"), "정가가 다름")
 
-# 교보 ↔ 알라딘: 교보는 아직 못 믿음 → 갈라내지 않습니다
-ky_al = compare(priced(1, 2918000, 10), priced(3, 18000, 30), CFG)
-check("교보↔알라딘: 정가가 달라도 안 갈라낸다", ky_al.decision != "rejected", True)
-check("그래도 같은 책으로 잘 묶인다", ky_al.is_same_book, True)
-
-# 정가가 같으면 서점을 안 가리고 가산점입니다
+# 정가가 같으면 근거로 씁니다
 same = compare(priced(1, 18000, 10), priced(3, 18000, 30), CFG)
-check("정가가 같으면 교보라도 근거로 쓴다", same.reasons.get("price"), "same(18,000)")
+check("정가가 같으면 가산 근거로 쓴다", same.reasons.get("price"), "same(18,000)")
+check("정가가 같으면 잘 묶인다", same.is_same_book, True)
+
+print("\n[정가-안전장치] 못 믿는 서점을 뺄 수 있는 길이 살아 있는가")
+# 【왜 이 장치가 필요한가요? — 2026-08-11】
+# 교보 정가가 2,918,000원처럼 어긋나던 때가 있었습니다(할인율이 가격에
+# 이어붙음). 그때 이 장치로 교보만 빼서, 멀쩡한 짝이 갈라지는 것을
+# 막았습니다. 원인은 고쳤지만 **장치는 남겨 둡니다.** 다음에 어느
+# 서점이 이상해져도 config 한 줄로 즉시 뺄 수 있어야 합니다.
+import copy  # noqa: E402
+CFG_NO_KYOBO = copy.deepcopy(CFG)
+CFG_NO_KYOBO["thresholds"]["price_hard_stores"] = [2, 3]
+
+r = compare(priced(1, 2918000, 10), priced(3, 18000, 30), CFG_NO_KYOBO)
+check("뺀 서점의 정가로는 안 갈라낸다", r.decision != "rejected", True)
+check("그래도 같은 책으로 묶인다", r.is_same_book, True)
+r = compare(priced(2, 18000, 20), priced(3, 22000, 30), CFG_NO_KYOBO)
+check("남은 서점끼리는 그대로 갈라낸다", r.decision, "rejected")
 
 print("\n" + "=" * 60)
 if failures:

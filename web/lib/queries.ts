@@ -263,6 +263,19 @@ export function bestPrice(votes: Map<number, number>): number | null {
   return tied ? null : best;
 }
 
+/**
+ * 그 기간에서 '몇 위까지 볼지' 의 기본값.
+ *
+ * 【2026-08-11 — 모으는 양과 보는 양을 맞췄습니다】
+ * 대표님 결정으로 **일간 300위 · 주간 500위**까지 모읍니다.
+ * 그런데 화면은 기간과 상관없이 300위까지만 보고 있었습니다.
+ * 주간 301~500위는 **모아 놓고 한 번도 안 쓰는 자료**였습니다.
+ * 모으는 기준(config/sources.yaml)과 같은 숫자를 씁니다.
+ */
+export function defaultDepth(period: Period): number {
+  return period === "weekly" ? 500 : 300;
+}
+
 /** 목록 한 벌에 정가를 채워 넣습니다 (자리에서 바로 고칩니다) */
 async function fillPrices(rows: { bookId: number; listPrice: number | null }[]) {
   if (!rows.length) return;
@@ -473,7 +486,7 @@ export async function getCombinedBest(
 }> {
   const minStores = opts.minStores ?? 2;
   // 각 서점에서 몇 위까지 볼지. 너무 깊게 보면 화면이 느려집니다.
-  const depth = opts.depth ?? 300;
+  const depth = opts.depth ?? defaultDepth(period);
   const limit = opts.limit ?? 100;
 
   const cats = (await getCategories()).filter(
@@ -1032,7 +1045,7 @@ export async function getNameRanking(
   unified = "all",
   opts: { depth?: number; minStores?: number; limit?: number } = {}
 ): Promise<{ rows: NameRank[]; ok: boolean; depth: number }> {
-  const depth = opts.depth ?? 300;
+  const depth = opts.depth ?? defaultDepth(period);
   const { data, error } = await db().rpc(
     kind === "publisher" ? "publisher_ranking" : "author_ranking",
     {
@@ -1078,7 +1091,7 @@ export async function getBooksOf(
     p_date: date,
     p_period: period,
     p_unified: unified,
-    p_depth: opts.depth ?? 300,
+    p_depth: opts.depth ?? defaultDepth(period),
     p_limit: opts.limit ?? 100,
   });
   if (error || !data) return { rows: [], ok: false };

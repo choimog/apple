@@ -13,6 +13,7 @@ import { configError } from "@/lib/supabase";
 import { dayLabel } from "@/lib/format";
 import {
   getBooksOf,
+  defaultDepth,
   getCategories,
   getSnapshotDates,
   unifiedOptions,
@@ -68,7 +69,9 @@ export default async function NameDetailPage({
     limit: 100,
   });
 
-  const depth = 300;
+  // 화면에 '몇 위 안에 없습니다' 라고 적을 때 쓰는 숫자.
+  // 모으는 기준과 같아야 합니다 (일간 300 · 주간 500).
+  const depth = defaultDepth(period);
   const best = rows.length ? Math.min(...rows.map((r) => r.avgRank)) : null;
   const inThree = rows.filter((r) => r.storeCount >= 3).length;
   const href = (over: Record<string, string>) =>

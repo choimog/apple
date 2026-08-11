@@ -75,6 +75,12 @@ jobs:
         # 값이 갈렸을 때 한쪽을 골라 보여주지 않는지도 함께 봅니다.
         run: node scripts/test-price.mjs
 
+      - name: 순위 깊이 시험
+        # 모으는 기준(일간 300·주간 500)과 화면이 보는 기준이 어긋나면
+        # 모아 놓고 안 쓰거나, 없는 순위를 기다리게 됩니다.
+        # 화면에는 "300위 안에 없습니다" 라고 틀린 말이 적힙니다.
+        run: node scripts/test-depth.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

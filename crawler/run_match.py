@@ -297,6 +297,64 @@ def split_by_publisher(
     return [sorted(p) for p in parts.values()]
 
 
+def rejoin_manual_merges(
+    parts: list[list[int]],
+    merged: set[tuple[int, int]],
+) -> list[list[int]]:
+    """
+    출판사가 다르다는 이유로 갈라 놓은 조각 중, **사람이 '같은 책' 이라고
+    한 짝**이 양쪽에 나뉘어 있으면 다시 합칩니다.
+
+    【왜 필요한가요? — 2026-08-11 대표님 신고】
+    "여기서는 같은 책이라고 내가 다 체크하고 깃허브에서 실행까지 시켰는데,
+     왜 얘는 하나의 도서페이지로 합쳐지지 않지?"
+
+    『어떻게 살아낼 것인가』 세 서점을 전부 '같은 책' 으로 체크하셨는데
+    묶인 권수가 2·1·2 로 남아 있었습니다.
+
+    원인은 출판사 표기였습니다.
+        알라딘·교보  필름(Feelm)
+        예스24       필름
+    이 둘의 닮은 정도가 24% 로 기준(80%)에 못 미쳐서, split_by_publisher
+    가 예스24를 **다시 떼어냈습니다.**
+
+    그 함수는 "출판사가 다르면 다른 책" 이라는 규칙을 지킨 것이고, 규칙
+    자체는 필요합니다 (민음사 싯다르타와 문학동네 싯다르타가 붙는 것을
+    막습니다). 문제는 **사람이 이미 판단한 것까지 되돌렸다**는 점입니다.
+
+    코드에는 "사람이 내린 결정이 최우선" 이라고 적어 두고, 정작 이
+    자리에서만 기계가 이겼습니다. 게다가 아무 표시도 안 났습니다.
+    대표님은 체크하고 실행까지 하셨는데 화면이 그대로였습니다.
+    """
+    if len(parts) < 2 or not merged:
+        return parts
+
+    where: dict[int, int] = {}
+    for idx, part in enumerate(parts):
+        for i in part:
+            where[i] = idx
+
+    joiner = Groups()
+    for idx in range(len(parts)):
+        joiner.find(idx)
+
+    joined = 0
+    for a, b in merged:
+        ia, ib = where.get(a), where.get(b)
+        if ia is None or ib is None or ia == ib:
+            continue
+        joiner.union(ia, ib)
+        joined += 1
+
+    if not joined:
+        return parts
+
+    out: dict[int, list[int]] = defaultdict(list)
+    for idx, part in enumerate(parts):
+        out[joiner.find(idx)].extend(part)
+    return [sorted(v) for v in out.values()]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="DB에 저장하지 않고 확인만")
@@ -426,11 +484,21 @@ def main() -> int:
               for (a, b), d in manual.items() if d == "manual_merge"]
     manual_split_count = 0
 
+    # 사람이 '같은 책' 이라고 한 짝 (아래 rejoin_manual_merges 설명)
+    merged_pairs = {p for p, d in manual.items() if d == "manual_merge"}
+    rejoined = 0
+
     for cluster in raw_clusters.values():
         parts = ([cluster] if len(cluster) < 2
                  else split_by_publisher(cluster, by_id, pair_score, floor))
         if len(parts) > 1:
             split_count += 1
+            # 🚨 출판사로 가른 것이 사람 결정을 덮어쓰면 안 됩니다.
+            #    "사람이 내린 결정이 최우선" 은 여기서도 지켜야 합니다.
+            before = len(parts)
+            parts = rejoin_manual_merges(parts, merged_pairs)
+            if len(parts) < before:
+                rejoined += 1
 
         # 출판사로 가른 뒤, 사람이 '다른 책' 이라고 한 짝을 마저 갈라냅니다
         final_parts: list[list[int]] = []
@@ -449,6 +517,9 @@ def main() -> int:
     if manual_split_count:
         print(f"  ✂️ 사람이 '다른 책' 이라고 한 짝 때문에 갈라낸 무리 "
               f"{manual_split_count:,}종.")
+    if rejoined:
+        print(f"  🤝 출판사 표기가 달라 갈라졌지만 사람이 '같은 책' 이라고 한 "
+              f"무리 {rejoined:,}종 → 다시 합쳤습니다.")
 
     # 갈라낸 뒤의 소속을 다시 계산합니다 (아래 경고에서 씁니다)
     owner = {i: root for root, part in clusters.items() for i in part}
@@ -487,6 +558,25 @@ def main() -> int:
         print(f"  🚨 사람이 '다른 책' 이라고 한 짝 {warned}건을 갈라내지 "
               f"못했습니다. 무리가 너무 커서 손대지 않은 경우입니다.")
         print(f"     그 짝은 검토 화면에서 눌러도 순위에 반영되지 않습니다.")
+
+    # 반대쪽도 봅니다 — '같은 책' 이라고 했는데 안 묶인 경우.
+    #
+    # 【2026-08-11】 이 확인이 없어서 대표님이 직접 발견하셨습니다.
+    # 체크하고 실행까지 하셨는데 화면이 그대로였고, 로그에도 아무 말이
+    # 없었습니다. 한쪽만 확인하고 있었던 것입니다.
+    #
+    # ⚠️ 양쪽 다 이번 무리에 있는 짝만 셉니다. 순위에서 빠진 옛날 책은
+    #    안 묶이는 것이 당연해서, 그것까지 세면 매일 헛경고가 뜹니다.
+    not_merged = 0
+    for (lo, hi), d in manual.items():
+        if d != "manual_merge":
+            continue
+        if lo in owner and hi in owner and owner[lo] != owner[hi]:
+            not_merged += 1
+    if not_merged:
+        print(f"  🚨 사람이 '같은 책' 이라고 한 짝 {not_merged}건이 "
+              f"묶이지 않았습니다.")
+        print(f"     체크하신 것이 순위에 반영되지 않습니다. 알려 주세요.")
 
     # ---- 예시 보여주기 ----
     print("\n  ── 묶인 예시 (최대 5건) ──")

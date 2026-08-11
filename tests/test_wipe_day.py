@@ -85,7 +85,13 @@ print("\n[3] wipe_day 는 날짜를 제대로 가려 받는가")
 check("날짜 모양을 검사한다", r'\d{4}-\d{2}-\d{2}' in WIPE)
 check("all 이면 전부를 뜻한다", 'target.lower() == "all"' in WIPE)
 check("날짜가 비면 아무것도 안 하고 끝낸다", "지울 날짜를 안 알려" in WIPE)
-check("all 이 아니면 그 날짜만 건드린다", '.eq("snapshot_date", target)' in WIPE)
+check("날짜 하나씩만 건드린다", '.eq("snapshot_date", day)' in WIPE)
+# 🚨 조건 없는 지우기는 절대 안 됩니다. 한 줄 실수로 전부 날아갑니다.
+import re as _re
+check("조건 없는 delete() 가 없다",
+      _re.search(r'\.delete\(\)\s*\.execute\(\)', WIPE) is None,
+      "delete().execute() 는 조건 없이 지웁니다")
+check("all 이어도 날짜 목록을 먼저 구한다", "snapshot_dates" in WIPE)
 
 print("\n[4] 무엇을 지우는지 빠짐없이 다루는가")
 for t in ("rankings", "crawl_logs", "daily_reports"):

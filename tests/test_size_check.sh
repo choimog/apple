@@ -37,14 +37,28 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
   $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
-cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$DATA/"
+cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
+bad=0
 
 bad=0
 say() { if [ "$1" = 1 ]; then echo "  ✅ $2"; else echo "  ❌ $2"; bad=1; fi; }
 
+echo "=== [0] db/price-add.sql 이 안전하게 도는가 (2026-08-11) ==="
+# 수집이 이 칸을 쓰기 때문에, 이 파일이 실패하면 내일 새벽 수집이 통째로
+# 실패합니다. 두 번 실행해도 안전해야 합니다.
+P1=$(q price-add.sql)
+echo "$P1" | grep -qi "ERROR" && { echo "$P1" | grep -i error; echo "  ❌ 실패"; bad=1; } \
+  || echo "  ✅ 오류 없이 돈다"
+echo "$P1" | grep -c "✅ 생겼습니다" | grep -q "^2$" && echo "  ✅ 칸 두 개가 생겼다" \
+  || { echo "  ❌ 칸이 안 생겼다"; bad=1; }
+P2=$(q price-add.sql)
+echo "$P2" | grep -qi "ERROR" && { echo "  ❌ 두 번째 실행에서 실패"; bad=1; } \
+  || echo "  ✅ 두 번 실행해도 안전하다"
+
+echo
 echo "=== [가] 자료가 하나도 없을 때 (0으로 나누기) ==="
 OUT=$(q size-check.sql)
 echo "$OUT" | grep -qi "ERROR" && { echo "$OUT" | grep -i error; say 0 "죽지 않는다"; } \
@@ -54,6 +68,10 @@ echo "$OUT" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say
 echo
 echo "=== [나] 자료를 조금 넣었을 때 ==="
 cat > "$DATA/seed.sql" <<'SQL'
+-- db/size-check.sql 은 **아직 meta-slim 을 안 돌린** 데이터베이스를 보는
+-- 도구입니다. 그래서 시험도 옛 모양(책×날짜)으로 되돌려 놓고 봅니다.
+ALTER TABLE book_meta DROP CONSTRAINT book_meta_pkey;
+ALTER TABLE book_meta ADD PRIMARY KEY (store_book_id, snapshot_date);
 INSERT INTO categories(id, store_id, code, name, kind, url_template)
   VALUES (1, 1, 'c1', '종합', 'online', 'http://x/{page}');
 INSERT INTO store_books(id, store_id, store_book_key, raw_title)

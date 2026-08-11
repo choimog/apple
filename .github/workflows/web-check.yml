@@ -69,6 +69,12 @@ jobs:
         # 고장인지 눈으로는 구분이 안 되므로 기계가 봅니다.
         run: node scripts/test-popup.mjs
 
+      - name: 정가 표기 시험
+        # 여섯 화면에 손으로 붙이는 일이라, 한 군데를 빠뜨려도 화면은
+        # 멀쩡합니다. 대표님이 그 화면을 여실 때까지 아무도 모릅니다.
+        # 값이 갈렸을 때 한쪽을 골라 보여주지 않는지도 함께 봅니다.
+        run: node scripts/test-price.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

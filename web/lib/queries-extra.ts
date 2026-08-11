@@ -3,6 +3,7 @@
  * 기능이 아직 안 켜졌으면 ok:false 를 돌려주고, 화면이 그 사실을 알립니다.
  */
 
+import { pricesByBook } from "./queries";
 import { db } from "./supabase";
 
 /* ------------------------------------------------------------- 도서 검색 */
@@ -21,6 +22,8 @@ export type SearchHit = {
   lastSeen: string | null;
   /** 지금까지 기록한 가장 높은 순위 */
   bestRank: number | null;
+  /** 정가(원). 아직 안 걷힌 책은 null (2026-08-11 대표님 요청) */
+  listPrice: number | null;
 };
 
 /**
@@ -44,21 +47,26 @@ export async function searchMerged(
   });
   if (error || !data) return { rows: [], ok: false };
 
-  return {
-    ok: true,
-    rows: (data as RpcSearchRow[]).map((r) => ({
-      bookId: Number(r.book_id),
-      title: r.title,
-      author: r.author,
-      publisher: r.publisher,
-      pubYm: r.pub_ym,
-      coverUrl: r.cover_url,
-      isbn13: r.isbn13,
-      stores: (r.stores ?? []).map(Number),
-      lastSeen: r.last_seen,
-      bestRank: r.best_rank === null ? null : Number(r.best_rank),
-    })),
-  };
+  const rows: SearchHit[] = (data as RpcSearchRow[]).map((r) => ({
+    bookId: Number(r.book_id),
+    title: r.title,
+    author: r.author,
+    publisher: r.publisher,
+    pubYm: r.pub_ym,
+    coverUrl: r.cover_url,
+    isbn13: r.isbn13,
+    stores: (r.stores ?? []).map(Number),
+    lastSeen: r.last_seen,
+    bestRank: r.best_rank === null ? null : Number(r.best_rank),
+    listPrice: null,
+  }));
+
+  // 정가는 검색 함수(db/perf.sql)가 안 돌려주므로 따로 물어봅니다.
+  // 이렇게 하면 대표님이 SQL 을 다시 실행하지 않으셔도 됩니다.
+  const prices = await pricesByBook(rows.map((r) => r.bookId));
+  for (const r of rows) r.listPrice = prices.get(r.bookId) ?? null;
+
+  return { ok: true, rows };
 }
 
 type RpcSearchRow = {

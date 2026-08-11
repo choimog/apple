@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import SalesPoint from "@/components/SalesPoint";
-import { NoValue, RankBadge } from "@/components/ui";
+import { NoValue, Price, RankBadge } from "@/components/ui";
 import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
 import type { CombinedRow } from "@/lib/queries";
 
@@ -67,6 +67,7 @@ export default function BookRow({
               </Link>
             </>
           )}
+          <Price value={row.listPrice} />
           <span className="text-ink-faint">·</span>
           <span>{row.storeCount}개 서점</span>
         </p>

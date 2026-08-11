@@ -191,6 +191,85 @@ export function buildStoreTree(cats: Category[]): StoreTree[] {
   });
 }
 
+/**
+ * 여러 책의 정가를 한 번에 읽어옵니다. 돌려주는 값: {책번호 → 정가}
+ *
+ * 【왜 따로 읽나요? — 2026-08-11 대표님 요청】
+ * "웰컴·종합·서점별·출판사·작가·검색에도 정가를 보여 달라"
+ *
+ * 이 화면들은 데이터베이스 함수(db/perf.sql)가 계산해 준 결과를 씁니다.
+ * 그 함수에 정가를 넣으려면 대표님이 SQL 을 또 실행하셔야 합니다.
+ * 화면에 보이는 것은 100줄뿐이니, 그 100권의 정가만 따로 물어보면
+ * **아무것도 실행하지 않으셔도 됩니다.** 그래서 이 방법을 씁니다.
+ *
+ * 【값이 갈리면 지어내지 않습니다】
+ * 3사가 같아야 정상이지만 실제로는 갈릴 수 있습니다(수집이 틀렸거나
+ * 정말 다른 판형이 묶였거나). 가장 많이 나온 값을 씁니다.
+ * 동점이면 **비웁니다.** 모르는 것을 아는 척하지 않습니다.
+ */
+export async function pricesByBook(
+  bookIds: number[]
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const ids = [...new Set(bookIds.filter((n) => Number.isFinite(n)))];
+  if (!ids.length) return out;
+
+  // ⚠️ .in() 목록이 길면 주소가 너무 길어져 요청 자체가 실패합니다.
+  //    (2026-08-10 에 겪은 것과 같은 문제라 300개씩 나눕니다)
+  const votes = new Map<number, Map<number, number>>();
+  for (let i = 0; i < ids.length; i += 300) {
+    const { data, error } = await db()
+      .from("store_books")
+      .select("book_id, list_price")
+      .in("book_id", ids.slice(i, i + 300))
+      .not("list_price", "is", null);
+    if (error || !data) continue; // 정가는 곁들이는 값이라 실패해도 화면은 뜹니다
+    for (const r of data as { book_id: number | null; list_price: number }[]) {
+      if (!r.book_id) continue;
+      let m = votes.get(r.book_id);
+      if (!m) votes.set(r.book_id, (m = new Map()));
+      m.set(r.list_price, (m.get(r.list_price) ?? 0) + 1);
+    }
+  }
+
+  for (const [bookId, m] of votes) {
+    const got = bestPrice(m);
+    if (got !== null) out.set(bookId, got);
+  }
+  return out;
+}
+
+/**
+ * 한 책의 서점별 정가들 중 무엇을 보여줄지 고릅니다.
+ * 돌려주는 값: 정가 또는 null(모르겠으면)
+ *
+ * ⚠️ 동점이면 **비웁니다.** 세 서점이 22,000 / 18,000 처럼 갈렸는데
+ *    한쪽을 골라 보여주면, 대표님은 그게 확인된 값인 줄 아십니다.
+ *    그건 없는 것보다 나쁩니다.
+ */
+export function bestPrice(votes: Map<number, number>): number | null {
+  let best: number | null = null;
+  let bestN = 0;
+  let tied = false;
+  for (const [price, n] of votes) {
+    if (n > bestN) {
+      best = price;
+      bestN = n;
+      tied = false;
+    } else if (n === bestN) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
+}
+
+/** 목록 한 벌에 정가를 채워 넣습니다 (자리에서 바로 고칩니다) */
+async function fillPrices(rows: { bookId: number; listPrice: number | null }[]) {
+  if (!rows.length) return;
+  const map = await pricesByBook(rows.map((r) => r.bookId));
+  for (const r of rows) r.listPrice = map.get(r.bookId) ?? null;
+}
+
 /** 순위 한 줄에 딸려오는 도서 정보 (rankings → store_books 이어붙이기) */
 const STORE_BOOK_JOIN = `store_book:store_books!inner (
     id, store_id, raw_title, raw_author, raw_publisher,
@@ -346,6 +425,15 @@ export type CombinedRow = {
   storeCount: number;
   /** 등장한 서점들의 순위 평균. 없는 서점은 계산에서 뺍니다 */
   avgRank: number;
+  /**
+   * 정가(원). 아직 안 걷힌 책은 null 입니다.
+   *
+   * 【왜 한 값만 두나요? — 2026-08-11 대표님 요청】
+   * 도서정가제상 정가는 출판사가 정한 하나의 값이라 3사가 같아야 합니다.
+   * 그래서 서점별로 나눠 보여줄 이유가 없습니다.
+   * 서점마다 값이 갈리면 지어내지 않고 비웁니다 (pricesByBook 참고).
+   */
+  listPrice: number | null;
 };
 
 // ⚠️ 판매지수는 서점끼리 평균 내지 않습니다.
@@ -419,7 +507,9 @@ export async function getCombinedBest(
       sales: numberMap(r.sales),
       storeCount: r.store_count,
       avgRank: Number(r.avg_rank),
+      listPrice: null as number | null,
     }));
+    await fillPrices(rows);
     return {
       rows,
       depth,
@@ -453,7 +543,11 @@ export async function getCombinedBest(
   );
 
   const catStore = new Map(cats.map((c) => [c.id, c.store_id]));
-  type Acc = Omit<CombinedRow, "storeCount" | "avgRank" | "avgSales">;
+  // 정가는 맨 마지막에 한 번에 채우므로(fillPrices) 모으는 동안에는 없습니다
+  type Acc = Omit<
+    CombinedRow,
+    "storeCount" | "avgRank" | "avgSales" | "listPrice"
+  >;
   const acc = new Map<number, Acc>();
 
   for (const r of rankRows) {
@@ -491,11 +585,13 @@ export async function getCombinedBest(
       ...a,
       storeCount: rankList.length,
       avgRank: rankList.reduce((x, y) => x + y, 0) / rankList.length,
+      listPrice: null,
     });
   }
 
   rows.sort((x, y) => x.avgRank - y.avgRank || y.storeCount - x.storeCount);
   const top = rows.slice(0, limit);
+  await fillPrices(top);
   return { rows: top, depth, usedCategories: await usedIn(cats, date), fast: false };
 }
 
@@ -996,7 +1092,9 @@ export async function getBooksOf(
     sales: numberMap(r.sales),
     storeCount: r.store_count,
     avgRank: Number(r.avg_rank),
+    listPrice: null as number | null,
   }));
+  await fillPrices(rows);
   return { rows, ok: true };
 }
 

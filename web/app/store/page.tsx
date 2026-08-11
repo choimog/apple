@@ -306,6 +306,11 @@ export default async function StorePage({
                       {r.store_book.raw_author || "저자 정보 없음"}
                       {r.store_book.raw_publisher && ` · ${r.store_book.raw_publisher}`}
                       {r.store_book.pub_ym && ` · ${r.store_book.pub_ym}`}
+                      {/* 정가 — 2026-08-11 대표님 요청.
+                          여기는 '그 서점이 적어 놓은 값' 을 그대로 보여줍니다.
+                          서점별 화면이라 다른 서점 값을 섞으면 안 됩니다. */}
+                      {r.store_book.list_price != null &&
+                        ` · ${r.store_book.list_price.toLocaleString()}원`}
                     </p>
                   </div>
 

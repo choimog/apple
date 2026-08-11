@@ -7,6 +7,7 @@ import {
   CardHead,
   Empty,
   PageHead,
+  Price,
   StoreChip,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
@@ -161,6 +162,8 @@ export default async function SearchPage({
                           <span>{b.pubYm}</span>
                         </>
                       )}
+                      {/* 정가 — 2026-08-11 대표님 요청 */}
+                      <Price value={b.listPrice} />
                     </p>
 
                     {/* 어느 서점에 있는 책인지 — 줄을 나누지 않고 배지로 */}

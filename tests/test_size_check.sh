@@ -39,7 +39,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
 cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
    "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" \
-   "$ROOT/db/space-why.sql" "$ROOT/db/space-free.sql" "$DATA/"
+   "$ROOT/db/space-why.sql" "$ROOT/db/space-free.sql" "$ROOT/db/space-trim.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -240,6 +240,67 @@ done
 OUT9=$(q space-free.sql)
 echo "$OUT9" | grep -qi "ERROR" && say 0 "두 번 실행해도 안전하다" \
   || say 1 "두 번 실행해도 안전하다"
+
+echo
+echo "=== [사] 🚨 Supabase 에서 못 도는 문장이 섞여 있지 않은가 ==="
+# Supabase SQL Editor 는 붙여넣은 것을 **한 덩어리(트랜잭션)** 로 돌립니다.
+# VACUUM 은 그 안에서 못 돌고, 죽으면서 앞의 지우기까지 통째로 되돌립니다.
+# 그런데 제 컴퓨터의 psql 은 통과시키기 때문에 위 시험들은 속습니다.
+# 그래서 글자로 직접 막습니다.
+for f in space-where space-growth space-why space-free space-trim; do
+  if grep -qiE '^[[:space:]]*(VACUUM|REINDEX CONCURRENTLY|CREATE INDEX CONCURRENTLY)' \
+       "$ROOT/db/$f.sql"; then
+    say 0 "db/$f.sql 에 Supabase 에서 못 도는 문장이 있다"
+  else
+    say 1 "db/$f.sql — Supabase 에서 돌 수 있다"
+  fi
+done
+
+echo
+echo "=== [아] db/space-trim.sql — 기준 밖 순위 정리 (2026-08-11 대표님 결정) ==="
+# 일간 300위 · 주간 500위. 이 파일은 **되돌릴 수 없게 지웁니다.**
+# 가장 무서운 것은 대표님이 손으로 하신 8만 5천 건의 결정입니다.
+# store_books 를 지우면 데이터베이스가 그 결정까지 함께 지웁니다(CASCADE).
+cat > "$DATA/seedt.sql" <<'SQL'
+INSERT INTO categories(id, store_id, code, name, kind, url_template) VALUES
+  (2, 2, 'w1', '주간전체', 'weekly', 'http://x/{page}');
+-- 기준 안: 일간 1위 / 주간 400위      → 남아야 함
+-- 기준 밖: 일간 301위 / 주간 501위    → 지워져야 함
+INSERT INTO store_books(id, store_id, store_book_key, raw_title) VALUES
+  (10,1,'t10','안'), (11,1,'t11','밖'), (12,2,'t12','주간안'), (13,2,'t13','주간밖'),
+  (14,1,'t14','결정걸린책');
+INSERT INTO rankings(snapshot_date, category_id, rank, store_book_id) VALUES
+  ('2026-08-11',1,  1,10), ('2026-08-11',1,301,11),
+  ('2026-08-11',2,400,12), ('2026-08-11',2,501,13);
+-- 🚨 14번 책은 순위가 하나도 없지만 대표님 결정이 걸려 있습니다.
+INSERT INTO book_matches(store_book_a, store_book_b, score, reasons, decision)
+  VALUES (12, 14, 90, '{}', 'manual_merge');
+SQL
+chmod 644 "$DATA/seedt.sql"; q seedt.sql >/dev/null
+BEFORE=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM book_matches WHERE decision LIKE 'manual%'\"" 2>&1)
+
+OUTT=$(q space-trim.sql)
+echo "$OUTT" | grep -qi "ERROR" && { echo "$OUTT" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUTT"
+
+R=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT string_agg(store_book_id::text,',' ORDER BY store_book_id) FROM rankings\"" 2>&1)
+[ "$R" = "1,1,2,10,12" ] && say 1 "기준 밖 순위만 지운다 (남은 것: $R)" \
+  || say 0 "기준 밖 순위만 지운다" "$R"
+
+# 🚨 가장 중요 — 대표님 결정이 하나도 안 줄어야 합니다
+AFTER=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM book_matches WHERE decision LIKE 'manual%'\"" 2>&1)
+[ "$BEFORE" = "$AFTER" ] && say 1 "🚨 대표님 결정이 그대로다 ($BEFORE건)" \
+  || say 0 "🚨 대표님 결정이 사라졌다 ($BEFORE → $AFTER)"
+
+# 결정이 걸린 상품(14번)은 순위가 없어도 남아야 합니다
+K=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM store_books WHERE id=14\"" 2>&1)
+[ "$K" = "1" ] && say 1 "결정이 걸린 상품은 순위가 없어도 남긴다" \
+  || say 0 "결정이 걸린 상품을 지웠다"
+
+# 순위도 결정도 없는 상품(11,13)은 지워져야 합니다
+G=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM store_books WHERE id IN (11,13)\"" 2>&1)
+[ "$G" = "0" ] && say 1 "쓸모없어진 상품은 지운다" || say 0 "쓸모없어진 상품이 남았다" "$G"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

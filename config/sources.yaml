@@ -46,6 +46,28 @@
 #
 #  【분야 이름 뒤에 아무 표시가 없으면 일간, (주간) 이면 주간입니다】
 #    같은 '전체' 라도 일간과 주간은 서로 다른 항목으로 따로 저장됩니다.
+#
+# =============================================================================
+#  【2026-08-11 대표님 결정 — 일간 300위 · 주간 500위】
+#
+#    "일간은 매일 300위권, 주간은 매일 500위권까지 취합하는 걸로 하고,
+#     현재 이 기준에서 벗어난 순위권의 데이터는 지우는 걸로 하면
+#     더 오래 버틸 수 있으려나?"
+#
+#  전에는 1,000위까지 모았습니다. 그 결과 무료 데이터베이스(500MB)가
+#  하루 12MB 씩 차서 일주일이면 꽉 찰 상황이었습니다.
+#  재 보니 저장되는 순위의 60%가 301위 이하였습니다.
+#
+#  그래서 아래 146개 분야의 max_items 를 300 / 500 으로 내렸습니다.
+#    · 하루 저장되는 순위 줄  121,910 → 약 46,900 (62% 감소)
+#    · 수집 시간도 그만큼 짧아집니다 (지금 서점당 50~60분)
+#
+#  ⚠️ 이미 쌓인 301위 이하 자료는 db/space-trim.sql 로 따로 지웁니다.
+#  ⚠️ 14일이 지나 보관소(GitHub)로 빠진 파일에는 1,000위까지 그대로
+#     들어 있습니다. 과거 자료가 사라지는 것이 아닙니다.
+#
+#  되돌리시려면 이 값들을 1000 으로 올리시면 됩니다. 다만 용량 계산을
+#  다시 해야 하므로 저에게 먼저 말씀해 주세요.
 # =============================================================================
 
 
@@ -102,7 +124,7 @@ kyobo_online:
       name: "전체"
       unified: "all"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -110,7 +132,7 @@ kyobo_online:
       name: "소설"
       unified: "fiction"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/01?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -118,7 +140,7 @@ kyobo_online:
       name: "시/에세이"
       unified: "poetry_essay"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/03?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -126,7 +148,7 @@ kyobo_online:
       name: "인문"
       unified: "humanities"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/05?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -134,7 +156,7 @@ kyobo_online:
       name: "가정육아"
       unified: "parenting"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/07?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -142,7 +164,7 @@ kyobo_online:
       name: "요리"
       unified: "cooking"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/08?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -150,7 +172,7 @@ kyobo_online:
       name: "건강"
       unified: "health"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/09?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -158,7 +180,7 @@ kyobo_online:
       name: "취미/실용/스포츠"
       unified: "hobby"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/11?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -166,7 +188,7 @@ kyobo_online:
       name: "경제/경영"
       unified: "business"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/13?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -174,7 +196,7 @@ kyobo_online:
       name: "자기계발"
       unified: "self_help"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/15?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -182,7 +204,7 @@ kyobo_online:
       name: "정치/사회"
       unified: "society"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/17?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -190,7 +212,7 @@ kyobo_online:
       name: "역사/문화"
       unified: "history"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/19?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -198,7 +220,7 @@ kyobo_online:
       name: "종교"
       unified: "religion"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/21?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -206,7 +228,7 @@ kyobo_online:
       name: "예술/대중문화"
       unified: "art"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/23?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -214,7 +236,7 @@ kyobo_online:
       name: "중/고등참고서"
       unified: "mid_high_ref"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/25?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -222,7 +244,7 @@ kyobo_online:
       name: "기술/공학"
       unified: "engineering"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/26?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -230,7 +252,7 @@ kyobo_online:
       name: "외국어"
       unified: "language"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/27?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -238,7 +260,7 @@ kyobo_online:
       name: "과학"
       unified: "science"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/29?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -246,7 +268,7 @@ kyobo_online:
       name: "취업/수험서"
       unified: "exam"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/31?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -254,7 +276,7 @@ kyobo_online:
       name: "여행"
       unified: "travel"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/32?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -262,7 +284,7 @@ kyobo_online:
       name: "컴퓨터/IT"
       unified: "it"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/33?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -270,7 +292,7 @@ kyobo_online:
       name: "잡지"
       unified: "magazine"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/35?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -278,7 +300,7 @@ kyobo_online:
       name: "청소년"
       unified: "teen"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/38?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -286,7 +308,7 @@ kyobo_online:
       name: "초등참고서"
       unified: "elem_ref"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/39?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -294,7 +316,7 @@ kyobo_online:
       name: "유아(0~7세)"
       unified: "infant"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/41?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -302,7 +324,7 @@ kyobo_online:
       name: "어린이(초등)"
       unified: "children"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/42?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -310,7 +332,7 @@ kyobo_online:
       name: "만화"
       unified: "comics"
       url: "https://store.kyobobook.co.kr/bestseller/online/daily/domestic/47?page={page}&per=200"
-      max_items: 1000
+      max_items: 300
       page_size: 200
       enabled: true
 
@@ -535,196 +557,196 @@ yes24:
       name: "전체"
       unified: "all"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001046"
       name: "소설/시/희곡"
       unified: "fiction"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001046&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001047"
       name: "에세이"
       unified: "essay"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001047&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001019"
       name: "인문"
       unified: "humanities"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001019&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001020"
       name: "인물"
       unified: "biography"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001020&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001022"
       name: "사회 정치"
       unified: "society"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001022&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001010"
       name: "역사"
       unified: "history"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001010&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001021"
       name: "종교"
       unified: "religion"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001021&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001026"
       name: "자기계발"
       unified: "self_help"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001026&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001025"
       name: "경제 경영"
       unified: "business"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001025&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001002"
       name: "자연과학"
       unified: "science"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001002&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001003"
       name: "IT 모바일"
       unified: "it"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001003&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001007"
       name: "예술"
       unified: "art"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001007&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001008"
       name: "만화/라이트노벨"
       unified: "comics"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001008&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001009"
       name: "여행"
       unified: "travel"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001009&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001011"
       name: "건강취미"
       unified: "health_hobby"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001011&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001001"
       name: "가정살림"
       unified: "home_life"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001001&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001004"
       name: "국어 외국어 사전"
       unified: "language"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001004&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001005"
       name: "청소년"
       unified: "teen"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001005&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001016"
       name: "어린이"
       unified: "children"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001016&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001027"
       name: "유아"
       unified: "infant"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001027&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001023"
       name: "전집"
       unified: "collection"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001023&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001024"
       name: "잡지"
       unified: "magazine"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001024&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001014"
       name: "대학교재"
       unified: "textbook"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001014&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001015"
       name: "수험서 자격증"
       unified: "exam"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001015&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001044"
       name: "초등참고서"
       unified: "elem_ref"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001044&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001049"
       name: "중등참고서"
       unified: "mid_ref"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001049&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "001001050"
       name: "고등참고서"
       unified: "high_ref"
       url: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001001050&pageNumber={page}&pageSize=120&type=day"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
 
@@ -742,161 +764,161 @@ aladin:
       name: "종합"
       unified: "all"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=0&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1"
       name: "소설/시/희곡"
       unified: "fiction"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "55889"
       name: "에세이"
       unified: "essay"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=55889&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "656"
       name: "인문학"
       unified: "humanities"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=656&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "798"
       name: "사회과학"
       unified: "society"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=798&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "74"
       name: "역사"
       unified: "history"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=74&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1237"
       name: "종교/역학"
       unified: "religion"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1237&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "336"
       name: "자기계발"
       unified: "self_help"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=336&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "170"
       name: "경제경영"
       unified: "business"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=170&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "987"
       name: "과학"
       unified: "science"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=987&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "351"
       name: "컴퓨터/모바일"
       unified: "it"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=351&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "517"
       name: "예술/대중문화"
       unified: "art"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=517&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "2551"
       name: "만화/라이트노벨"
       unified: "comics"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=2551&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "112011"
       name: "장르소설"
       unified: "genre_fiction"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=112011&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "2105"
       name: "고전"
       unified: "classics"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=2105&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1196"
       name: "여행"
       unified: "travel"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1196&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "55890"
       name: "건강/취미"
       unified: "health_hobby"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=55890&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1230"
       name: "요리/살림"
       unified: "cooking"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1230&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "2030"
       name: "좋은부모"
       unified: "parenting"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=2030&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1322"
       name: "외국어"
       unified: "language"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1322&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1137"
       name: "청소년"
       unified: "teen"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1137&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1108"
       name: "어린이"
       unified: "children"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1108&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "13789"
       name: "유아"
       unified: "infant"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=13789&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     # ⚠️ 2026-08-07 설정 점검에서 이 분야만 도서가 0권이었습니다.
@@ -907,56 +929,56 @@ aladin:
       name: "전집/중고전집"
       unified: "collection"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=17195&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: false
 
     - code: "2913"
       name: "잡지"
       unified: "magazine"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=2913&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "8257"
       name: "대학교재/전문서적"
       unified: "textbook"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=8257&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "1383"
       name: "수험서/자격증"
       unified: "exam"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=1383&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "50246"
       name: "초등학교참고서"
       unified: "elem_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=50246&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "76000"
       name: "중학교참고서"
       unified: "mid_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=76000&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "76001"
       name: "고등학교참고서"
       unified: "high_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=76001&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
     - code: "4395"
       name: "달력/기타"
       unified: "etc"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=DailyBest&BranchType=1&CID=4395&page={page}"
-      max_items: 1000
+      max_items: 300
       enabled: true
 
 
@@ -989,7 +1011,7 @@ kyobo_weekly:
       name: "전체"
       unified: "all"
       url: "https://store.kyobobook.co.kr/bestseller/total/weekly?page={page}&per=200"
-      max_items: 1000
+      max_items: 500
       page_size: 200
       enabled: true
 
@@ -1219,196 +1241,196 @@ yes24_weekly:
       name: "전체"
       unified: "all"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001046"
       name: "소설/시/희곡"
       unified: "fiction"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001046"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001047"
       name: "에세이"
       unified: "essay"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001047"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001019"
       name: "인문"
       unified: "humanities"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001019"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001020"
       name: "인물"
       unified: "biography"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001020"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001022"
       name: "사회 정치"
       unified: "society"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001022"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001010"
       name: "역사"
       unified: "history"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001010"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001021"
       name: "종교"
       unified: "religion"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001021"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001026"
       name: "자기계발"
       unified: "self_help"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001026"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001025"
       name: "경제 경영"
       unified: "business"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001025"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001002"
       name: "자연과학"
       unified: "science"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001002"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001003"
       name: "IT 모바일"
       unified: "it"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001003"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001007"
       name: "예술"
       unified: "art"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001007"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001008"
       name: "만화/라이트노벨"
       unified: "comics"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001008"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001009"
       name: "여행"
       unified: "travel"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001009"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001011"
       name: "건강취미"
       unified: "health_hobby"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001011"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001001"
       name: "가정살림"
       unified: "home_life"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001001"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001004"
       name: "국어 외국어 사전"
       unified: "language"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001004"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001005"
       name: "청소년"
       unified: "teen"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001005"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001016"
       name: "어린이"
       unified: "children"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001016"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001027"
       name: "유아"
       unified: "infant"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001027"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001023"
       name: "전집"
       unified: "collection"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001023"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001024"
       name: "잡지"
       unified: "magazine"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001024"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001014"
       name: "대학교재"
       unified: "textbook"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001014"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001015"
       name: "수험서 자격증"
       unified: "exam"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001015"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001044"
       name: "초등참고서"
       unified: "elem_ref"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001044"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001049"
       name: "중등참고서"
       unified: "mid_ref"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001049"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "001001050"
       name: "고등참고서"
       unified: "high_ref"
       url: "https://www.yes24.com/product/category/bestseller?pageNumber={page}&pageSize=120&categoryNumber=001001050"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
 
@@ -1438,215 +1460,215 @@ aladin_weekly:
       name: "종합"
       unified: "all"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=0&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1"
       name: "소설/시/희곡"
       unified: "fiction"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "55889"
       name: "에세이"
       unified: "essay"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=55889&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "656"
       name: "인문학"
       unified: "humanities"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=656&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "798"
       name: "사회과학"
       unified: "society"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=798&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "74"
       name: "역사"
       unified: "history"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=74&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1237"
       name: "종교/역학"
       unified: "religion"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1237&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "336"
       name: "자기계발"
       unified: "self_help"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=336&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "170"
       name: "경제경영"
       unified: "business"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=170&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "987"
       name: "과학"
       unified: "science"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=987&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "351"
       name: "컴퓨터/모바일"
       unified: "it"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=351&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "517"
       name: "예술/대중문화"
       unified: "art"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=517&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "2551"
       name: "만화/라이트노벨"
       unified: "comics"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=2551&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "112011"
       name: "장르소설"
       unified: "genre_fiction"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=112011&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "2105"
       name: "고전"
       unified: "classics"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=2105&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1196"
       name: "여행"
       unified: "travel"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1196&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "55890"
       name: "건강/취미"
       unified: "health_hobby"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=55890&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1230"
       name: "요리/살림"
       unified: "cooking"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1230&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "2030"
       name: "좋은부모"
       unified: "parenting"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=2030&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1322"
       name: "외국어"
       unified: "language"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1322&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1137"
       name: "청소년"
       unified: "teen"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1137&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1108"
       name: "어린이"
       unified: "children"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1108&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "13789"
       name: "유아"
       unified: "infant"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=13789&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "17195"
       name: "전집/중고전집"
       unified: "collection"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=17195&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "2913"
       name: "잡지"
       unified: "magazine"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=2913&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "8257"
       name: "대학교재/전문서적"
       unified: "textbook"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=8257&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "1383"
       name: "수험서/자격증"
       unified: "exam"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=1383&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "50246"
       name: "초등학교참고서"
       unified: "elem_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=50246&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "76000"
       name: "중학교참고서"
       unified: "mid_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=76000&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "76001"
       name: "고등학교참고서"
       unified: "high_ref"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=76001&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true
 
     - code: "4395"
       name: "달력/기타"
       unified: "etc"
       url: "https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=4395&page={page}"
-      max_items: 1000
+      max_items: 500
       enabled: true

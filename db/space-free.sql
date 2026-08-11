@@ -45,9 +45,15 @@ TRUNCATE TABLE book_meta;
 -- ② 만들어 놓고 한 번도 안 쓴 목차를 지웁니다. 자료가 아닙니다.
 DROP INDEX IF EXISTS idx_store_books_block;
 
--- 지운 자리를 실제로 돌려받습니다.
--- (그냥 지우면 PostgreSQL 이 '빈 자리' 로만 표시하고 용량은 안 줄어듭니다)
-VACUUM FULL book_meta;
+-- ⚠️ 여기에 VACUUM FULL 을 쓰면 안 됩니다.
+--    Supabase SQL Editor 는 붙여넣은 것을 **한 덩어리(트랜잭션)** 로 돌리는데,
+--    VACUUM 은 그 안에서 못 돕니다. "VACUUM cannot run inside a transaction
+--    block" 이라며 죽고, **앞의 TRUNCATE 까지 통째로 되돌아갑니다.**
+--    (처음에 넣어 뒀다가 알아채고 뺐습니다. 제 컴퓨터의 psql 로는
+--     통과해서 시험도 속았습니다. 시험 쪽에도 막는 규칙을 넣어 뒀습니다)
+--
+--    다행히 TRUNCATE 는 그 자체로 자리를 바로 돌려줍니다.
+--    DROP INDEX 도 마찬가지입니다. 그래서 VACUUM 이 필요 없습니다.
 
 
 -- ---------------------------------------------------------------------------

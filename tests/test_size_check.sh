@@ -37,7 +37,8 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
   $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
-cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" "$DATA/"
+cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
+   "$ROOT/db/space-where.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -93,6 +94,31 @@ echo "$OUT2" | tail -6 | grep -qE '\|[[:space:]]*1[[:space:]]*\|' \
   && say 1 "낭비되는 줄을 세어낸다" || say 0 "낭비되는 줄을 세어낸다"
 echo "$OUT2" | grep -q "book_meta" && say 1 "book_meta 를 따로 보여준다" \
   || say 0 "book_meta 를 따로 보여준다"
+
+echo
+echo "=== [다] db/space-where.sql — 용량이 어디로 갔나 (2026-08-11) ==="
+# 오늘 [용량 확인] 이 '1년 뒤 528MB · 10일 뒤 한도' 라고 알려 왔습니다.
+# 어디를 줄일지 정하려면 먼저 재야 하는데, 재는 파일이 실행하자마자
+# 죽으면 아무것도 못 알아냅니다. 자료가 하나도 없을 때부터 봅니다.
+OUT3=$(q space-where.sql)
+echo "$OUT3" | grep -qi "ERROR" && { echo "$OUT3" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUT3" | grep -q "division by zero" && say 0 "0으로 안 나눈다" || say 1 "0으로 안 나눈다"
+# 네 개의 표가 다 나와야 합니다. 하나라도 빠지면 판단 근거가 빕니다.
+echo "$OUT3" | grep -q "색인(목차) 이름" && say 1 "① 색인별 크기가 나온다" \
+  || say 0 "① 색인별 크기가 나온다"
+echo "$OUT3" | grep -q "색인 비중" && say 1 "② 자료/색인 비중이 나온다" \
+  || say 0 "② 자료/색인 비중이 나온다"
+echo "$OUT3" | grep -q "근거가 차지하는 양" && say 1 "③ 판정별 줄 수가 나온다" \
+  || say 0 "③ 판정별 줄 수가 나온다"
+echo "$OUT3" | grep -q "30일 넘게 순위에 안 나온 줄" && say 1 "④ 안 쓰는 줄을 세어낸다" \
+  || say 0 "④ 안 쓰는 줄을 세어낸다"
+
+# 🚨 진짜로 세는지 확인합니다. 위 seed 로 store_books 2줄이 들어 있고,
+#    first_seen_at 은 now() 이므로 '최근 7일에 새로 생긴 줄' 이 2 여야 합니다.
+#    0 이 나오면 '안 늘어난다' 는 틀린 결론을 내게 됩니다.
+echo "$OUT3" | grep -A2 "최근 7일에 새로 생긴 줄" | grep -qE '\|[[:space:]]*2[[:space:]]*\|' \
+  && say 1 "새로 생긴 줄을 실제로 센다" || say 0 "새로 생긴 줄을 실제로 센다"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

@@ -170,9 +170,24 @@ def main() -> int:
         #
         # 그래서 확인만 할 때는 **① 이 지웠을 상태를 흉내 내서** 셉니다.
         # 기준을 넘는 순위 줄은 없는 셈 칩니다.
-        rows = (client.table("rankings")
-                .select("store_book_id,category_id,rank")
-                .in_("store_book_id", chunk).execute().data or [])
+        # 🚨🚨 【2026-08-11 — 여기서 자료를 잃었습니다】
+        # 예전에는 이 조회를 그냥 .execute() 했습니다. 그런데 Supabase 는
+        # **한 번에 1,000줄까지만** 돌려줍니다. 상품 300개의 순위 줄은
+        # 4,000줄이 넘기 때문에, 뒤쪽 상품들은 '순위가 하나도 없는 책'
+        # 처럼 보였습니다. 그래서 **순위에 멀쩡히 있던 책이 지워졌고**,
+        # 데이터베이스가 그 책의 순위 줄까지 함께 지웠습니다
+        # (rankings 는 store_books 에 ON DELETE CASCADE 로 걸려 있습니다).
+        # 대표님이 "서점별에서 순위가 누락된 게 굉장히 많다" 고 하신
+        # 것이 이것입니다.
+        #
+        # db._select_all 은 바로 이 1,000줄 한계 때문에 만들어 둔
+        # 도구인데, 정작 가장 위험한 자리에서 안 썼습니다.
+        rows = db._select_all(
+            lambda: client.table("rankings")
+            .select("store_book_id,category_id,rank")
+            .in_("store_book_id", chunk)
+            .order("store_book_id")
+        )
         alive = {
             r["store_book_id"] for r in rows
             if not dry or r["rank"] <= cap_by_cat.get(r["category_id"], 300)
@@ -183,13 +198,17 @@ def main() -> int:
             continue
 
         # 사람이 내린 결정이 걸린 상품은 빼냅니다 (양쪽 칸 모두 확인)
+        # ⚠️ 여기도 1,000줄 한계가 있습니다. 빠뜨리면 지키려던 결정이
+        #    지워집니다. 반드시 나눠서 전부 읽어야 합니다.
         locked: set[int] = set()
         for col in ("store_book_a", "store_book_b"):
-            rows = (client.table("book_matches").select(col)
-                    .in_(col, cand)
-                    .in_("decision", ["manual_merge", "manual_split"])
-                    .execute().data or [])
-            locked.update(r[col] for r in rows)
+            got = db._select_all(
+                lambda c=col: client.table("book_matches").select(c)
+                .in_(c, cand)
+                .in_("decision", ["manual_merge", "manual_split"])
+                .order("id")
+            )
+            locked.update(r[col] for r in got)
 
         drop = [i for i in cand if i not in locked]
         kept += len(locked)

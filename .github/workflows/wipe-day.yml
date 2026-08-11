@@ -1,0 +1,70 @@
+# =============================================================================
+#  하루치(또는 전체) 순위 자료 지우기
+# =============================================================================
+#
+#  【언제 쓰나요? — 2026-08-11 대표님 지시】
+#  "일단, 11일 데이터는 모두 지우자."
+#
+#  그날 수집이 여러 번 반쪽으로 돌면 자료를 믿을 수 없게 됩니다.
+#  어설프게 남겨 두면 순위 그래프와 AI 리포트가 **틀린 자료로 조용히
+#  계산됩니다.** 그럴 때 그 날짜를 통째로 비우고 다시 수집합니다.
+#
+#  【어떻게 실행하나요?】
+#  https://github.com/choimog/apple/actions/workflows/wipe-day.yml
+#  → 오른쪽 [Run workflow]
+#     date    : 2026-08-11 처럼 적습니다. all 이라고 적으면 전부입니다.
+#     dry_run : true 면 아무것도 안 지우고 얼마나 지울지만 알려 줍니다.
+#
+#  ⚠️ 되돌릴 수 없습니다. 지운 날짜는 다시 수집해야 채워지고,
+#     그때는 '서점이 지금 보여주는 순위' 로 채워집니다.
+#
+#  ⚠️ 대표님이 손으로 내리신 결정이 걸린 상품은 지우지 않습니다.
+#     시작·종료 시점에 건수를 세어 하나라도 줄면 실패로 끝냅니다.
+# =============================================================================
+
+name: 하루치 자료 지우기 (wipe day)
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "지울 날짜 (2026-08-11). 전부 지우려면 all"
+        required: true
+      dry_run:
+        description: "확인만 하고 안 지우려면 true"
+        required: false
+        default: "true"
+
+# 수집·매칭과 겹치지 않게 합니다
+concurrency:
+  group: wipe-day
+  cancel-in-progress: false
+
+jobs:
+  wipe:
+    name: 자료 지우기
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 규칙 시험 (지우면 안 되는 것을 지키는지)
+        run: python tests/test_wipe_day.py
+
+      - name: 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WIPE_DATE: ${{ inputs.date }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python crawler/wipe_day.py

@@ -80,6 +80,7 @@ jobs:
           python tests/test_match.py
           python tests/test_manual_split.py
           python tests/test_manual_merge.py
+          python tests/test_verify_publishers.py
           python tests/test_schedule.py
 
       - name: 매칭 실행

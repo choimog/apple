@@ -78,6 +78,9 @@ jobs:
       - name: 규칙 시험 (규칙이 깨졌으면 여기서 멈춤)
         run: |
           python tests/test_match.py
+          # 대표님이 "왜 안 묶이지?" 하고 알려주신 실제 책 10건.
+          # 규칙을 손댈 때 이 책들이 또 갈라지면 여기서 걸립니다.
+          python tests/test_match_reported.py
           python tests/test_manual_split.py
           python tests/test_manual_merge.py
           python tests/test_verify_publishers.py

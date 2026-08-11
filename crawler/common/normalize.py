@@ -120,10 +120,57 @@ def extract_set_volumes(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# 배지 바로 뒤에 이 글자가 오면 책 이름의 일부입니다 (『예약판매의 기술』).
+_PARTICLES = frozenset("의을를은는이가에로와과도만서부터까지")
+
+DEFAULT_TITLE_BADGES = ["예약판매", "예약 판매", "오늘출발", "오늘 출발"]
+
+
+def strip_title_badges(text: str, badges: list[str] | None = None) -> str:
+    """
+    제목 **맨 앞**에 붙은 서점 배지 문구를 뗍니다.
+
+    【2026-08-12 대표님 지적】
+    "'예약판매' 라는 키워드를 제목에서 긁어오면 안 될텐데"
+
+        문해내공  vs  예약판매문해내공     닮은 정도 0.55  → 다른 책으로 판정
+
+    제목이 0.60 만큼도 안 닮으면 점수를 보기도 전에 갈라집니다.
+    서점 화면의 배지가 제목 옆에 있어서 글자를 꺼낼 때 딸려 온 것입니다.
+
+    ⚠️ **맨 앞에 있을 때만** 뗍니다.
+    ⚠️ 뒤에 조사가 붙어 있으면 **안 뗍니다.** 『예약판매의 기술』 의
+       '예약판매' 는 배지가 아니라 진짜 제목의 일부입니다.
+       처음 만들었을 때 이걸 안 봐서 『의 기술』 이 됐습니다.
+    ⚠️ 떼고 나서 아무것도 안 남으면 원래 값을 그대로 씁니다.
+    """
+    words = badges if badges is not None else DEFAULT_TITLE_BADGES
+    out = (text or "").strip()
+    changed = True
+    while changed:                      # '[예약판매] 특가 제목' 처럼 겹칠 수 있음
+        changed = False
+        bare = out.lstrip("[(（【 \t")
+        bracketed = bare is not out     # 괄호로 싸여 있으면 배지가 확실합니다
+        for w in sorted(set(words), key=len, reverse=True):
+            if not w or not bare.startswith(w):
+                continue
+            rest = bare[len(w):]
+            # 조사로 이어지면 책 이름의 일부입니다. 건드리지 않습니다.
+            if not bracketed and rest[:1] in _PARTICLES:
+                break
+            rest = rest.lstrip("]）】) -–—:：|·\t ")
+            if len(rest.strip()) >= 2:  # 다 떼서 빈 제목이 되면 안 됩니다
+                out = rest.strip()
+                changed = True
+            break
+    return out or (text or "").strip()
+
+
 def normalize_title(
     raw: str,
     edition_words: list[str] | None = None,
     edition_canonical: dict[str, str] | None = None,
+    title_badges: list[str] | None = None,
 ) -> dict:
     """
     제목을 비교용으로 정리합니다.
@@ -137,7 +184,7 @@ def normalize_title(
     edition_words = edition_words or DEFAULT_EDITION_WORDS
     canonical = (DEFAULT_EDITION_CANONICAL if edition_canonical is None
                  else edition_canonical)
-    text = _nfkc(raw or "").strip()
+    text = strip_title_badges(_nfkc(raw or "").strip(), title_badges)
 
     editions = extract_editions(text, edition_words, canonical)
     set_volumes = extract_set_volumes(text)
@@ -180,16 +227,81 @@ def normalize_author(raw: str | None, role_words: list[str] | None = None) -> st
     return text.lower() or None
 
 
+# 출판사 이름 뒤에 괄호로 덧붙는 부기.
+#   필름(Feelm) · 윌북(willbook) · YBM(와이비엠) · 창비(주)
+# 서점마다 붙이기도 하고 안 붙이기도 해서, 같은 출판사가 다르게 보입니다.
+_PUB_PAREN = re.compile(r"[(（\[［{][^)）\]］}]*[)）\]］}]")
+
+
 def normalize_publisher(
     raw: str | None, publisher_words: list[str] | None = None
 ) -> str | None:
-    """'(주)문학동네' → '문학동네'"""
+    """
+    '(주)문학동네' → '문학동네'
+
+    【2026-08-12 — 괄호 부기를 떼어냅니다】
+    대표님이 안 묶인다고 알려주신 책들의 원인이 여기였습니다.
+
+        필름(Feelm)      vs  필름        닮은 정도 0.24  → 다른 출판사로 판정
+        윌북(willbook)   vs  윌북        닮은 정도 0.19  → 다른 출판사로 판정
+        (주)YBM(와이비엠) vs  YBM        닮은 정도 0.38  → 다른 출판사로 판정
+
+    출판사가 0.80 만큼 안 닮으면 **점수를 보기도 전에 다른 책**입니다.
+    같은 출판사인데 한 서점만 영문·한글 부기를 달아 놓은 것뿐인데
+    그것 때문에 갈라지고 있었습니다.
+
+    ⚠️ 괄호를 지우는 게 아니라 **괄호와 그 안의 내용을 통째로** 뗍니다.
+       괄호만 지우면 '필름feelm' 이 되어 여전히 안 닮습니다.
+
+    ⚠️ 다 떼고 나면 빈 이름이 되는 경우(이름 전체가 괄호 안)는
+       원래 값을 씁니다. 이름을 잃는 것이 더 나쁩니다.
+    """
     if not raw:
         return None
     publisher_words = publisher_words or DEFAULT_PUBLISHER_WORDS
     text = _nfkc(raw)
+
+    # 괄호 부기 제거. 지우고 나서 아무것도 안 남으면 되돌립니다.
+    stripped = _PUB_PAREN.sub(" ", text)
+    if re.sub(r"[^0-9A-Za-z가-힣]", "", stripped):
+        text = stripped
+
     for w in sorted(set(publisher_words), key=len, reverse=True):
         text = text.replace(w, " ")
     text = re.sub(PUNCT, "", text)
     text = re.sub(r"\s+", "", text)
     return text.lower() or None
+
+# -----------------------------------------------------------------------------
+#  외국 이름의 된소리 흔들림 (카뮈 / 까뮈)
+# -----------------------------------------------------------------------------
+#  【2026-08-12 대표님 제보 — 『이방인』】
+#      알베르 카뮈  vs  알베르 까뮈     닮은 정도 0.57
+#
+#  서점마다 외국 이름을 다르게 옮겨 적습니다. 흔한 짝입니다.
+#      카뮈/까뮈 · 카프카/까프카 · 톨스토이/똘스또이 · 도스토옙스키/도스또옙스끼
+#
+#  된소리(ㄲㄸㅃㅉㅆ)를 거센소리·예사소리로 되돌린 값을 하나 더 만들어서,
+#  그 값끼리도 견줍니다. **저장하는 값은 바꾸지 않습니다.** 비교할 때만
+#  참고하는 보조 값입니다.
+_HANGUL_BASE = 0xAC00
+_HANGUL_LAST = 0xD7A3
+#  초성 차례: ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ
+#  ㄲ→ㅋ  ㄸ→ㅌ  ㅃ→ㅍ  ㅉ→ㅊ  ㅆ→ㅅ
+_FORTIS_TO_PLAIN = {1: 15, 4: 16, 8: 17, 13: 14, 10: 9}
+
+
+def fold_fortis(text: str | None) -> str | None:
+    """된소리를 풀어 놓은 값. '알베르까뮈' → '알베르카뮈'"""
+    if not text:
+        return text
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if _HANGUL_BASE <= code <= _HANGUL_LAST:
+            off = code - _HANGUL_BASE
+            lead, rest = divmod(off, 588)
+            if lead in _FORTIS_TO_PLAIN:
+                ch = chr(_HANGUL_BASE + _FORTIS_TO_PLAIN[lead] * 588 + rest)
+        out.append(ch)
+    return "".join(out)

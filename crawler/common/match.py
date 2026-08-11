@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
+from .normalize import fold_fortis
+
 
 # -----------------------------------------------------------------------------
 #  비교 대상 한 권
@@ -66,6 +68,28 @@ def similarity(a: str | None, b: str | None) -> float:
     jac = len(ba & bb) / len(ba | bb) if (ba | bb) else 0.0
 
     return (seq + jac) / 2
+
+
+def name_similarity(a: str | None, b: str | None) -> float:
+    """
+    사람 이름끼리 견줍니다. 된소리를 푼 값끼리도 견줘서 더 높은 쪽을 씁니다.
+
+    【2026-08-12 대표님 제보 — 『이방인』】
+        알베르 카뮈  vs  알베르 까뮈     그냥 견주면 0.57 (기준 0.80 미달)
+
+    서점마다 외국 이름을 다르게 옮겨 적습니다. 사람이 보면 같은 사람인데
+    글자만 견주면 남남이 됩니다. 흔한 짝: 카뮈/까뮈 · 톨스토이/똘스또이
+    """
+    plain = similarity(a, b)
+    folded = similarity(fold_fortis(a), fold_fortis(b))
+    return max(plain, folded)
+
+
+def same_name(a: str | None, b: str | None) -> bool:
+    """된소리 표기만 다른 것도 같은 이름으로 봅니다."""
+    if not a or not b:
+        return False
+    return a == b or fold_fortis(a) == fold_fortis(b)
 
 
 def _months_apart(a: str | None, b: str | None) -> int | None:
@@ -259,10 +283,39 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     #     '모른다' 를 '다르다' 로 바꾸면 값이 빈 서점의 책이 전부 갈라집니다.
     #     모르는 것은 모르는 대로 두고, 점수에서 0점을 줍니다.
     # -------------------------------------------------------------------------
+    #  【2026-08-12 — 나머지가 전부 같으면 출간월 차이를 넘어갑니다】
+    #  대표님이 안 묶인다고 알려주신 책들:
+    #
+    #     데미안        민음사 8,000원    2000-12  vs  2009-01
+    #     이방인        민음사 10,000원   2019-09  vs  2011-03
+    #     돈의 심리학   인플루엔셜 24,800원 2026-01 vs 2021-01
+    #     100일 기도    생활성서사 16,000원 2019-07 vs 2008-05
+    #
+    #  같은 책의 **다른 쇄(刷)** 를 서점마다 다른 날짜로 적은 것입니다.
+    #  한 곳은 최초 출간일, 다른 곳은 최근 인쇄일을 씁니다.
+    #
+    #  '한 달만 달라도 다른 책' 은 2026-08-09 대표님 지시인데, 그때는
+    #  **정가를 모르던 때**였습니다. 이제 정가라는 더 강한 근거가 있습니다.
+    #  개정판·양장본은 정가가 바뀝니다. 제목·저자·출판사·정가가 **네 개 다**
+    #  같으면 판형이 다를 수가 없습니다.
+    #
+    #  ⚠️ 조건이 아주 좁습니다. 하나라도 비어 있으면 적용 안 됩니다.
+    #     · 정가가 양쪽에 다 있고 **같아야** 함 (한쪽만 알면 안 됨)
+    #     · 저자·출판사가 양쪽에 다 있고 **완전히 같아야** 함
+    #     · 핵심 제목이 완전히 같아야 함
+    #     · 판형 표기(개정판·양장본)는 위에서 이미 걸러졌음
+    #  끄시려면 config/matching.yaml 의 pub_ym_soft_when_identical 을 false 로.
     ym_gap = _months_apart(a.pub_ym, b.pub_ym)
     if ym_gap is not None and th.get("pub_ym_hard", True):
         allow = p.get("pub_ym_near_months", 1)
-        if ym_gap > allow:
+        identical = (
+            th.get("pub_ym_soft_when_identical", True)
+            and same_price is True                       # 정가가 양쪽에 있고 같음
+            and same_name(a.norm_author, b.norm_author)
+            and a.norm_publisher and a.norm_publisher == b.norm_publisher
+            and a.norm_title and a.norm_title == b.norm_title
+        )
+        if ym_gap > allow and not identical:
             return _reject("출간월(배본일)이 다름", {
                 "a": a.pub_ym,
                 "b": b.pub_ym,
@@ -285,11 +338,14 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
 
     # --- 저자 ---
     if a.norm_author and b.norm_author:
-        if a.norm_author == b.norm_author:
+        # 된소리 표기만 다른 것(카뮈/까뮈)도 같은 이름으로 봅니다.
+        if same_name(a.norm_author, b.norm_author):
             score += w["author"]
-            reasons["author"] = "exact"
+            reasons["author"] = (
+                "exact" if a.norm_author == b.norm_author else "exact(표기만 다름)"
+            )
         else:
-            sim = similarity(a.norm_author, b.norm_author)
+            sim = name_similarity(a.norm_author, b.norm_author)
             if sim >= p["author_similar_at"]:
                 score += p["author_similar_score"]
                 reasons["author"] = f"similar({sim:.2f})"

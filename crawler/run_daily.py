@@ -119,6 +119,8 @@ def build_store_book_row(row, store_id: int, words: dict | None = None) -> dict:
         row.raw_title,
         words.get("edition_words"),
         words.get("edition_canonical"),
+        # 서점 배지('예약판매' 등)를 제목에서 떼어냅니다 — 2026-08-12
+        words.get("title_badge_words"),
     )
     return {
         "store_id": store_id,

@@ -321,7 +321,8 @@ def dedupe_ranks(rows: list, label: str) -> list:
 
 def process_task(client, client_http, task, parser, selectors, snapshot_date,
                  run_id: str, dry_run: bool, words: dict | None = None,
-                 fingerprints: dict | None = None) -> tuple[str, int]:
+                 fingerprints: dict | None = None,
+                 save_meta: bool = True) -> tuple[str, int]:
     """
     카테고리 하나를 수집 → 저장 → 로그까지.
     돌려주는 값: (상태, 수집건수)
@@ -412,7 +413,10 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
             "store_book_id": sb_id,
             "sales_point": r.sales_point,
         })
-        if r.events or r.hashtags:
+        # 【2026-08-11】 save_book_meta 가 꺼져 있으면 모으지 않습니다.
+        # 이 표는 사이트·리포트·매칭 어디서도 안 읽는데 24MB 를 쓰고
+        # 있었습니다. 수집은 계속하되 저장만 안 합니다.
+        if save_meta and (r.events or r.hashtags):
             meta_rows.append({
                 "store_book_id": sb_id,
                 "snapshot_date": snapshot_date.isoformat(),
@@ -421,8 +425,10 @@ def process_task(client, client_http, task, parser, selectors, snapshot_date,
             })
 
     saved = db.replace_rankings(client, snapshot_date, category_id, ranking_rows)
-    db.upsert_book_meta(client, meta_rows)
-    print(f"  ✅ 저장 완료: 순위 {saved}건, 부가정보 {len(meta_rows)}건")
+    if meta_rows:
+        db.upsert_book_meta(client, meta_rows)
+    extra = f", 부가정보 {len(meta_rows)}건" if save_meta else " (부가정보는 저장 안 함)"
+    print(f"  ✅ 저장 완료: 순위 {saved}건{extra}")
 
     db.write_log(client, {
         "run_id": run_id,
@@ -578,6 +584,7 @@ def main() -> int:
                     status, n = process_task(
                         client, http, task, parser, selectors,
                         snapshot_date, run_id, dry_run, words, fingerprints,
+                        bool(defaults.get("save_book_meta", True)),
                     )
                     results.append((task.label(), status, n))
                 except BlockedError as exc:

@@ -39,7 +39,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 SQL
 cp "$ROOT/db/schema.sql" "$ROOT/db/size-check.sql" "$ROOT/db/price-add.sql" \
    "$ROOT/db/space-where.sql" "$ROOT/db/space-growth.sql" \
-   "$ROOT/db/space-why.sql" "$DATA/"
+   "$ROOT/db/space-why.sql" "$ROOT/db/space-free.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 q() { run "psql -h $SOCK -p $PORT -U postgres -q -f $DATA/$1" 2>&1; }
 q fake.sql >/dev/null; q schema.sql >/dev/null
@@ -211,6 +211,35 @@ OUT7=$(q space-why.sql)
 echo "$OUT7"
 echo "$OUT7" | grep -A1 "같은 서점에 두 줄 이상인 책" | grep -qE '\| 1 +\|' \
   && say 1 "중복을 실제로 잡아낸다" || say 0 "중복을 실제로 잡아낸다"
+
+echo
+echo "=== [바] db/space-free.sql — 자료를 안 잃고 되찾기 (2026-08-11) ==="
+# 이 파일은 **지우는** 파일입니다. 진단이 아니라 실제로 자료를 건드립니다.
+# 그래서 더더욱 진짜 PostgreSQL 로 돌려 봐야 합니다. 중간에 죽으면
+# 절반만 지워진 채로 남고, 대표님은 무엇이 지워졌는지 알 수 없습니다.
+OUT8=$(q space-free.sql)
+echo "$OUT8" | grep -qi "ERROR" && { echo "$OUT8" | grep -i error; say 0 "죽지 않는다"; } \
+  || say 1 "죽지 않는다"
+echo "$OUT8"
+echo "$OUT8" | grep -q "0줄이면 성공" && say 1 "확인표가 나온다" || say 0 "확인표가 나온다"
+echo "$OUT8" | grep -q "✅ 지웠습니다" && say 1 "안 쓰던 목차를 실제로 지운다" \
+  || say 0 "안 쓰던 목차를 실제로 지운다"
+
+# 🚨 지우면 안 되는 것은 그대로 있어야 합니다.
+#    한 줄 잘못 쓰면 대표님이 손으로 하신 8만 건의 검토가 사라집니다.
+for t in store_books books rankings book_matches; do
+  N=$(run "psql -h $SOCK -p $PORT -U postgres -tAc \"SELECT count(*) FROM $t\"" 2>&1)
+  case "$t" in
+    store_books|rankings|book_matches) [ "$N" -gt 0 ] 2>/dev/null \
+      && say 1 "$t 은 그대로 있다 ($N줄)" || say 0 "$t 이 비었다" ;;
+    *) say 1 "$t 확인" ;;
+  esac
+done
+
+# 두 번 실행해도 안전해야 합니다 (대표님이 실수로 또 누르실 수 있습니다)
+OUT9=$(q space-free.sql)
+echo "$OUT9" | grep -qi "ERROR" && say 0 "두 번 실행해도 안전하다" \
+  || say 1 "두 번 실행해도 안전하다"
 
 echo
 [ "$bad" = 0 ] && echo "✅ 모두 통과" || { echo "❌ 실패"; exit 1; }

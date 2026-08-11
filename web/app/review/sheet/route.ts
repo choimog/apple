@@ -88,11 +88,14 @@ export async function GET(request: NextRequest) {
   const band = all ? null : parseBand(q.get("band") ?? undefined);
   const size = all ? null : parseSize(q.get("size") ?? undefined);
   const maxRows = all ? Infinity : ONE_TAB_MAX;
+  // 화면에서 찾아 놓고 받으면 **찾은 것만** 담습니다.
+  // 파일이 화면과 다르면 그 파일이 무엇인지 알 수 없습니다.
+  const find = all ? "" : (q.get("q") ?? "").trim().slice(0, 60);
 
   // 🚨 첫 덩어리는 **흘려보내기 전에** 받아 봅니다.
   //    여기서 실패하면 아직 오류 화면을 띄울 수 있습니다.
   const firstStatus: ExportStatus = { sent: 0, capped: false };
-  const firstGen = streamReviewPairs(tabs[0], band, size, maxRows, firstStatus);
+  const firstGen = streamReviewPairs(tabs[0], band, size, maxRows, firstStatus, find);
   let first: ReviewPair[];
   try {
     const r = await firstGen.next();
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest) {
           const gen =
             i === 0
               ? firstGen
-              : streamReviewPairs(tab, band, size, maxRows, status);
+              : streamReviewPairs(tab, band, size, maxRows, status, find);
 
           if (all) push(csvLine(noteRow(`──── ${TAB_LABEL[tab]} ────`)));
           if (i === 0) for (const p of first) push(csvLine(rowOf(p, tab)));
@@ -177,7 +180,7 @@ export async function GET(request: NextRequest) {
     ? `매칭검토_전체_${today}.csv`
     : `매칭검토_${tabs[0]}${band ? `_${band}점대` : ""}${
         size ? `_${size}` : ""
-      }_${today}.csv`;
+      }${find ? `_검색_${find}` : ""}_${today}.csv`;
 
   return new NextResponse(body, {
     headers: {

@@ -174,6 +174,25 @@ try {
   check("조각이 실패하면 서버도 오류로 답한다",
     chunk.includes("status: 500") && chunk.includes("관리자만"));
 
+  console.log("\n[9-1] 🚨 화면에서 찾아 놓고 받으면 찾은 것만 담긴다 (2026-08-11)");
+  // 화면에는 3건인데 파일에는 3만 건이 들어 있으면, 그 파일이 무엇인지
+  // 알 수 없습니다. 화면과 파일은 반드시 같아야 합니다.
+  const rpage = readFileSync("app/review/page.tsx", "utf8");
+  check("검색 상자가 있다", rpage.includes('name="q"') && rpage.includes("찾기"));
+  check("내려받기 링크에 검색어를 붙인다", rpage.includes("${qQ}"));
+  check("내려받기가 검색어를 읽는다", route.includes('q.get("q")'));
+  check("검색어를 목록 함수에 넘긴다",
+    /streamReviewPairs\(tabs\[0\], band, size, maxRows, firstStatus, find\)/.test(route));
+  check("파일 이름에 검색어를 적는다", route.includes("_검색_"));
+  check("찾은 것이 없으면 한 줄도 안 담는다",
+    /if \(!found\.ids\.length\) return;/.test(lib));
+  // 🚨 너무 많이 걸리면 앞쪽만 봅니다. 조용히 자르면 안 됩니다.
+  check("너무 많으면 잘렸다고 표시한다",
+    lib.includes("if (found.capped) status.capped = true"));
+  check("화면에도 잘렸다고 적는다", rpage.includes("searchCapped"));
+  check("검색 중에는 점수·권수 필터를 끈다",
+    rpage.includes("searching ? null : band") && rpage.includes("!searching && scoreBands"));
+
   console.log("\n[10] 묶인 권수를 표 전체를 훑지 않고 센다");
   check("이 조각에 나오는 책만 센다", lib.includes("groupSizesFor"));
   check("못 세면 빈칸 (틀린 숫자 대신)", /catch \{[\s\S]{0,120}return null;/.test(lib));

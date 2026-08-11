@@ -45,6 +45,7 @@ export default async function ReviewPage({
 }: {
   searchParams: Promise<{
     tab?: string; page?: string; msg?: string; band?: string; size?: string;
+    q?: string;
   }>;
 }) {
   if (configError) {
@@ -61,6 +62,19 @@ export default async function ReviewPage({
   // 모르는 값이 주소에 들어오면 '전체' 로 봅니다 (엉뚱한 빈 화면 방지)
   const band = parseBand(params.band);
   const size = parseSize(params.size);
+
+  /*
+    【2026-08-11 대표님 요청】 "매칭 검토에도 검색 기능을 넣어주면 안될까?"
+
+    검토할 짝이 3만 건이 넘습니다. 특정 책이 잘못 묶였다는 걸 아셨을 때
+    쪽수를 넘겨가며 찾는 건 사실상 불가능합니다.
+
+    ⚠️ 검색 중에는 점수·권수 필터를 끕니다. 그 버튼에 적힌 숫자는 탭
+       전체를 센 것이라, 검색 결과와 나란히 두면 거짓말이 됩니다.
+       (숫자를 다시 세면 화면이 느려지고, 감추면 뭘 누를지 알 수 없습니다)
+  */
+  const q = (params.q ?? "").trim().slice(0, 60);
+  const searching = q !== "";
 
   const role = await currentRole();
   if (role !== "admin") {
@@ -82,7 +96,7 @@ export default async function ReviewPage({
   try {
     [counts, result, scoreBands] = await Promise.all([
       getReviewCounts(),
-      getReviewPairs(tab, page, band, size),
+      getReviewPairs(tab, page, searching ? null : band, searching ? null : size, q),
       getScoreBands(tab),
     ]);
   } catch (e) {
@@ -90,9 +104,10 @@ export default async function ReviewPage({
   }
 
   const lastPage = Math.max(0, Math.ceil(result.total / REVIEW_PAGE_SIZE) - 1);
-  const bandQ = band === null ? "" : `&band=${band}`;
-  const sizeQ = size === null ? "" : `&size=${size}`;
-  const here = `/review?tab=${tab}&page=${page}${bandQ}${sizeQ}`;
+  const bandQ = searching || band === null ? "" : `&band=${band}`;
+  const sizeQ = searching || size === null ? "" : `&size=${size}`;
+  const qQ = searching ? `&q=${encodeURIComponent(q)}` : "";
+  const here = `/review?tab=${tab}&page=${page}${bandQ}${sizeQ}${qQ}`;
 
   return (
     <div className="space-y-5">
@@ -125,7 +140,7 @@ export default async function ReviewPage({
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <a
-                href={`/review/sheet?tab=${tab}${bandQ}${sizeQ}`}
+                href={`/review/sheet?tab=${tab}${bandQ}${sizeQ}${qQ}`}
                 className="inline-block rounded-xl border border-line px-3.5 py-2 text-sm font-medium hover:border-ink-faint"
               >
                 이 조건만 내려받기
@@ -204,8 +219,54 @@ export default async function ReviewPage({
 
       <p className="text-xs leading-relaxed text-ink-faint">{TAB_HELP[tab]}</p>
 
+      {/* ---------- 제목으로 찾기 (2026-08-11 요청) ---------- */}
+      <form action="/review" role="search" className="flex flex-wrap gap-2">
+        <input type="hidden" name="tab" value={tab} />
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          placeholder="제목·저자·출판사로 찾기"
+          maxLength={60}
+          aria-label="매칭 검토에서 찾기"
+          className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm"
+        />
+        <button
+          type="submit"
+          className="rounded-xl border border-line px-4 py-2.5 text-sm font-medium hover:border-ink-faint"
+        >
+          찾기
+        </button>
+        {searching && (
+          <Link
+            href={`/review?tab=${tab}`}
+            className="rounded-xl px-3 py-2.5 text-sm text-ink-soft hover:text-ink"
+          >
+            검색 지우기
+          </Link>
+        )}
+      </form>
+
+      {searching && (
+        <p className="text-xs leading-relaxed text-ink-soft">
+          <strong>{q}</strong> 로 찾은 짝 <strong>{num(result.total)}</strong>건.
+          <span className="text-ink-faint">
+            {" "}
+            검색 중에는 점수·묶인 권수 필터가 꺼집니다.
+          </span>
+          {/* 🚨 잘렸으면 반드시 적습니다. 조용히 자르면 "이게 전부" 로 오해합니다 */}
+          {result.searchCapped && (
+            <span className="text-amber-700 dark:text-amber-400">
+              {" "}
+              ⚠️ 이 말과 맞는 책이 너무 많아 <strong>앞쪽 일부만</strong>{" "}
+              찾았습니다. 제목을 더 자세히 적어 주세요.
+            </span>
+          )}
+        </p>
+      )}
+
       {/* ---------- 점수 구간 고르기 ---------- */}
-      {scoreBands.bands.length > 0 && (
+      {!searching && scoreBands.bands.length > 0 && (
         <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="shrink-0 text-xs font-semibold text-ink-soft">
@@ -295,7 +356,9 @@ export default async function ReviewPage({
       ) : result.rows.length === 0 ? (
         <Empty
           title={
-            size !== null && band !== null
+            searching
+              ? `'${q}' 와 맞는 짝이 없습니다`
+              : size !== null && band !== null
               ? `${SIZE_LABEL[size]} · ${bandLabel(band)} 짝이 없습니다`
               : size !== null
                 ? `${SIZE_LABEL[size]} 인 짝이 없습니다`
@@ -308,7 +371,14 @@ export default async function ReviewPage({
                   : "자동으로 묶인 짝이 없습니다"
           }
           action={
-            band !== null || size !== null ? (
+            searching ? (
+              <Link
+                href={`/review?tab=${tab}`}
+                className="text-accent hover:underline"
+              >
+                → 검색 지우고 전체 보기
+              </Link>
+            ) : band !== null || size !== null ? (
               <Link
                 href={`/review?tab=${tab}`}
                 className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:border-ink-faint hover:text-ink"

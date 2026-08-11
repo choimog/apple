@@ -270,6 +270,40 @@ async function groupSizes(): Promise<{
   return { byStoreBook, ok: true };
 }
 
+/* ═══════════════════════════════════════════════════ 제목으로 찾기 */
+
+/**
+ * 【2026-08-11 대표님 요청】 "매칭 검토에도 검색 기능을 넣어주면 안될까?"
+ *
+ * 검토할 짝이 3만 건이 넘습니다. 특정 책이 잘못 묶였다는 걸 아셨을 때
+ * 쪽수를 넘겨가며 찾는 건 사실상 불가능합니다.
+ *
+ * 【왜 두 단계로 찾나요?】
+ * 짝(book_matches)에는 제목이 없습니다. 번호만 들어 있습니다.
+ * 제목은 다른 표(store_books)에 있어서, 먼저 제목으로 책 번호를 찾고
+ * 그 번호로 짝을 찾습니다.
+ */
+const SEARCH_BOOK_CAP = 400;
+
+async function bookIdsMatching(q: string): Promise<{
+  ids: number[];
+  capped: boolean;
+}> {
+  const like = `%${q.trim()}%`;
+  const { data, error } = await db()
+    .from("store_books")
+    .select("id")
+    .or(
+      `raw_title.ilike.${like},raw_author.ilike.${like},raw_publisher.ilike.${like}`
+    )
+    .limit(SEARCH_BOOK_CAP + 1);
+  if (error) throw new Error(error.message);
+
+  const all = (data ?? []).map((r) => r.id as number);
+  // ⚠️ 너무 많으면 앞쪽만 씁니다. 조용히 자르면 "이게 전부" 로 오해하십니다.
+  return { ids: all.slice(0, SEARCH_BOOK_CAP), capped: all.length > SEARCH_BOOK_CAP };
+}
+
 /**
  * 검토할 짝 목록.
  *
@@ -282,16 +316,37 @@ export async function getReviewPairs(
   tab: ReviewTab,
   page = 0,
   band: number | null = null,
-  size: SizeGroup | null = null
+  size: SizeGroup | null = null,
+  q = ""
 ): Promise<{
   rows: ReviewPair[];
   total: number;
   ok: boolean;
   /** 묶음 크기 필터에서 너무 많아 일부만 훑었으면 true */
   capped?: boolean;
+  /** 검색어에 걸린 책이 너무 많아 앞쪽만 봤으면 true */
+  searchCapped?: boolean;
 }> {
   const supabase = db();
   const decisions = TAB_DECISIONS[tab];
+
+  // ---- 제목으로 찾기 ----
+  let searchCapped = false;
+  let idFilter: string | null = null;
+  if (q.trim()) {
+    let found;
+    try {
+      found = await bookIdsMatching(q);
+    } catch {
+      return { rows: [], total: 0, ok: false };
+    }
+    if (!found.ids.length) {
+      return { rows: [], total: 0, ok: true };
+    }
+    searchCapped = found.capped;
+    const list = found.ids.join(",");
+    idFilter = `store_book_a.in.(${list}),store_book_b.in.(${list})`;
+  }
 
   // 점수 구간을 고르셨으면 **세는 것도 그 구간만** 세야 합니다.
   // 전체 건수로 세면 "3쪽" 이라고 해 놓고 2쪽에서 빈 화면이 나옵니다.
@@ -304,6 +359,7 @@ export async function getReviewPairs(
   if (range) {
     countQuery = countQuery.gte("score", range.lo).lt("score", range.hiExclusive);
   }
+  if (idFilter) countQuery = countQuery.or(idFilter);
   const { count } = await countQuery;
 
   const from = page * PAGE_SIZE;
@@ -317,6 +373,7 @@ export async function getReviewPairs(
   if (range) {
     listQuery = listQuery.gte("score", range.lo).lt("score", range.hiExclusive);
   }
+  if (idFilter) listQuery = listQuery.or(idFilter);
   // ---- 묶음 크기로 좁혀 볼 때 ----
   //
   // ⚠️ 이때는 데이터베이스가 대신 쪽을 나눠 줄 수 없습니다. '몇 권이
@@ -343,6 +400,7 @@ export async function getReviewPairs(
       total: kept.length,
       ok: true,
       capped: rowsAll.length >= FILTER_SCAN_CAP,
+      searchCapped,
     };
   }
 
@@ -371,7 +429,7 @@ export async function getReviewPairs(
   // 못 세면 숫자를 지어내지 않고 감춥니다 (null).
   const sz = await groupSizes();
   const rows = await shapePairs(matches, sz.ok ? sz.byStoreBook : null);
-  return { rows, total: count ?? 0, ok: true };
+  return { rows, total: count ?? 0, ok: true, searchCapped };
 }
 
 /**
@@ -505,11 +563,25 @@ export async function* streamReviewPairs(
   band: number | null,
   size: SizeGroup | null,
   maxRows: number,
-  status: ExportStatus
+  status: ExportStatus,
+  q = ""
 ): AsyncGenerator<ReviewPair[]> {
   const supabase = db();
   const decisions = TAB_DECISIONS[tab];
   const range = band === null ? null : bandRange(band);
+
+  /*
+    ⚠️ 화면에서 찾아 놓고 내려받았는데 파일에는 전부 들어 있으면,
+       그 파일이 무엇인지 알 수 없습니다. 화면과 파일은 같아야 합니다.
+  */
+  let idFilter: string | null = null;
+  if (q.trim()) {
+    const found = await bookIdsMatching(q);
+    if (!found.ids.length) return;
+    if (found.capped) status.capped = true;
+    const list = found.ids.join(",");
+    idFilter = `store_book_a.in.(${list}),store_book_b.in.(${list})`;
+  }
 
   // 여기서 딱 한 번만 셉니다 (예전에는 20줄마다 다시 셌습니다)
   const sz = await groupSizes();
@@ -553,21 +625,22 @@ export async function* streamReviewPairs(
   let after = 0;
 
   for (let start = 0; start < scanCap && status.sent < maxRows; start += EXPORT_CHUNK) {
-    let q = supabase
+    let qy = supabase
       .from("book_matches")
       .select("id,store_book_a,store_book_b,score,reasons,decision,auto_decision,decided_at")
       .in("decision", decisions);
-    if (range) q = q.gte("score", range.lo).lt("score", range.hiExclusive);
+    if (range) qy = qy.gte("score", range.lo).lt("score", range.hiExclusive);
+    if (idFilter) qy = qy.or(idFilter);
 
-    q = byId
-      ? q.order("id", { ascending: true }).gt("id", after).limit(EXPORT_CHUNK)
-      : q
+    qy = byId
+      ? qy.order("id", { ascending: true }).gt("id", after).limit(EXPORT_CHUNK)
+      : qy
           .order(tab === "mine" ? "decided_at" : "score", { ascending: false })
           // 같은 점수끼리 순서가 흔들리지 않게 번호로 한 번 더 줄 세웁니다
           .order("id", { ascending: true })
           .range(start, start + EXPORT_CHUNK - 1);
 
-    const { data, error } = await q;
+    const { data, error } = await qy;
     if (error) throw new Error(error.message);
 
     const got = (data ?? []) as Parameters<typeof shapePairs>[0];

@@ -418,7 +418,18 @@ function Message({ code }: { code: string }) {
       bad: true,
     },
     needsql: {
-      text: "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 실행해 주세요.",
+      /*
+        🚨 【2026-08-12 점검에서 찾음 — 대표님이 실제로 겪으신 함정】
+        db/share.sql 과 db/share-open.sql 은 **같은 이름의 함수 셋**
+        (my_share_links / create_share_link / set_share_link)을 각각
+        정의합니다. 나중에 실행한 쪽이 이깁니다.
+        그런데 이 안내가 "share.sql 을 실행하세요" 하나만 적고 있었습니다.
+        그대로 하시면 회원 공개가 **도로 막힙니다.** 2026-08-10 에
+        대표님이 "확인표는 다 ✅ 인데 화면은 관리자만 이라고 뜬다" 고
+        하셨던 원인이 이것입니다. 순서를 반드시 함께 적습니다.
+      */
+      text:
+        "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 먼저, 그 다음 db/share-open.sql 을 실행해 주세요. 🚨 순서가 중요합니다 — share.sql 을 나중에 실행하면 회원 공개가 도로 막힙니다.",
       bad: true,
     },
     badinput: { text: "분야를 골라 주세요.", bad: true },

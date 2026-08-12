@@ -26,6 +26,7 @@ on:
     paths:
       - "db/**"
       - "tests/test_auth_sql.sh"
+      - "tests/test_share_open.sh"
       - ".github/workflows/db-check.yml"
   workflow_dispatch:
 
@@ -40,3 +41,13 @@ jobs:
 
       - name: 빈 데이터베이스로 시험
         run: bash tests/test_auth_sql.sh
+
+      # 🚨 【2026-08-12 점검에서 되살림】
+      #    db/share.sql 과 db/share-open.sql 은 같은 이름의 함수 셋을 각각
+      #    정의합니다. 나중에 실행한 쪽이 이깁니다. 2026-08-10 에 대표님이
+      #    "확인표는 다 ✅ 인데 화면은 관리자만 이라고 뜬다" 고 하셨던
+      #    원인이 이것이었습니다. 눈으로는 두 경우가 똑같이 생겨서
+      #    기계가 봐야 합니다.
+      #    (이 시험이 다른 가지에만 남아 있어 여기로 옮겨 왔습니다)
+      - name: 공유 링크 회원 공개가 실제로 되는지
+        run: bash tests/test_share_open.sh

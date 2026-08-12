@@ -185,7 +185,9 @@ export async function setShareLink(
 function readable(message: string): string {
   if (/관리자만/.test(message)) return "관리자만 할 수 있습니다.";
   if (/function|does not exist|schema cache/i.test(message)) {
-    return "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 실행해 주세요.";
+    // 🚨 순서를 함께 적습니다. share.sql 만 실행하면 회원 공개가 도로
+    //    막힙니다 (두 파일이 같은 이름의 함수를 정의합니다 — 2026-08-12 점검)
+    return "아직 준비가 안 됐습니다. Supabase 에서 db/share.sql 을 먼저, 그 다음 db/share-open.sql 을 실행해 주세요. 🚨 순서가 중요합니다 — share.sql 을 나중에 실행하면 회원 공개가 도로 막힙니다.";
   }
   return `실패했습니다: ${message}`;
 }

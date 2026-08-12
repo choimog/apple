@@ -97,6 +97,12 @@ jobs:
           # [출판사 묶기] 로 정한 것이 나머지 계산을 건드리지 않는지,
           # 풀면 정확히 원래대로 돌아가는지 봅니다 (2026-08-12 대표님 우려).
           python tests/test_publisher_alias.py
+          # 🚨 【2026-08-12 — 이 시험이 없어서 대표님이 대신 발견하셨습니다】
+          #    위 시험들은 규칙(함수)만 따로따로 봅니다. 그래서 규칙은 다
+          #    맞는데 **프로그램이 시작조차 못 하는** 상태를 못 잡았습니다.
+          #    (별칭 표를 읽기도 전에 써서 첫 줄에서 죽었습니다)
+          #    이건 가짜 데이터베이스로 매칭을 처음부터 끝까지 돌려 봅니다.
+          python tests/test_match_smoke.py
           python tests/test_cluster_rules.py
           python tests/test_schedule.py
 

@@ -39,7 +39,8 @@ from common import db  # noqa: E402
 #    이어 주는 표기까지 한 편으로 봅니다.
 #    그냥 similarity 를 쓰면 매칭이 붙여 놓은 것을 여기서 도로 갈라냅니다.
 from common.match import (  # noqa: E402
-    Candidate, compare, compare_with_isbn, publisher_sides, similarity,
+    Candidate, compare, compare_with_isbn, publisher_sides,
+    set_publisher_aliases, similarity,
 )
 # 화면에 쓸 출판사·저자 이름을 온 자료를 통틀어 하나로 정합니다.
 # (웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 꼬이던 원인 — names.py 설명 참고)
@@ -632,6 +633,7 @@ def main() -> int:
     pub_canon, pub_ignored, pub_forms = canonical_map(
         ((r.get("norm_publisher"), r.get("raw_publisher")) for r in rows),
         use_alias=True,
+        declared=pub_alias,     # 대표님이 정하신 이름이 글자 규칙보다 먼저
     )
     author_canon, _, author_forms = canonical_map(
         ((fold_fortis(r.get("norm_author")), r.get("raw_author")) for r in rows),
@@ -678,6 +680,20 @@ def main() -> int:
     manual = db.fetch_manual_decisions(client)
     if manual:
         print(f"사람이 직접 내린 결정 {len(manual)}건을 우선 적용합니다.")
+
+    # -------------------------------------------------------------------------
+    #  사람이 정해 둔 '이 둘은 같은 출판사' (2026-08-12 대표님 요청)
+    #
+    #  🚨 여기서 한 번 넣어 두면 **출판사를 보는 자리 전부**가 같이 씁니다.
+    #     (붙일지 정할 때 · 무리에서 갈라낼 때 · 화면 이름 정할 때)
+    #     잣대를 따로 만들면 오늘 두 번 겪은 사고가 또 납니다.
+    # -------------------------------------------------------------------------
+    pub_alias = db.fetch_publisher_aliases(client)
+    set_publisher_aliases(pub_alias)
+    if pub_alias:
+        groups_n = len(set(pub_alias.values()))
+        print(f"대표님이 '같은 출판사' 로 정하신 이름 {len(pub_alias)}개 "
+              f"({groups_n}무리)를 우선 적용합니다.")
 
     # ---- 후보 좁히기 ----
     print("\n▶ 비교 후보 좁히는 중...")

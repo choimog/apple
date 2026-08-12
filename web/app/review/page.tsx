@@ -216,12 +216,26 @@ export default async function ReviewPage({
             직접 골라 묶으세요.
           </p>
         </div>
-        <Link
-          href="/review/join"
-          className="shrink-0 rounded-xl border border-line px-4 py-2.5 text-sm font-medium hover:border-ink-faint"
-        >
-          강제로 묶기 →
-        </Link>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link
+            href="/review/join"
+            className="rounded-xl border border-line px-4 py-2.5 text-sm font-medium hover:border-ink-faint"
+          >
+            강제로 묶기 →
+          </Link>
+          {/*
+            출판사 표기가 서점마다 다른 경우(한빛life / 한빛라이프)는
+            책을 하나씩 묶는 것보다 **출판사 이름 자체를 한 번 묶는 편**이
+            낫습니다. 한 번 정해 두면 그 출판사 책 전부에 적용됩니다.
+            (2026-08-12 대표님 요청)
+          */}
+          <Link
+            href="/review/publishers"
+            className="rounded-xl border border-line px-4 py-2.5 text-sm font-medium hover:border-ink-faint"
+          >
+            출판사 묶기 →
+          </Link>
+        </div>
       </Card>
 
       {/* ---------- 탭 ---------- */}

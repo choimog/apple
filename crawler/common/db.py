@@ -359,3 +359,32 @@ def median_recent_count(
     if not counts:
         return None
     return counts[len(counts) // 2]
+
+
+def fetch_publisher_aliases(client: Client) -> dict[str, str]:
+    """
+    사람이 정해 둔 '이 둘은 같은 출판사' 표를 읽어옵니다.
+    돌려주는 값: {정규화한 이름: 대표 이름}
+
+    【2026-08-12 대표님 요청】
+        "한빛life 랑 한빛라이프처럼, 서점마다 출판사를 표기하는 명칭이
+         조금씩 다른데 이것도 다 규칙화하기 어려울 것 같아서."
+
+    ⚠️ 표가 아직 없어도 **멈추지 않습니다.** db/publisher-alias.sql 을
+       아직 안 돌리셨을 수 있습니다. 그때는 빈 표로 보고 그냥 갑니다.
+       (이것 하나 때문에 매칭이 통째로 안 도는 일이 없어야 합니다)
+    """
+    try:
+        rows = _select_all(
+            lambda: client.table("publisher_aliases")
+            .select("name,canonical")
+            .order("name")
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ℹ️ 출판사 묶기 표를 못 읽었습니다 ({exc}). 없는 것으로 봅니다.")
+        return {}
+    return {
+        r["name"]: r["canonical"]
+        for r in rows
+        if r.get("name") and r.get("canonical")
+    }

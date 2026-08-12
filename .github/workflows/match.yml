@@ -94,6 +94,9 @@ jobs:
           # 검토 화면의 [강제로 묶기] 로 누른 것이 다음 실행에서 도로
           # 풀리지 않는지 봅니다. 풀려도 화면에는 아무 표시가 안 납니다.
           python tests/test_force_join.py
+          # [출판사 묶기] 로 정한 것이 나머지 계산을 건드리지 않는지,
+          # 풀면 정확히 원래대로 돌아가는지 봅니다 (2026-08-12 대표님 우려).
+          python tests/test_publisher_alias.py
           python tests/test_cluster_rules.py
           python tests/test_schedule.py
 

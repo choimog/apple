@@ -48,7 +48,7 @@ from common import db  # noqa: E402
 #
 # publisher_sides = '이름 여러 개를 같은 출판사끼리 편으로 나누기'.
 # 매칭에서 갈라낼 때(run_match.split_by_publisher)와 **같은 함수**입니다.
-from common.match import publisher_sides  # noqa: E402
+from common.match import publisher_sides, set_publisher_aliases  # noqa: E402
 from common.match import publisher_similarity as similarity  # noqa: E402
 
 SHOW = 20  # 화면에 보여줄 최대 건수
@@ -121,6 +121,18 @@ def main() -> int:
     print("=" * 66)
 
     client = db.connect()
+
+    # 🚨 【2026-08-12 — 매칭과 똑같은 표를 써야 합니다】
+    #    대표님이 [출판사 묶기] 로 '한빛life = 한빛라이프' 라고 정하셨는데
+    #    이 검사기가 그 표를 안 읽으면, 제대로 묶인 책을 '출판사가 섞였다'
+    #    고 신고하면서 [도서 매칭] 을 통째로 멈춥니다.
+    #    (오늘 이미 같은 종류의 사고를 두 번 겪었습니다)
+    alias = db.fetch_publisher_aliases(client)
+    set_publisher_aliases(alias)
+    if alias:
+        print(f"\n대표님이 '같은 출판사' 로 정하신 이름 {len(alias)}개 "
+              f"({len(set(alias.values()))}무리)를 함께 봅니다.")
+
     rows = db.fetch_all_store_books(client)
     print(f"\n서점별 도서 {len(rows):,}권을 읽었습니다.")
 

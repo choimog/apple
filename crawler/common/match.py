@@ -118,13 +118,69 @@ def publisher_variants(name: str | None) -> set[str]:
     return {v for v in out if v}
 
 
+# -----------------------------------------------------------------------------
+#  사람이 '이 둘은 같은 출판사' 라고 정해 둔 것 (2026-08-12 대표님 요청)
+# -----------------------------------------------------------------------------
+#  "한빛life 랑 한빛라이프처럼, 서점마다 출판사를 표기하는 명칭이 조금씩
+#   다른데 이것도 다 규칙화하기 어려울 것 같아서."
+#
+#  맞습니다. 한글/영문 표기 차이는 글자로는 절대 못 잡습니다
+#  (한빛life ↔ 한빛라이프 는 닮은 정도 0.29).
+#
+#  🚨 【왜 여기 한 군데에만 두나요?】
+#  출판사가 같은지 보는 자리가 여러 군데인데, 오늘(2026-08-12) 그것들을
+#  전부 이 함수 하나로 모았습니다. 그래서 여기만 고치면
+#    · 두 권을 붙일지 정할 때 (compare)
+#    · 무리에서 갈라낼 때 (publisher_sides → run_match)
+#    · 묶은 결과를 검사할 때 (verify_publishers)
+#  세 군데가 **자동으로 같이** 바뀝니다.
+#  잣대를 따로 만들면 오늘 두 번 겪은 사고("멀쩡한 묶음을 잘못됐다고
+#  신고하고 매칭이 멈춤")가 또 납니다. 절대 나누지 마세요.
+#
+#  값은 프로그램이 시작할 때 데이터베이스에서 한 번 읽어 넣습니다
+#  (crawler/run_match.py · crawler/verify_publishers.py).
+# -----------------------------------------------------------------------------
+_ALIAS_OF: dict[str, str] = {}      # 정규화한 이름 → 그 무리의 대표 이름
+
+
+def set_publisher_aliases(mapping: dict[str, str] | None) -> int:
+    """
+    '이 이름은 저 출판사와 같다' 표를 넣습니다. 넣은 개수를 돌려줍니다.
+    비우려면 None 또는 빈 표를 넣으세요.
+    """
+    _ALIAS_OF.clear()
+    for name, canonical in (mapping or {}).items():
+        if name and canonical:
+            _ALIAS_OF[name.strip()] = canonical.strip()
+    return len(_ALIAS_OF)
+
+
+def publisher_aliases() -> dict[str, str]:
+    """지금 들어 있는 표 (시험·화면 확인용)."""
+    return dict(_ALIAS_OF)
+
+
+def _alias_group(variants: set[str]) -> set[str]:
+    """이 이름의 후보들이 속한 '사람이 정한 무리' 대표들."""
+    return {_ALIAS_OF[v] for v in variants if v in _ALIAS_OF}
+
+
 def publisher_similarity(a: str | None, b: str | None) -> float:
-    """두 출판사가 얼마나 닮았는지. 괄호 안팎 후보끼리 다 견주고 가장 높은 값."""
+    """
+    두 출판사가 얼마나 닮았는지. 괄호 안팎 후보끼리 다 견주고 가장 높은 값.
+
+    사람이 '같은 곳' 이라고 정해 둔 짝은 글자와 상관없이 1.0 입니다.
+    """
     va, vb = publisher_variants(a), publisher_variants(b)
     if not va or not vb:
         return 0.0
     if va & vb:                     # 후보가 하나라도 똑같으면 같은 출판사
         return 1.0
+    if _ALIAS_OF:
+        # 🚨 사람이 정한 것이 글자보다 먼저입니다.
+        ga, gb = _alias_group(va), _alias_group(vb)
+        if ga & gb:
+            return 1.0
     return max(similarity(x, y) for x in va for y in vb)
 
 

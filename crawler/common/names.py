@@ -54,7 +54,9 @@ _BRACKETS = "()（）[]［］{}"
 
 
 def alias_groups(
-    names: list[str], generic_max: int = 8
+    names: list[str],
+    generic_max: int = 8,
+    declared: dict[str, str] | None = None,
 ) -> tuple[list[list[int]], list[str]]:
     """
     출판사 이름들을 **같은 곳끼리** 묶습니다. 돌려주는 값은 자리번호 묶음입니다.
@@ -87,6 +89,22 @@ def alias_groups(
         for v in publisher_variants(n):
             if len(v) >= 2:          # 한 글자짜리는 다리로 쓰지 않습니다
                 by_variant[v].append(i)
+
+    # 🚨 사람이 '같은 곳' 이라고 정해 둔 것은 흔한 낱말 검사에 걸리지 않게
+    #    따로 먼저 잇습니다. 대표님이 직접 누르신 것이라 조건이 없습니다.
+    #    (2026-08-12 — 한빛life / 한빛라이프 처럼 글자로는 못 잡는 짝)
+    if declared:
+        by_declared: dict[str, list[int]] = defaultdict(list)
+        for i, n in enumerate(names):
+            for v in publisher_variants(n):
+                if v in declared:
+                    by_declared[declared[v]].append(i)
+                    break
+        for idxs in by_declared.values():
+            for j in idxs[1:]:
+                ra, rb = find(idxs[0]), find(j)
+                if ra != rb:
+                    parent[rb] = ra
 
     ignored: list[str] = []
     for v, idxs in by_variant.items():
@@ -125,6 +143,7 @@ def canonical_map(
     *,
     use_alias: bool,
     generic_max: int = 8,
+    declared: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], list[str], dict[str, Counter]]:
     """
     '정규화한 이름 → 화면에 쓸 이름' 표를 만듭니다.
@@ -136,6 +155,11 @@ def canonical_map(
         True  (출판사) 괄호로 밝혀 준 다른 이름끼리도 한 무리로 묶습니다.
         False (저자)   된소리만 푼 값이 같으면 이미 한 무리입니다.
                        사람 이름을 괄호로 이어 묶으면 위험합니다.
+
+    declared
+        대표님이 [출판사 묶기] 화면에서 직접 정해 두신 '같은 곳' 표.
+        {정규화한 이름: 대표 이름}. 여기 있으면 **화면에 쓰는 이름도
+        그 대표 이름**이 됩니다 (글자 규칙보다 사람이 먼저입니다).
     """
     forms: dict[str, Counter] = defaultdict(Counter)
     for key, raw in pairs:
@@ -147,7 +171,7 @@ def canonical_map(
 
     keys = list(forms)
     if use_alias:
-        groups, ignored = alias_groups(keys, generic_max)
+        groups, ignored = alias_groups(keys, generic_max, declared)
     else:
         groups, ignored = [[i] for i in range(len(keys))], []
 
@@ -156,7 +180,18 @@ def canonical_map(
         merged: Counter = Counter()
         for i in g:
             merged.update(forms[keys[i]])
-        name = choose_display(merged)
+        # 🚨 대표님이 정하신 이름이 있으면 그것을 씁니다.
+        #    글자 규칙(괄호 없는 것·많이 쓰인 것…)보다 사람이 먼저입니다.
+        name = None
+        if declared:
+            for i in g:
+                for v in publisher_variants(keys[i]):
+                    if v in declared:
+                        name = declared[v]
+                        break
+                if name:
+                    break
+        name = name or choose_display(merged)
         for i in g:
             out[keys[i]] = name
     return out, ignored, dict(forms)

@@ -196,7 +196,7 @@ export default async function Home({
         <Card>
           <CardHead
             title="출판사 TOP 8"
-            desc="상위권을 많이 차지한 순서"
+            desc="상위권을 많이 차지한 순서 (점수)"
             right={
               <Link
                 href={`/publishers?${q}`}
@@ -209,13 +209,32 @@ export default async function Home({
           {pubs.rows.length === 0 ? (
             <Empty>아직 자료가 없습니다.</Empty>
           ) : (
+            /*
+              🚨 【2026-08-12 대표님 지적 — 여기가 뒤죽박죽으로 보이던 원인】
+              "왜 순위가 종수에 비례하지 않고 마구잡이로 나열되어 있는지"
+
+              줄 세우는 값은 **점수**인데, 화면에 찍고 막대 길이까지
+              그리는 값은 **종수** 였습니다. 둘이 다른 값이라 1등 막대가
+              3등 막대보다 짧게 나오는 일이 생깁니다.
+
+                  민음사    8종   ← 점수 2,100 (1등)
+                  문학동네 14종   ← 점수 1,900 (2등)   ← 막대가 더 김
+
+              점수는 '몇 위에 올렸나' 까지 셈에 넣습니다. 1위 한 권이
+              250위 다섯 권보다 셉니다. 그래서 종수와 순서가 어긋납니다.
+              (아침에 멀쩡해 보였던 것은 그때는 우연히 둘이 비슷했던 것뿐입니다)
+
+              이제 **줄 세우는 값을 그대로 보여줍니다.** 종수는 아랫줄에
+              같이 적어 둡니다. [전체 →] 화면도 점수 순서라 이제 같습니다.
+            */
             <BarList
               items={pubs.rows.map((r) => ({
                 key: r.name,
                 label: r.name,
-                value: r.books,
+                value: r.score,
+                sub: `${r.books.toLocaleString()}종 · 최고 ${r.bestRank}위`,
               }))}
-              unit="종"
+              unit="점"
               hrefFor={(k) => `/publisher/${encodeURIComponent(k)}?${q}`}
             />
           )}
@@ -224,7 +243,7 @@ export default async function Home({
         <Card>
           <CardHead
             title="저자 TOP 8"
-            desc="상위권을 많이 차지한 순서"
+            desc="상위권을 많이 차지한 순서 (점수)"
             right={
               <Link
                 href={`/authors?${q}`}
@@ -237,13 +256,15 @@ export default async function Home({
           {authors.rows.length === 0 ? (
             <Empty>아직 자료가 없습니다.</Empty>
           ) : (
+            /* 출판사 쪽과 같은 이유입니다 (바로 위 설명 참고) */
             <BarList
               items={authors.rows.map((r) => ({
                 key: r.name,
                 label: r.name,
-                value: r.books,
+                value: r.score,
+                sub: `${r.books.toLocaleString()}종 · 최고 ${r.bestRank}위`,
               }))}
-              unit="종"
+              unit="점"
               hrefFor={(k) => `/author/${encodeURIComponent(k)}?${q}`}
             />
           )}

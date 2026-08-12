@@ -74,7 +74,12 @@ jobs:
 
       - name: 규칙 시험 (돈 계산·한도가 깨졌으면 여기서 멈춤)
         # AI 를 부르기 전에 확인합니다. 시험 자체는 돈을 쓰지 않습니다.
-        run: python tests/test_report.py
+        run: |
+          python tests/test_report.py
+          # 지난 7일치 리포트를 겹쳐 읽는 부분 (2026-08-12 대표님 요청).
+          # 지난 글의 숫자를 오늘 것으로 옮겨 적으면 리포트가 거짓말을
+          # 하게 되고, 넣는 글이 늘어난 만큼 값도 오릅니다. 둘 다 봅니다.
+          python tests/test_report_history.py
 
       - name: 리포트 쓰기
         env:

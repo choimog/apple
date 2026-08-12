@@ -237,3 +237,57 @@ def to_text(d: dict) -> str:
         L.append(f"{p['rank']:>3}. {p['name']} — 진입 {p['books']}종{was}")
 
     return "\n".join(L)
+
+
+# -----------------------------------------------------------------------------
+#  지난 리포트 읽어오기 (2026-08-12 대표님 요청)
+# -----------------------------------------------------------------------------
+#  "리포트의 경우, 지금의 규정에서 이전 7일치의 리포트까지 보고,
+#   작성했으면 좋겠어. 리포트마다 매번 똑같은 말을 할 수도 있기 때문에
+#   그것을 방지하려는 목적도 있고, 이전에 있었던 리포트의 가설이 맞았는지
+#   확인해볼 수도 있고, 이전에 있었던 리포트에서 주의 깊게 보라고 했던
+#   그 결과가 어땠는지 알 수 있고..."
+#
+#  ⚠️ 이건 **돈이 더 드는 일**입니다. 지난 글을 같이 넣으면 그만큼
+#     넣는 토큰이 늘어납니다. 그래서
+#       · 며칠치를 볼지(history_days)
+#       · 한 편을 몇 자까지 넣을지(history_max_chars)
+#     를 설정으로 두고, 실제로 얼마나 늘었는지 화면에 찍습니다.
+# -----------------------------------------------------------------------------
+def recent_reports(client, day: str, days: int) -> list[dict]:
+    """
+    기준일 **이전**의 리포트를 최신순으로 최대 days 편 읽어옵니다.
+    (기준일 자신은 뺍니다 — 다시 만들려는 그 날짜니까요)
+    """
+    if days <= 0:
+        return []
+    res = (
+        client.table("daily_reports")
+        .select("report_date,content_md")
+        .lt("report_date", day)
+        .order("report_date", desc=True)
+        .limit(days)
+        .execute()
+    )
+    rows = res.data or []
+    return [r for r in rows if (r.get("content_md") or "").strip()]
+
+
+def history_text(reports: list[dict], max_chars: int = 1500) -> str:
+    """
+    지난 리포트들을 AI 에게 넘길 글로 만듭니다. **오래된 것부터** 적습니다.
+    (사람이 읽듯 시간 순서대로 읽혀야 흐름이 보입니다)
+
+    한 편이 max_chars 를 넘으면 뒤를 자릅니다. 자른 것은 **자랐다고
+    적어 둡니다.** 조용히 자르면 AI 가 '뒤에 아무 말도 없었다' 고
+    믿어 버립니다.
+    """
+    if not reports:
+        return ""
+    L: list[str] = []
+    for r in sorted(reports, key=lambda x: x["report_date"]):
+        body = (r.get("content_md") or "").strip()
+        if len(body) > max_chars:
+            body = body[:max_chars].rstrip() + "\n…(뒷부분 줄임)"
+        L.append(f"───── {r['report_date']} 리포트 ─────\n{body}")
+    return "\n\n".join(L)

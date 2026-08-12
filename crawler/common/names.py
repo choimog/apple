@@ -92,7 +92,7 @@ def alias_groups(
 
     # 🚨 사람이 '같은 곳' 이라고 정해 둔 것은 흔한 낱말 검사에 걸리지 않게
     #    따로 먼저 잇습니다. 대표님이 직접 누르신 것이라 조건이 없습니다.
-    #    (2026-08-12 — 한빛life / 한빛라이프 처럼 글자로는 못 잡는 짝)
+    #    (2026-08-12 — 청림Life / 청림라이프 처럼 글자로는 못 잡는 짝)
     if declared:
         by_declared: dict[str, list[int]] = defaultdict(list)
         for i, n in enumerate(names):

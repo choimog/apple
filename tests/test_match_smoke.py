@@ -80,16 +80,16 @@ def book(i: int, store: int, title: str, author: str, pub: str,
 
 ROWS = [
     # ① 출판사 표기가 서점마다 다른 책 — 별칭이 있어야 묶입니다
-    book(1, 1, "처음 배우는 정원 가꾸기", "김정원", "한빛life"),
-    book(2, 2, "처음 배우는 정원 가꾸기", "김정원", "한빛라이프"),
-    book(3, 3, "처음 배우는 정원 가꾸기", "김정원", "한빛라이프"),
+    book(1, 1, "처음 배우는 정원 가꾸기", "김정원", "청림Life"),
+    book(2, 2, "처음 배우는 정원 가꾸기", "김정원", "청림라이프"),
+    book(3, 3, "처음 배우는 정원 가꾸기", "김정원", "청림라이프"),
     # ② 상관없는 책 — 절대 딸려 들어오면 안 됩니다
     book(4, 1, "싯다르타", "헤르만 헤세", "민음사"),
     book(5, 2, "싯다르타", "헤르만 헤세", "문학동네"),
 ]
 ALIAS = {
-    norm.normalize_publisher("한빛life", PW): "한빛라이프",
-    norm.normalize_publisher("한빛라이프", PW): "한빛라이프",
+    norm.normalize_publisher("청림Life", PW): "청림라이프",
+    norm.normalize_publisher("청림라이프", PW): "청림라이프",
 }
 
 
@@ -173,10 +173,10 @@ except Exception as exc:                      # noqa: BLE001
 check("별칭 표를 읽었다고 알린다", "정하신 이름" in out, out[:200])
 
 print("\n[2] 🚨 별칭 덕분에 실제로 묶였는가")
-# 1·2·3 번이 한 무리가 되어야 합니다 (한빛life = 한빛라이프)
+# 1·2·3 번이 한 무리가 되어야 합니다 (청림Life = 청림라이프)
 links = {r["id"]: r["book_id"] for r in fake.linked}
 same = links.get(1) is not None and links.get(1) == links.get(2) == links.get(3)
-check("한빛life / 한빛라이프 세 권이 한 책이 된다", same, links)
+check("청림Life / 청림라이프 세 권이 한 책이 된다", same, links)
 
 print("\n[3] 🚨 상관없는 책이 딸려 들어오지 않았는가")
 check("민음사 싯다르타와 문학동네 싯다르타는 따로",
@@ -188,9 +188,9 @@ print("\n[4] 별칭이 없으면 예전 그대로 (안 묶임)")
 code2, out2, fake2 = run(alias={})
 links2 = {r["id"]: r["book_id"] for r in fake2.linked}
 check("죽지 않는다", code2 == 0, code2)
-check("한빛life 는 따로 남는다 (0.24 라 기준 미달)",
+check("청림Life 는 따로 남는다 (0.24 라 기준 미달)",
       links2.get(1) != links2.get(2), links2)
-check("한빛라이프끼리(2·3)는 그대로 묶인다",
+check("청림라이프끼리(2·3)는 그대로 묶인다",
       links2.get(2) == links2.get(3) and links2.get(2) is not None, links2)
 
 print("\n[5] 확인 모드(dry-run)에서는 저장하지 않는다")

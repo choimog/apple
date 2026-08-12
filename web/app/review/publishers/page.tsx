@@ -16,7 +16,7 @@ export const metadata = { title: "출판사 묶기" };
  * 출판사 묶기 — "이 둘은 같은 출판사" 를 사람이 정해 두는 화면.
  *
  * 【2026-08-12 대표님 요청】
- *   "한빛life 랑 한빛라이프처럼, 서점마다 출판사를 표기하는 명칭이
+ *   "청림Life 랑 청림라이프처럼, 서점마다 출판사를 표기하는 명칭이
  *    조금씩 다른데 이것도 다 규칙화하기 어려울 것 같아서.
  *    지금 규칙으로 나오는 결과가 마음에 들어서 괜히 건드렸다가 꼬이게
  *    하고 싶지 않아서 저런 방식을 따로 만들고 싶은데 어때?"
@@ -85,7 +85,7 @@ export default async function PublisherAliasPage({
           글자만 보면 남남인데 실제로는 같은 출판사인 경우입니다.
         </p>
         <pre className="scroll-x mt-2 rounded-lg bg-surface-2 p-3 text-2xs leading-relaxed">
-{`한빛life   vs  한빛라이프      닮은 정도 0.24   ← 기준 0.80 에 한참 못 미침
+{`청림Life   vs  청림라이프      닮은 정도 0.24   ← 기준 0.80 에 한참 못 미침
 윌북(willbook) vs 윌북          이건 프로그램이 이미 잡습니다 (괄호)`}
         </pre>
         <p className="mt-2">
@@ -170,7 +170,7 @@ export default async function PublisherAliasPage({
           type="search"
           name="q"
           defaultValue={q}
-          placeholder="출판사 이름으로 찾기 (예: 한빛)"
+          placeholder="출판사 이름으로 찾기 (예: 청림)"
           maxLength={40}
           aria-label="출판사 찾기"
           className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm"
@@ -234,7 +234,7 @@ export default async function PublisherAliasPage({
                 name="canonical"
                 required
                 maxLength={80}
-                placeholder="예: 한빛라이프"
+                placeholder="예: 청림라이프"
                 className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm"
               />
             </label>

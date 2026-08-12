@@ -2,7 +2,7 @@
 🚨 [출판사 묶기] — 사람이 정한 것이 계산을 꼬이게 하지 않는지 봅니다.
 
 【2026-08-12 대표님 요청】
-    "한빛life 랑 한빛라이프처럼, 서점마다 출판사를 표기하는 명칭이 조금씩
+    "청림라이프 랑 청림Life 처럼, 서점마다 출판사를 표기하는 명칭이 조금씩
      다른데 이것도 다 규칙화하기 어려울 것 같아서.
      지금 규칙으로 나오는 결과가 마음에 들어서 괜히 건드렸다가 꼬이게 하고
      싶지 않아서 저런 방식을 따로 만들고 싶은데 어때?
@@ -66,9 +66,10 @@ def pub(x):
 UNTOUCHED = [
     ("민음사", "문학동네"), ("창비", "창비교육"), ("김영사", "김영사on"),
     ("한빛미디어", "한빛비즈"), ("문학동네", "문학동네어린이"),
+    # 🚨 청림출판은 '청림' 으로 정규화됩니다. 별칭을 넣어도 딸려 들어가면 안 됩니다
+    ("청림라이프", "청림출판"), ("청림Life", "청림출판"),
     ("민음사", "(주)민음사"), ("윌북(willbook)", "윌북"),
     ("YBM(와이비엠)", "와이비엠"), ("샘터", "샘터사"),
-    ("한빛라이프", "한빛미디어"),
 ]
 
 print("\n[0] 처음에는 표가 비어 있어야 합니다")
@@ -77,17 +78,17 @@ check("빈 표로 시작", publisher_aliases() == {}, publisher_aliases())
 
 print("\n[1] 표를 넣기 전 값을 적어 둡니다")
 before = {(a, b): publisher_similarity(pub(a), pub(b)) for a, b in UNTOUCHED}
-check("한빛life ≠ 한빛라이프 (아직 남남)",
-      publisher_similarity(pub("한빛life"), pub("한빛라이프")) < FLOOR,
-      publisher_similarity(pub("한빛life"), pub("한빛라이프")))
+check("청림Life ≠ 청림라이프 (아직 남남)",
+      publisher_similarity(pub("청림Life"), pub("청림라이프")) < FLOOR,
+      publisher_similarity(pub("청림Life"), pub("청림라이프")))
 
-print("\n[2] '한빛life = 한빛라이프' 를 정합니다")
-ALIAS = {pub("한빛life"): "한빛라이프", pub("한빛라이프"): "한빛라이프"}
+print("\n[2] '청림Life = 청림라이프' 를 정합니다")
+ALIAS = {pub("청림Life"): "청림라이프", pub("청림라이프"): "청림라이프"}
 check("표가 들어갔다", set_publisher_aliases(ALIAS) == 2)
 check("🚨 정한 짝은 같은 출판사가 된다",
-      publisher_similarity(pub("한빛life"), pub("한빛라이프")) == 1.0)
-check("괄호가 붙어 있어도 잡는다 (한빛life(hanbit))",
-      publisher_similarity(pub("한빛life(hanbit)"), pub("한빛라이프")) == 1.0)
+      publisher_similarity(pub("청림Life"), pub("청림라이프")) == 1.0)
+check("괄호가 붙어 있어도 잡는다 (청림Life(chungrim))",
+      publisher_similarity(pub("청림Life(chungrim)"), pub("청림라이프")) == 1.0)
 
 print("\n[3] 🚨 나머지는 값이 한 톨도 안 변해야 합니다")
 for key, was in before.items():
@@ -95,18 +96,19 @@ for key, was in before.items():
     check(f"{key[0]} vs {key[1]} — {was:.2f} 그대로", now == was, now)
 
 print("\n[4] 🚨 정하지 않은 이름까지 딸려 들어오면 안 됩니다")
-check("한빛life ≠ 한빛미디어 (안 정했으니 남남)",
-      publisher_similarity(pub("한빛life"), pub("한빛미디어")) < FLOOR,
-      publisher_similarity(pub("한빛life"), pub("한빛미디어")))
-sides = publisher_sides([pub("한빛life"), pub("한빛라이프"), pub("한빛미디어")], FLOOR)
-check("한빛life·한빛라이프는 한 편, 한빛미디어는 따로", len(sides) == 2, sides)
+check("🚨 청림Life ≠ 청림출판 (안 정했으니 남남)",
+      publisher_similarity(pub("청림Life"), pub("청림출판")) < FLOOR,
+      publisher_similarity(pub("청림Life"), pub("청림출판")))
+sides = publisher_sides(
+    [pub("청림Life"), pub("청림라이프"), pub("청림출판")], FLOOR)
+check("청림Life·청림라이프는 한 편, 청림출판은 따로", len(sides) == 2, sides)
 
 print("\n[5] 화면에 쓸 이름도 대표 이름으로 바뀐다")
-raws = ["한빛life", "한빛life", "한빛라이프", "민음사"]
+raws = ["청림Life", "청림Life", "청림라이프", "민음사"]
 canon, _, _ = canonical_map(((pub(r), r) for r in raws), use_alias=True, declared=ALIAS)
-check("한빛life → 한빛라이프", canon[pub("한빛life")] == "한빛라이프",
-      canon[pub("한빛life")])
-check("한빛라이프 → 한빛라이프", canon[pub("한빛라이프")] == "한빛라이프")
+check("청림Life → 청림라이프", canon[pub("청림Life")] == "청림라이프",
+      canon[pub("청림Life")])
+check("청림라이프 → 청림라이프", canon[pub("청림라이프")] == "청림라이프")
 check("🚨 상관없는 곳은 그대로", canon[pub("민음사")] == "민음사", canon[pub("민음사")])
 
 print("\n[6] 🚨 풀면 정확히 원래대로 (되돌리기가 진짜인가)")
@@ -115,11 +117,11 @@ check("표가 비었다", publisher_aliases() == {})
 same = all(publisher_similarity(pub(a), pub(b)) == was
            for (a, b), was in before.items())
 check("모든 값이 표 넣기 전과 똑같다", same)
-check("한빛life 도 다시 남남이 된다",
-      publisher_similarity(pub("한빛life"), pub("한빛라이프")) < FLOOR)
+check("청림Life 도 다시 남남이 된다",
+      publisher_similarity(pub("청림Life"), pub("청림라이프")) < FLOOR)
 canon2, _, _ = canonical_map(((pub(r), r) for r in raws), use_alias=True)
-check("화면 이름도 원래대로", canon2[pub("한빛life")] != "한빛라이프",
-      canon2[pub("한빛life")])
+check("화면 이름도 원래대로", canon2[pub("청림Life")] != "청림라이프",
+      canon2[pub("청림Life")])
 
 print("\n[7] 이상한 값이 들어와도 죽지 않는다")
 check("빈 이름은 무시", set_publisher_aliases({"": "가", "나": ""}) == 0)

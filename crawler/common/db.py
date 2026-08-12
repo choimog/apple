@@ -367,7 +367,7 @@ def fetch_publisher_aliases(client: Client) -> dict[str, str]:
     돌려주는 값: {정규화한 이름: 대표 이름}
 
     【2026-08-12 대표님 요청】
-        "한빛life 랑 한빛라이프처럼, 서점마다 출판사를 표기하는 명칭이
+        "청림Life 랑 청림라이프처럼, 서점마다 출판사를 표기하는 명칭이
          조금씩 다른데 이것도 다 규칙화하기 어려울 것 같아서."
 
     ⚠️ 표가 아직 없어도 **멈추지 않습니다.** db/publisher-alias.sql 을

@@ -45,6 +45,10 @@ from common import db  # noqa: E402
 # 이 검사기는 옛 잣대(similarity)를 그대로 쓰고 있었습니다.
 # 그래서 **제대로 묶인 359종을 잘못됐다고 신고**하고 작업을 멈췄습니다.
 # 매칭이 쓰는 함수를 그대로 가져다 씁니다. 잣대가 갈리면 안 됩니다.
+#
+# publisher_sides = '이름 여러 개를 같은 출판사끼리 편으로 나누기'.
+# 매칭에서 갈라낼 때(run_match.split_by_publisher)와 **같은 함수**입니다.
+from common.match import publisher_sides  # noqa: E402
 from common.match import publisher_similarity as similarity  # noqa: E402
 
 SHOW = 20  # 화면에 보여줄 최대 건수
@@ -67,19 +71,12 @@ def joined_by_person(
        기계가 잘못 이어 붙인 부분이 남아 있다는 뜻이니까요.
     """
     # ---- 출판사 이름을 닮은 것끼리 편으로 나눕니다 ----
-    sides: list[list[str]] = []
+    #      (매칭이 갈라낼 때 쓰는 것과 같은 함수)
+    sides = publisher_sides(names, floor)
     side_of: dict[str, int] = {}
-    for n in names:
-        placed = False
-        for k, side in enumerate(sides):
-            if any(similarity(n, m) >= floor for m in side):
-                side.append(n)
-                side_of[n] = k
-                placed = True
-                break
-        if not placed:
-            sides.append([n])
-            side_of[n] = len(sides) - 1
+    for k, idxs in enumerate(sides):
+        for x in idxs:
+            side_of[names[x]] = k
 
     if len(sides) < 2:
         return False   # 표기만 다른 같은 출판사 (여기 올 일은 없습니다)
@@ -181,12 +178,28 @@ def main() -> int:
                 unknown_mixed += 1
             continue
 
-        worst = 1.0
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                worst = min(worst, similarity(names[i], names[j]))
+        # 🚨 【2026-08-12 — '두 개씩 전부' 로 재면 안 됩니다】
+        #
+        #   교보 YBM(와이비엠) / 예스24 YBM / 알라딘 와이비엠
+        #
+        # 'YBM' 과 '와이비엠' 만 떼어 놓고 재면 0.00 입니다(한글·영문).
+        # 그래서 두 개씩 전부 재던 예전 방식은 이 책을 '잘못 묶였다' 고
+        # 신고했습니다. 하지만 가운데 'YBM(와이비엠)' 이 두 이름이 같은
+        # 곳이라고 **서점이 직접 적어 준 증거**입니다.
+        #
+        # 매칭이 갈라낼 때 쓰는 것과 똑같이, 이어지면 한 편으로 셉니다.
+        # 이어 줄 이름이 없는 민음사 / 문학동네 는 여전히 두 편입니다.
+        sides = publisher_sides(names, floor)
 
-        if worst < floor:
+        if len(sides) > 1:
+            # 왜 갈렸는지 보여 주려고, 서로 다른 편끼리 가장 안 닮은 값을 찾습니다.
+            worst = 1.0
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    if any(i in s and j in s for s in sides):
+                        continue           # 같은 편끼리는 셈에서 뺍니다
+                    worst = min(worst, similarity(names[i], names[j]))
+
             # 🚨 사람이 이어 놓은 것인지 먼저 봅니다.
             if joined_by_person(members, names, floor, merge_adj):
                 by_decision += 1

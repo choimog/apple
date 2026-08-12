@@ -34,11 +34,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
-# ⚠️ 출판사를 견줄 때는 publisher_similarity 를 씁니다.
-#    괄호 부기('윌북(willbook)')를 감안하는 잣대입니다.
+# ⚠️ 출판사를 편으로 나눌 때는 publisher_sides 를 씁니다.
+#    괄호 부기('윌북(willbook)')를 감안하고, 'YBM(와이비엠)' 처럼 두 이름을
+#    이어 주는 표기까지 한 편으로 봅니다.
 #    그냥 similarity 를 쓰면 매칭이 붙여 놓은 것을 여기서 도로 갈라냅니다.
 from common.match import (  # noqa: E402
-    Candidate, compare, compare_with_isbn, publisher_similarity, similarity,
+    Candidate, compare, compare_with_isbn, publisher_sides, similarity,
 )
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
@@ -263,28 +264,23 @@ def split_by_publisher(
 
     # 닮은 이름끼리 먼저 묶습니다 ((주)민음사 와 민음사는 같은 편).
     # 비교 대상은 '이름' 이라서 보통 몇 개뿐입니다.
-    name_groups = Groups()
-    for x in range(len(names)):
-        name_groups.find(x)
-        for y in range(x + 1, len(names)):
-            # 🚨 【2026-08-12】 여기서 similarity 를 쓰면 안 됩니다.
-            #    매칭은 '윌북(willbook)' 과 '윌북' 을 같은 출판사로 보는데,
-            #    여기서 옛 잣대로 재면 **방금 붙인 것을 도로 갈라냅니다.**
-            #    잣대가 갈리면 붙였다 뗐다를 매일 반복합니다.
-            if publisher_similarity(names[x], names[y]) >= floor:
-                name_groups.union(x, y)
-
-    name_parts = name_groups.clusters()
+    #
+    # 🚨 【2026-08-12】 여기서 잣대를 따로 만들면 안 됩니다.
+    #    매칭은 '윌북(willbook)' 과 '윌북' 을 같은 출판사로 보는데,
+    #    여기서 옛 잣대로 재면 **방금 붙인 것을 도로 갈라냅니다.**
+    #    붙일 때·갈라낼 때·검사할 때가 publisher_sides 하나를 같이 씁니다.
+    name_parts = publisher_sides(names, floor)
     if len(name_parts) <= 1:
         return [cluster]           # 표기만 다른 같은 출판사였습니다
 
     # 이름 무리 → 책 목록
     parts: dict[int, list[int]] = {}
     root_of: dict[int, int] = {}   # 책 id → 이름 무리 대표
-    for root, idxs in name_parts.items():
+    for idxs in name_parts:
         ids: list[int] = []
         for x in idxs:
             ids.extend(known[names[x]])
+        root = min(ids)            # 이 무리를 대표하는 번호 (겹치지 않습니다)
         parts[root] = ids
         for i in ids:
             root_of[i] = root

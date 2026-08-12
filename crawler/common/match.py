@@ -128,6 +128,59 @@ def publisher_similarity(a: str | None, b: str | None) -> float:
     return max(similarity(x, y) for x in va for y in vb)
 
 
+def publisher_sides(names: list[str], floor: float) -> list[list[int]]:
+    """
+    출판사 이름 여러 개를 **'같은 출판사' 끼리 편으로** 나눕니다.
+    돌려주는 값은 이름의 자리번호(0,1,2…) 묶음입니다.
+
+    【왜 '두 개씩 전부' 가 아니라 '이어지면 한 편' 인가요 — 2026-08-12】
+
+    한 책에 이렇게 세 가지 표기가 들어옵니다.
+
+        교보문고  YBM(와이비엠)
+        예스24    YBM
+        알라딘    와이비엠
+
+    'YBM' 과 '와이비엠' 만 떼어 놓고 글자로 재면 **0.00** 입니다.
+    한글과 영문이라 겹치는 글자가 하나도 없습니다. 그래서 '두 개씩
+    전부 닮아야 한다' 로 재면 이 책은 잘못 묶인 것이 됩니다.
+
+    하지만 가운데 'YBM(와이비엠)' 이 **두 이름이 같은 곳이라고 스스로
+    밝히고 있습니다.** 이건 근거 없는 우회가 아니라 서점이 적어 준
+    증거입니다. 그래서 이어지면 한 편으로 봅니다.
+
+        YBM(와이비엠) ─ YBM        (괄호 밖이 같음)
+        YBM(와이비엠) ─ 와이비엠    (괄호 안이 같음)
+        → 세 개가 한 편
+
+    ⚠️ '출판사를 아예 모르는 책' 을 다리로 삼는 우회와는 다릅니다.
+       그건 여전히 막습니다 (모르는 책은 애초에 이 목록에 안 들어옵니다).
+       민음사 / 문학동네 는 이어 줄 이름이 없으니 그대로 두 편입니다.
+
+    ※ 이 함수를 세 군데(붙일 때·갈라낼 때·검사할 때)가 같이 씁니다.
+       한 군데만 다르게 세면 붙였다 뗐다를 매일 반복합니다.
+    """
+    parent = list(range(len(names)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for x in range(len(names)):
+        for y in range(x + 1, len(names)):
+            if publisher_similarity(names[x], names[y]) >= floor:
+                rx, ry = find(x), find(y)
+                if rx != ry:
+                    parent[ry] = rx
+
+    sides: dict[int, list[int]] = {}
+    for i in range(len(names)):
+        sides.setdefault(find(i), []).append(i)
+    return list(sides.values())
+
+
 def name_similarity(a: str | None, b: str | None) -> float:
     """
     사람 이름끼리 견줍니다. 된소리를 푼 값끼리도 견줘서 더 높은 쪽을 씁니다.

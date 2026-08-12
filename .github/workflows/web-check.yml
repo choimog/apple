@@ -88,6 +88,11 @@ jobs:
         # 짧게 나옵니다. 화면은 멀쩡해 보여서 눈으로는 못 잡습니다.
         run: node scripts/test-barlist.mjs
 
+      - name: 강제로 묶기 시험
+        # 짝을 (작은 번호, 큰 번호) 순서로 안 보내면 데이터베이스가 줄을
+        # 통째로 거절합니다. 누르셨는데 아무 일도 안 일어납니다.
+        run: node scripts/test-join.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

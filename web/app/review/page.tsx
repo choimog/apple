@@ -196,6 +196,34 @@ export default async function ReviewPage({
         </p>
       </Card>
 
+      {/*
+        ---------- 강제로 묶기 (2026-08-12 대표님 요청) ----------
+        "다르다고 매칭된 것 중에 내가 수동으로 이어주고 싶은 게 있거든?"
+
+        아래 탭 셋은 전부 **이미 이어진 짝**입니다. 규칙이 '다른 책' 이라고
+        한 짝은 저장조차 안 되어 있어서 여기서는 손댈 수가 없습니다.
+        그래서 따로 화면을 뒀습니다.
+      */}
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">규칙이 갈라 놓은 것을 직접 잇기</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+            아래 세 목록은 <strong>이미 이어진 짝</strong>입니다.
+            &lsquo;다른 책&rsquo; 으로 갈라진 것은 여기 안 나옵니다.
+            <br />
+            「집 에디션」 과 「집에디션 리커버」 처럼{" "}
+            <strong>규칙상 반드시 갈라지지만 같은 책인 것</strong>은 저쪽에서
+            직접 골라 묶으세요.
+          </p>
+        </div>
+        <Link
+          href="/review/join"
+          className="shrink-0 rounded-xl border border-line px-4 py-2.5 text-sm font-medium hover:border-ink-faint"
+        >
+          강제로 묶기 →
+        </Link>
+      </Card>
+
       {/* ---------- 탭 ---------- */}
       <div className="scroll-x flex gap-1.5">
         {(Object.keys(TAB_LABEL) as ReviewTab[]).map((t) => (

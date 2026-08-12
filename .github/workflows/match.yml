@@ -91,6 +91,9 @@ jobs:
           # 웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 한 곳을 두 줄로 쪼개지
           # 않는지 봅니다 (2026-08-12 대표님 지적).
           python tests/test_names.py
+          # 검토 화면의 [강제로 묶기] 로 누른 것이 다음 실행에서 도로
+          # 풀리지 않는지 봅니다. 풀려도 화면에는 아무 표시가 안 납니다.
+          python tests/test_force_join.py
           python tests/test_cluster_rules.py
           python tests/test_schedule.py
 

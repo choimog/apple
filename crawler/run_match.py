@@ -398,10 +398,43 @@ def rejoin_manual_merges(
     return [sorted(v) for v in out.values()]
 
 
+def apply_manual_merges(
+    groups: Groups,
+    manual: dict[tuple[int, int], str],
+    by_id: dict[int, dict],
+) -> int:
+    """
+    사람이 '같은 책' 이라고 이어 놓은 짝을 **빠짐없이** 적용합니다.
+    이미 이어져 있던 것은 세지 않고, 새로 이어 붙인 짝 수를 돌려줍니다.
+
+    【왜 따로 한 번 더 하나요? — 2026-08-12】
+    비교는 '제목 앞 4글자가 같거나 저자가 같은 책들' 끼리만 돕니다.
+    사람이 이어 놓은 짝이 그 묶음 밖에 있으면 **비교 자체를 안 하므로
+    그냥 지나가 버렸습니다.** 예전에는 맨 아래에서 "묶이지 않았습니다"
+    라고 알리기만 하고 그대로 뒀습니다. 대표님이 누르셨는데 아무 일도
+    안 일어나는 것입니다.
+
+    검토 화면의 [강제로 묶기] 는 제목이 아주 다른 책도 이을 수 있어야
+    하므로, 여기서 묶음과 상관없이 이어 붙입니다.
+    """
+    late = 0
+    for (a_id, b_id), decision in manual.items():
+        if decision != "manual_merge":
+            continue
+        # 그 사이에 사라진 상품(지워진 자료)은 건너뜁니다
+        if a_id not in by_id or b_id not in by_id:
+            continue
+        if groups.find(a_id) != groups.find(b_id):
+            groups.union(a_id, b_id)
+            late += 1
+    return late
+
+
 def split_same_store(
     cluster: list[int],
     by_id: dict[int, dict],
     pair_score: dict[tuple[int, int], float],
+    merged_pairs: set[tuple[int, int]] | frozenset = frozenset(),
 ) -> list[list[int]]:
     """
     한 무리에 **같은 서점 상품이 둘 이상** 들어가면 갈라냅니다.
@@ -420,6 +453,13 @@ def split_same_store(
     가르는 방법: 각 서점에서 **가장 잘 맞는 한 권씩만** 남깁니다.
     남은 것들은 각자 혼자가 됩니다 (나중에 2단계 보충에서 다시 붙을
     기회가 있습니다).
+
+    ⚠️ 【2026-08-12 — 사람이 이은 것은 여기서도 못 떼어냅니다】
+    검토 화면의 [강제로 묶기] 로 **같은 서점 상품 두 개를 일부러**
+    이으실 수 있습니다. 그런데 이 함수는 '한 서점에 한 권' 만 남기므로,
+    누르신 다음 날 매칭에서 **조용히 도로 떼어냈습니다.**
+    화면에는 아무 표시도 안 나서 눌러도 소용없는 버튼이 됩니다.
+    그래서 사람이 이은 상품은 같은 서점이어도 그대로 둡니다.
     """
     by_store: dict[int, list[int]] = defaultdict(list)
     for i in cluster:
@@ -427,6 +467,13 @@ def split_same_store(
 
     if all(len(v) == 1 for v in by_store.values()):
         return [cluster]        # 이미 서점마다 한 권씩입니다
+
+    # 이 무리 안에서 사람이 '같은 책' 이라고 이어 놓은 상품들
+    protected = {
+        i for i in cluster
+        for j in cluster
+        if i != j and (min(i, j), max(i, j)) in merged_pairs
+    }
 
     def score_with(i: int, others: list[int]) -> float:
         total = 0.0
@@ -440,6 +487,10 @@ def split_same_store(
     for sid, members in by_store.items():
         if len(members) == 1:
             keep.append(members[0])
+            continue
+        mine = [m for m in members if m in protected]
+        if mine:
+            keep.extend(mine)   # 🚨 사람 결정이 먼저입니다 (여럿이어도 다 남김)
             continue
         others = [x for x in cluster if by_id[x]["store_id"] != sid]
         best = max(members, key=lambda i: (score_with(i, others), -i))
@@ -734,6 +785,23 @@ def main() -> int:
             print("         price_hard_stores 에서 그 서점 번호를 빼시고")
             print("         저에게 알려 주세요. (그때까지 멀쩡한 짝이 갈라집니다)")
 
+    # -------------------------------------------------------------------------
+    #  🚨 사람이 이은 짝을 **빠짐없이** 적용합니다 (2026-08-12)
+    #
+    #  위의 비교는 '제목 앞 4글자가 같거나 저자가 같은 책들' 끼리만 돕니다.
+    #  그래서 사람이 이어 놓은 짝이 그 묶음 밖에 있으면 **아예 지나가
+    #  버렸습니다.** 예전에는 맨 아래에서 "묶이지 않았습니다" 라고
+    #  알리기만 하고 그대로 뒀습니다. 대표님이 누르셨는데 아무 일도
+    #  안 일어나는 것입니다.
+    #
+    #  검토 화면의 [강제로 묶기] 는 제목이 아주 다른 책도 이을 수 있어야
+    #  하므로, 여기서 묶음과 상관없이 한 번 더 이어 붙입니다.
+    # -------------------------------------------------------------------------
+    late = apply_manual_merges(groups, manual, by_id)
+    if late:
+        print(f"  🤝 비교 묶음 밖에 있던 '같은 책' {late:,}쌍을 이어 붙였습니다 "
+              f"(제목이 서로 많이 달라 비교 대상이 아니었던 짝)")
+
     # ---- 무리 만들기 ----
     raw_clusters = groups.clusters()
 
@@ -784,7 +852,7 @@ def main() -> int:
         # 🚨 한 서점 상품이 둘 이상 들어간 무리를 갈라냅니다 (4권 이상 방지)
         #    2026-08-11 대표님 지시: "짝이 4개를 넘기게끔 세팅하면 안 돼."
         for part in final_parts:
-            for piece in split_same_store(part, by_id, pair_score):
+            for piece in split_same_store(part, by_id, pair_score, merged_pairs):
                 if len(piece) > 1:
                     same_store_split += 1 if piece is not part else 0
                 clusters[min(piece)] = sorted(piece)

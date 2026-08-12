@@ -84,6 +84,10 @@ jobs:
           python tests/test_manual_split.py
           python tests/test_manual_merge.py
           python tests/test_verify_publishers.py
+          # 🚨 출판사를 견주는 '잣대' 가 세 군데(매칭·갈라내기·검사기)에서
+          #    똑같은지 봅니다. 2026-08-12 에 한 군데만 고쳤다가 멀쩡한
+          #    359종이 '잘못 묶였다' 로 신고되어 매칭이 통째로 멈췄습니다.
+          python tests/test_publisher_yardstick.py
           python tests/test_cluster_rules.py
           python tests/test_schedule.py
 

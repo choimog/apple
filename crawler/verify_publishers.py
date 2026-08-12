@@ -40,7 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
-from common.match import similarity  # noqa: E402
+# 🚨 【2026-08-12 — 매칭과 똑같은 잣대를 써야 합니다】
+# 매칭은 '윌북(willbook)' 과 '윌북' 을 같은 출판사로 보도록 고쳤는데,
+# 이 검사기는 옛 잣대(similarity)를 그대로 쓰고 있었습니다.
+# 그래서 **제대로 묶인 359종을 잘못됐다고 신고**하고 작업을 멈췄습니다.
+# 매칭이 쓰는 함수를 그대로 가져다 씁니다. 잣대가 갈리면 안 됩니다.
+from common.match import publisher_similarity as similarity  # noqa: E402
 
 SHOW = 20  # 화면에 보여줄 최대 건수
 

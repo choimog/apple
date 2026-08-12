@@ -34,7 +34,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
-from common.match import Candidate, compare, compare_with_isbn, similarity  # noqa: E402
+# ⚠️ 출판사를 견줄 때는 publisher_similarity 를 씁니다.
+#    괄호 부기('윌북(willbook)')를 감안하는 잣대입니다.
+#    그냥 similarity 를 쓰면 매칭이 붙여 놓은 것을 여기서 도로 갈라냅니다.
+from common.match import (  # noqa: E402
+    Candidate, compare, compare_with_isbn, publisher_similarity, similarity,
+)
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
 #   알라딘 → 예스24 → 교보
@@ -262,7 +267,11 @@ def split_by_publisher(
     for x in range(len(names)):
         name_groups.find(x)
         for y in range(x + 1, len(names)):
-            if similarity(names[x], names[y]) >= floor:
+            # 🚨 【2026-08-12】 여기서 similarity 를 쓰면 안 됩니다.
+            #    매칭은 '윌북(willbook)' 과 '윌북' 을 같은 출판사로 보는데,
+            #    여기서 옛 잣대로 재면 **방금 붙인 것을 도로 갈라냅니다.**
+            #    잣대가 갈리면 붙였다 뗐다를 매일 반복합니다.
+            if publisher_similarity(names[x], names[y]) >= floor:
                 name_groups.union(x, y)
 
     name_parts = name_groups.clusters()

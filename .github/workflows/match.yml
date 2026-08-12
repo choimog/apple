@@ -88,6 +88,9 @@ jobs:
           #    똑같은지 봅니다. 2026-08-12 에 한 군데만 고쳤다가 멀쩡한
           #    359종이 '잘못 묶였다' 로 신고되어 매칭이 통째로 멈췄습니다.
           python tests/test_publisher_yardstick.py
+          # 웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 한 곳을 두 줄로 쪼개지
+          # 않는지 봅니다 (2026-08-12 대표님 지적).
+          python tests/test_names.py
           python tests/test_cluster_rules.py
           python tests/test_schedule.py
 

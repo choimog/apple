@@ -41,6 +41,10 @@ from common import db  # noqa: E402
 from common.match import (  # noqa: E402
     Candidate, compare, compare_with_isbn, publisher_sides, similarity,
 )
+# 화면에 쓸 출판사·저자 이름을 온 자료를 통틀어 하나로 정합니다.
+# (웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 꼬이던 원인 — names.py 설명 참고)
+from common.names import canonical_map, merge_examples  # noqa: E402
+from common.normalize import fold_fortis  # noqa: E402
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
 #   알라딘 → 예스24 → 교보
@@ -118,12 +122,32 @@ def build_blocks(cands: list[Candidate], mcfg: dict) -> list[list[Candidate]]:
 # -----------------------------------------------------------------------------
 #  대표 정보 고르기
 # -----------------------------------------------------------------------------
-def pick_representative(rows: list[dict]) -> dict:
+def pick_representative(
+    rows: list[dict],
+    pub_canon: dict[str, str] | None = None,
+    author_canon: dict[str, str] | None = None,
+) -> dict:
     """
     한 무리(같은 책)에서 화면에 보여줄 대표 정보를 고릅니다.
 
     기준: 알라딘 → 예스24 → 교보 순으로 우선.
           우선순위가 높은 서점에 값이 없으면 다음 서점 값으로 채웁니다.
+
+    ⚠️ 【2026-08-12 — 출판사·저자는 서점 글자를 그대로 쓰지 않습니다】
+    대표님 지적: "웰컴에 보이는 출판사와 저자 순위가 계속 꼬여있다."
+
+    원인이 바로 여기였습니다. 예전에는 우선순위가 높은 서점이 적은
+    글자를 그대로 넣었습니다. 그런데 서점마다 표기가 다릅니다.
+
+        교보 YBM(와이비엠) / 예스24 YBM / 알라딘 와이비엠
+
+    그러니 **그 책을 어느 서점이 갖고 있었느냐로 이름표가 정해집니다.**
+    같은 출판사인데 책마다 다른 이름이 붙고, 순위표에서 한 곳이
+    두세 줄로 쪼개져 점수까지 나뉘었습니다.
+
+    이제는 온 자료를 통틀어 정한 이름 하나(pub_canon/author_canon)를
+    씁니다. 어느 서점이 대표든 같은 이름이 나옵니다.
+    (자세한 설명: crawler/common/names.py)
     """
     ordered = sorted(rows, key=lambda r: STORE_PRIORITY.get(r["store_id"], 9))
 
@@ -133,12 +157,26 @@ def pick_representative(rows: list[dict]) -> dict:
                 return r[field]
         return None
 
+    def pick_name(raw_field: str, key_field: str, canon, keyfn):
+        """서점 우선순위로 고르되, 화면 이름은 온 자료가 정한 것으로 바꿉니다."""
+        for r in ordered:
+            if not r.get(raw_field):
+                continue
+            if canon:
+                key = keyfn(r.get(key_field))
+                if key and canon.get(key):
+                    return canon[key]
+            return r[raw_field]     # 정한 이름이 없으면 서점 글자 그대로
+        return None
+
     cover_row = next((r for r in ordered if r.get("cover_url")), None)
 
     return {
         "title": pick("raw_title"),
-        "author": pick("raw_author"),
-        "publisher": pick("raw_publisher"),
+        "author": pick_name("raw_author", "norm_author", author_canon, fold_fortis),
+        "publisher": pick_name(
+            "raw_publisher", "norm_publisher", pub_canon, lambda v: v
+        ),
         "pub_ym": pick("pub_ym"),
         "isbn13": pick("isbn13"),   # 현재는 교보만 제공 (표지 주소에서 추출)
         "cover_url": cover_row["cover_url"] if cover_row else None,
@@ -531,6 +569,43 @@ def main() -> int:
         print("묶을 도서가 없습니다. 먼저 수집을 실행하세요.")
         return 1
 
+    # -------------------------------------------------------------------------
+    #  화면에 쓸 출판사·저자 이름을 **온 자료를 통틀어** 하나로 정합니다.
+    #
+    #  【2026-08-12 대표님 지적】
+    #  "웰컴에 보이는 출판사와 저자 순위가 계속 꼬여있는 상태야"
+    #
+    #  YBM / 와이비엠 / YBM(와이비엠) 이 순위표에서 세 줄로 쪼개져
+    #  점수까지 나뉘고 있었습니다. 여기서 한 이름으로 모읍니다.
+    # -------------------------------------------------------------------------
+    pub_canon, pub_ignored, pub_forms = canonical_map(
+        ((r.get("norm_publisher"), r.get("raw_publisher")) for r in rows),
+        use_alias=True,
+    )
+    author_canon, _, author_forms = canonical_map(
+        ((fold_fortis(r.get("norm_author")), r.get("raw_author")) for r in rows),
+        use_alias=False,
+    )
+    pub_ex, pub_saved = merge_examples(pub_canon, pub_forms)
+    au_ex, au_saved = merge_examples(author_canon, author_forms)
+
+    print("\n▶ 화면에 쓸 이름 정리 (웰컴의 [출판사 TOP 8]·[저자 TOP 8])")
+    print(f"  · 출판사 — 표기 {sum(len(v) for v in pub_forms.values()):,}가지를 "
+          f"{len(set(pub_canon.values())):,}곳으로 모았습니다 "
+          f"(흩어져 있던 표기 {pub_saved:,}개를 합침)")
+    for line in pub_ex:
+        print(f"      {line}")
+    print(f"  · 저자 — 표기 {sum(len(v) for v in author_forms.values()):,}가지를 "
+          f"{len(set(author_canon.values())):,}명으로 모았습니다 "
+          f"(흩어져 있던 표기 {au_saved:,}개를 합침)")
+    for line in au_ex:
+        print(f"      {line}")
+    if pub_ignored:
+        # 여러 출판사가 함께 쓰는 조각은 다리로 쓰면 안 됩니다 ('books' 같은 것).
+        print(f"  · 흔한 낱말이라 이어 붙이지 않은 조각 {len(pub_ignored)}개: "
+              f"{', '.join(pub_ignored[:8])}"
+              + (" …" if len(pub_ignored) > 8 else ""))
+
     by_id = {r["id"]: r for r in rows}
     cands = [
         Candidate(
@@ -804,7 +879,8 @@ def main() -> int:
     # ---- 예시 보여주기 ----
     print("\n  ── 묶인 예시 (최대 5건) ──")
     for cluster in list(multi.values())[:5]:
-        rep = pick_representative([by_id[i] for i in cluster])
+        rep = pick_representative([by_id[i] for i in cluster],
+                                  pub_canon, author_canon)
         print(f"   • {rep['title']}  /  {rep['author']}  /  {rep['publisher']}")
         for i in cluster:
             r = by_id[i]
@@ -867,7 +943,7 @@ def main() -> int:
 
     for cluster in ordered_clusters:
         members = [by_id[i] for i in cluster]
-        rep = pick_representative(members)
+        rep = pick_representative(members, pub_canon, author_canon)
 
         # 이 무리의 신뢰도
         if len(cluster) == 1:

@@ -155,18 +155,61 @@ for label, x, y in MUST_SPLIT:
     r = judge(x, y)
     check(f"{label} → 갈라짐", r.decision == "rejected", r.reasons)
 
-print("\n[4] 출판사 정규화가 다른 출판사를 뭉치지 않는다")
-from common.match import similarity  # noqa: E402
-for a, b in [("민음사", "문학동네"), ("창비", "창비교육"),
-             ("김영사", "김영사on"), ("북21", "21세기북스")]:
-    sim = similarity(norm.normalize_publisher(a, P), norm.normalize_publisher(b, P))
-    check(f"{a} ≠ {b} ({sim:.2f})", sim < CFG["thresholds"]["publisher_hard_floor"], sim)
+print("\n[4] 출판사 괄호 부기 — 이미 모아 둔 자료에도 통해야 합니다")
+# 🚨 【2026-08-12 — 한 번 잘못 고쳤던 자리입니다】
+# 처음에는 저장할 때 괄호를 떼도록 고쳤습니다. 두 가지가 잘못됐습니다.
+#   ① 저장값은 **수집할 때** 정해집니다. [도서 매칭] 만 다시 돌려서는
+#      하나도 안 바뀝니다. 대표님이 "그대로야" 라고 하신 이유입니다.
+#   ② 괄호 안에 진짜 이름이 든 경우를 잃습니다.
+#        중앙books(중앙북스) → '중앙books'   ← 한글 이름이 사라짐
+#      대표님 신고: "중앙북스가 다 따로 잡히는 문제가 발생해버렸어"
+# 그래서 저장은 그대로 두고, **비교할 때 괄호 안팎을 다 후보로** 놓습니다.
+from common.match import publisher_similarity, publisher_variants  # noqa: E402
 
-# 표기만 다른 것은 같게 봐야 합니다
+FLOOR = CFG["thresholds"]["publisher_hard_floor"]
+
+
+def pub(x):
+    return norm.normalize_publisher(x, P)
+
+
+print("  · 중앙북스 3형제 — 셋이 서로 다 같아야 합니다")
+JOONG = ["중앙북스", "중앙북스(books)", "중앙books(중앙북스)"]
+for i in range(len(JOONG)):
+    for j in range(i + 1, len(JOONG)):
+        sim = publisher_similarity(pub(JOONG[i]), pub(JOONG[j]))
+        check(f"    {JOONG[i]} = {JOONG[j]} ({sim:.2f})", sim >= FLOOR, sim)
+
+print("  · 표기만 다른 것은 같게")
 for a, b in [("(주)창비", "창비"), ("필름(Feelm)", "필름"),
-             ("도서출판 숲", "숲"), ("인플루엔셜(주)", "인플루엔셜")]:
-    sim = similarity(norm.normalize_publisher(a, P), norm.normalize_publisher(b, P))
-    check(f"{a} = {b} ({sim:.2f})", sim >= CFG["thresholds"]["publisher_hard_floor"], sim)
+             ("윌북(willbook)", "윌북"), ("(주)YBM(와이비엠)", "YBM"),
+             ("인플루엔셜(주)", "인플루엔셜")]:
+    sim = publisher_similarity(pub(a), pub(b))
+    check(f"    {a} = {b} ({sim:.2f})", sim >= FLOOR, sim)
+
+print("  · 🚨 진짜 다른 출판사는 여전히 다르게")
+for a, b in [("민음사", "문학동네"), ("창비", "창비교육"),
+             ("김영사", "김영사on"), ("북21", "21세기북스"),
+             ("한빛미디어", "한빛비즈")]:
+    sim = publisher_similarity(pub(a), pub(b))
+    check(f"    {a} ≠ {b} ({sim:.2f})", sim < FLOOR, sim)
+
+print("  · 저장값을 안 바꿨는지 (안 바꿔야 이미 모은 자료에 통합니다)")
+check("괄호를 저장할 때 떼지 않는다", pub("필름(Feelm)") == "필름(feelm)", pub("필름(Feelm)"))
+check("괄호 안팎을 후보로 만든다",
+      {"필름", "feelm"} <= publisher_variants("필름(feelm)"),
+      publisher_variants("필름(feelm)"))
+
+print("\n[4-1] ⚠️ 다음 수집을 기다려야 하는 것 — (6) 오뒷세이아")
+# '도서출판 숲' 은 예전 규칙으로 '도서숲' 이라고 저장돼 있습니다.
+# ('출판' 만 떼서 '도서' 가 남았습니다)
+# publisher_words 에 '도서출판' 을 넣었지만, 그 값은 **수집할 때** 계산되므로
+# 다음 수집 전까지는 '도서숲' 그대로입니다. 괄호 후보로도 못 고칩니다.
+# 이 시험은 그 사실을 숨기지 않고 못박아 둡니다.
+check("지금 저장된 값으로는 아직 안 붙는다 (다음 수집에 해결)",
+      publisher_similarity("도서숲", "숲") < FLOOR,
+      publisher_similarity("도서숲", "숲"))
+check("다음 수집부터는 '숲' 으로 저장된다", pub("도서출판 숲") == "숲", pub("도서출판 숲"))
 
 print("\n[5] 🚨 제목 배지가 진짜 제목을 깎지 않는다")
 # 처음 만들었을 때 『예약판매의 기술』 이 『의 기술』 이 됐습니다.

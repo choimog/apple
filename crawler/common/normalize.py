@@ -227,45 +227,29 @@ def normalize_author(raw: str | None, role_words: list[str] | None = None) -> st
     return text.lower() or None
 
 
-# 출판사 이름 뒤에 괄호로 덧붙는 부기.
-#   필름(Feelm) · 윌북(willbook) · YBM(와이비엠) · 창비(주)
-# 서점마다 붙이기도 하고 안 붙이기도 해서, 같은 출판사가 다르게 보입니다.
-_PUB_PAREN = re.compile(r"[(（\[［{][^)）\]］}]*[)）\]］}]")
-
-
 def normalize_publisher(
     raw: str | None, publisher_words: list[str] | None = None
 ) -> str | None:
     """
     '(주)문학동네' → '문학동네'
 
-    【2026-08-12 — 괄호 부기를 떼어냅니다】
-    대표님이 안 묶인다고 알려주신 책들의 원인이 여기였습니다.
+    ⚠️ 【2026-08-12 — 괄호를 여기서 떼지 않습니다】
+    한때 '필름(Feelm)' 의 괄호를 여기서 떼어 봤습니다. 그런데 이 값은
+    **수집할 때 계산해서 저장**하는 값이라 두 가지 문제가 있었습니다.
 
-        필름(Feelm)      vs  필름        닮은 정도 0.24  → 다른 출판사로 판정
-        윌북(willbook)   vs  윌북        닮은 정도 0.19  → 다른 출판사로 판정
-        (주)YBM(와이비엠) vs  YBM        닮은 정도 0.38  → 다른 출판사로 판정
+      ① 이미 모아 둔 자료에는 적용이 안 됩니다. 다시 수집해야만 바뀝니다.
+      ② 괄호 안에 진짜 이름이 든 경우를 잃습니다.
+           중앙books(중앙북스) → '중앙books'  ← 한글 이름이 사라짐
+         그러면 '중앙북스' 와 오히려 더 멀어집니다 (0.37 → 0.24).
 
-    출판사가 0.80 만큼 안 닮으면 **점수를 보기도 전에 다른 책**입니다.
-    같은 출판사인데 한 서점만 영문·한글 부기를 달아 놓은 것뿐인데
-    그것 때문에 갈라지고 있었습니다.
-
-    ⚠️ 괄호를 지우는 게 아니라 **괄호와 그 안의 내용을 통째로** 뗍니다.
-       괄호만 지우면 '필름feelm' 이 되어 여전히 안 닮습니다.
-
-    ⚠️ 다 떼고 나면 빈 이름이 되는 경우(이름 전체가 괄호 안)는
-       원래 값을 씁니다. 이름을 잃는 것이 더 나쁩니다.
+    그래서 **저장은 서점이 적은 대로 두고**, 비교할 때 괄호 안팎을
+    각각 후보로 놓고 견줍니다. (common/match.py 의 publisher_variants)
+    그러면 다시 수집하지 않아도 [도서 매칭] 한 번으로 반영됩니다.
     """
     if not raw:
         return None
     publisher_words = publisher_words or DEFAULT_PUBLISHER_WORDS
     text = _nfkc(raw)
-
-    # 괄호 부기 제거. 지우고 나서 아무것도 안 남으면 되돌립니다.
-    stripped = _PUB_PAREN.sub(" ", text)
-    if re.sub(r"[^0-9A-Za-z가-힣]", "", stripped):
-        text = stripped
-
     for w in sorted(set(publisher_words), key=len, reverse=True):
         text = text.replace(w, " ")
     text = re.sub(PUNCT, "", text)

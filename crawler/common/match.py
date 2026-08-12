@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
@@ -68,6 +69,63 @@ def similarity(a: str | None, b: str | None) -> float:
     jac = len(ba & bb) / len(ba | bb) if (ba | bb) else 0.0
 
     return (seq + jac) / 2
+
+
+_PAREN = re.compile(r"[(（\[［{]([^)）\]］}]*)[)）\]］}]")
+
+
+def publisher_variants(name: str | None) -> set[str]:
+    """
+    출판사 이름의 '같은 뜻인 표기' 후보들.
+
+    【2026-08-12 대표님 제보】
+        필름(Feelm)      vs  필름     닮은 정도 0.24  → 다른 출판사로 판정
+        윌북(willbook)   vs  윌북     0.19
+        (주)YBM(와이비엠) vs  YBM     0.38
+        중앙books(중앙북스) vs 중앙북스  0.37
+
+    서점마다 괄호 부기를 붙이기도 하고 안 붙이기도 합니다.
+    출판사가 0.80 만큼 안 닮으면 **점수를 보기도 전에 다른 책**이라
+    이것만으로 갈라지고 있었습니다.
+
+    ⚠️ 【왜 괄호를 지우지 않고 후보를 여럿 두나요?】
+    한때 저장할 때 괄호를 떼어 봤는데 두 가지가 걸렸습니다.
+      ① 저장값은 **수집할 때** 정해지므로, 이미 모아 둔 자료에는
+         적용이 안 됩니다. 다시 수집해야만 바뀝니다.
+      ② 괄호 안에 진짜 이름이 든 경우를 잃습니다.
+           중앙books(중앙북스) → '중앙books'  ← 한글 이름이 사라져
+           '중앙북스' 와 오히려 더 멀어집니다 (0.37 → 0.24).
+
+    그래서 **괄호 안과 밖을 둘 다 후보로** 놓고, 하나라도 맞으면
+    같은 출판사로 봅니다. 비교할 때 계산하므로 다시 수집할 필요가
+    없고, 어느 쪽에 진짜 이름이 있든 잡힙니다.
+
+        필름(feelm)        → {필름feelm, 필름, feelm}
+        중앙books(중앙북스) → {중앙books중앙북스, 중앙books, 중앙북스}
+        ybm(와이비엠)       → {ybm와이비엠, ybm, 와이비엠}
+    """
+    if not name:
+        return set()
+    out = {name}
+    inner = _PAREN.findall(name)
+    outer = _PAREN.sub("", name).strip()
+    if outer:
+        out.add(outer)
+    for chunk in inner:
+        chunk = chunk.strip()
+        if chunk:
+            out.add(chunk)
+    return {v for v in out if v}
+
+
+def publisher_similarity(a: str | None, b: str | None) -> float:
+    """두 출판사가 얼마나 닮았는지. 괄호 안팎 후보끼리 다 견주고 가장 높은 값."""
+    va, vb = publisher_variants(a), publisher_variants(b)
+    if not va or not vb:
+        return 0.0
+    if va & vb:                     # 후보가 하나라도 똑같으면 같은 출판사
+        return 1.0
+    return max(similarity(x, y) for x in va for y in vb)
 
 
 def name_similarity(a: str | None, b: str | None) -> float:
@@ -200,7 +258,7 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     relax = (
         a.norm_author and b.norm_author and a.norm_author == b.norm_author
         and a.norm_publisher and b.norm_publisher
-        and a.norm_publisher == b.norm_publisher
+        and publisher_similarity(a.norm_publisher, b.norm_publisher) >= 1.0
         and a.pub_ym and b.pub_ym and a.pub_ym == b.pub_ym
         and same_price is not False          # 정가를 알면 같아야 함
     )
@@ -255,7 +313,7 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
     # -------------------------------------------------------------------------
     publisher_known = bool(a.norm_publisher and b.norm_publisher)
     if publisher_known:
-        pub_sim = similarity(a.norm_publisher, b.norm_publisher)
+        pub_sim = publisher_similarity(a.norm_publisher, b.norm_publisher)
         if pub_sim < th.get("publisher_hard_floor", 0.80):
             return _reject("출판사가 다름", {
                 "a": a.norm_publisher,
@@ -312,7 +370,8 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
             th.get("pub_ym_soft_when_identical", True)
             and same_price is True                       # 정가가 양쪽에 있고 같음
             and same_name(a.norm_author, b.norm_author)
-            and a.norm_publisher and a.norm_publisher == b.norm_publisher
+            and a.norm_publisher and b.norm_publisher
+            and publisher_similarity(a.norm_publisher, b.norm_publisher) >= 1.0
             and a.norm_title and a.norm_title == b.norm_title
         )
         if ym_gap > allow and not identical:
@@ -357,11 +416,11 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
 
     # --- 출판사 ---
     if a.norm_publisher and b.norm_publisher:
-        if a.norm_publisher == b.norm_publisher:
+        if publisher_similarity(a.norm_publisher, b.norm_publisher) >= 1.0:
             score += w["publisher"]
             reasons["publisher"] = "exact"
         else:
-            sim = similarity(a.norm_publisher, b.norm_publisher)
+            sim = publisher_similarity(a.norm_publisher, b.norm_publisher)
             if sim >= p["publisher_similar_at"]:
                 score += p["publisher_similar_score"]
                 reasons["publisher"] = f"similar({sim:.2f})"

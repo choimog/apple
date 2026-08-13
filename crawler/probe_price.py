@@ -49,7 +49,9 @@ from selectolax.parser import HTMLParser  # noqa: E402
 from common import config as cfg  # noqa: E402
 from common.http import PoliteClient  # noqa: E402
 from common.robots import parse as parse_robots  # noqa: E402
-from stores.base import PRICE_MAX, box_text, parse_prices  # noqa: E402
+from stores.base import (  # noqa: E402
+    PRICE_MAX, box_text, parse_prices, price_text,
+)
 
 BOOKS = 5           # 서점마다 몇 칸을 뜯어볼지
 _NUM = re.compile(r"[\d,]{3,}")
@@ -74,9 +76,12 @@ def numbers_with_context(text: str, width: int = 22) -> list[tuple[str, str]]:
     return out
 
 
-def probe_store(store: dict, defaults: dict) -> None:
-    name = store.get("name") or store.get("code")
-    sel = cfg.load("selectors.yaml").get(store.get("code") or "", {}) or {}
+def probe_store(key: str, store: dict, defaults: dict) -> None:
+    # ⚠️ sources.yaml 은 서점 이름을 'store' 칸에 적습니다.
+    #    2026-08-12 에 'code' 로 찾다가 빈 값이 나와 탐침이 죽었습니다.
+    code = store.get("store") or key
+    name = {"kyobo": "교보문고", "yes24": "예스24", "aladin": "알라딘"}.get(code, code)
+    sel = cfg.load("selectors.yaml").get(code, {}) or {}
     cats = store.get("categories") or []
     if not cats:
         print(f"\n■ {name}: 분야 설정이 없어 건너뜁니다.")
@@ -126,9 +131,18 @@ def probe_store(store: dict, defaults: dict) -> None:
         print(f"   ⚠️ 목록을 받지 못했습니다: {exc}")
         return
 
-    boxes = HTMLParser(html).css(sel.get("book_box") or "")
+    # ⚠️ 선택자가 비어 있으면 selectolax 가 예외를 던집니다.
+    #    탐침 하나 때문에 작업 전체가 죽으면 안 됩니다.
+    box_sel = sel.get("book_box")
+    if not box_sel:
+        print(f"   ⚠️ 도서 칸 선택자가 없습니다 (selectors.yaml 의 {code})")
+        return
+    boxes = HTMLParser(html).css(box_sel)
     if not boxes:
-        print(f"   ⚠️ 도서 칸을 못 찾았습니다 (book_box={sel.get('book_box')})")
+        print(f"   ⚠️ 도서 칸을 못 찾았습니다 (book_box={box_sel})")
+        if code == "kyobo":
+            print("      교보는 브라우저로 그려야 목록이 나옵니다.")
+            print("      이 탐침은 글자만 받아오므로 교보는 원래 안 보입니다.")
         return
     print(f"   도서 칸 {len(boxes)}개 — 앞 {BOOKS}개를 뜯어봅니다\n")
 
@@ -137,11 +151,16 @@ def probe_store(store: dict, defaults: dict) -> None:
         t = box.css(sel.get("title") or "")
         if t:
             title = " ".join((t[0].text() or "").split())[:40]
-        text = box_text(box)
+        # 실제 수집과 **똑같이** 읽습니다 (이벤트 문구를 뺀 글자)
+        text = price_text(box, [sel.get("event"), 'a[href*="/events/"]'])
         got_list, got_sale = parse_prices(text)
+        # 견주어 보라고, 예전처럼 통째로 훑었을 때 값도 함께 보여 줍니다
+        old_list, _ = parse_prices(box_text(box))
 
         print(f"   [{i}] {title}")
         print(f"       지금 뽑는 값 → 정가 {got_list!r} · 판매가 {got_sale!r}")
+        if old_list != got_list:
+            print(f"       (예전 방식이었으면 정가 {old_list!r} — 이벤트 문구에 속았을 값)")
         nums = numbers_with_context(text)
         kept = [n for n, _ in nums
                 if n.replace(",", "").isdigit()
@@ -167,8 +186,13 @@ def main() -> int:
     defaults = src.get("defaults", {})
     for key in ("kyobo_online", "yes24", "aladin"):
         store = src.get(key)
-        if store:
-            probe_store(store, defaults)
+        if not store:
+            continue
+        try:
+            probe_store(key, store, defaults)
+        except Exception as exc:      # noqa: BLE001
+            # 한 서점이 실패해도 나머지는 봐야 합니다
+            print(f"   ⚠️ {key} 확인 중 문제: {type(exc).__name__}: {exc}")
 
     print("\n" + "=" * 70)
     print("  이 결과를 저에게 그대로 보내 주세요.")

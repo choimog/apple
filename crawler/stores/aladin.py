@@ -24,6 +24,7 @@ from .base import (
     diagnose_empty,
     box_text,
     parse_prices,
+    price_text,
     check_yield,
     first,
     parse_number,
@@ -99,7 +100,15 @@ def parse_page(
             cover_url = (cover_node.attributes.get("src") or "").strip() or None
 
         # --- 정가 / 판매가 (2026-08-11 추가) ---
-        list_price, sale_price = parse_prices(box_text(box))
+        #
+        # 🚨 【2026-08-12 대표님이 원인을 찾아 주심】
+        #    이벤트 도서 칸에 "(대상도서 15,000원 이상)" 같은 문구가 붙어
+        #    있어서, 정가 12,500원짜리 책이 15,000원으로 저장됐습니다.
+        #    알라딘은 정가 이름표가 없어 칸 글자를 통째로 훑기 때문입니다.
+        #    그래서 **이벤트 문구 덩어리를 먼저 빼고** 읽습니다.
+        list_price, sale_price = parse_prices(
+            price_text(box, [selectors.get("event"), 'a[href*="/events/"]'])
+        )
 
         # --- 저자 / 출간월 (같은 <li> 안에 함께 들어 있음) ---
         authors: list[tuple[str, str]] = []

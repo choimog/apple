@@ -520,17 +520,49 @@ export function NoRank({
 export function Price({
   value,
   dot = true,
+  split = false,
 }: {
   value: number | null | undefined;
   /** 앞에 가운뎃점(·)을 붙일지. 줄의 첫 항목이면 false */
   dot?: boolean;
+  /**
+   * 🚨 서점마다 정가가 갈렸는가 (2026-08-12 대표님 신고로 추가).
+   *
+   * 도서정가제상 정가는 출판사가 정한 하나의 값이라 3사가 같아야
+   * 정상입니다. 다르면 **둘 중 하나**입니다.
+   *   · 수집이 틀렸다 (『긴긴밤』 알라딘 15,000원 — 실제로는 12,500원)
+   *   · 정말 다른 판형이 묶였다
+   * 어느 쪽이든 **그냥 한 값을 보여주면 안 됩니다.** 표시해 둡니다.
+   */
+  split?: boolean;
 }) {
-  if (!value) return null;
+  if (!value) {
+    // 값을 못 정했는데 갈리기까지 했으면, 비어 있는 이유를 알려 줍니다.
+    if (!split) return null;
+    return (
+      <>
+        {dot && <span className="text-ink-faint">·</span>}
+        <span
+          className="text-amber-700 dark:text-amber-400"
+          title="서점마다 정가가 다르게 수집돼 어느 값이 맞는지 정하지 못했습니다. 서점별 화면에서 각 서점 값을 보실 수 있습니다."
+        >
+          정가 갈림
+        </span>
+      </>
+    );
+  }
   return (
     <>
       {dot && <span className="text-ink-faint">·</span>}
-      <span className="tnum" title="정가 (출판사가 정한 값이라 3사가 같아야 정상입니다)">
-        {value.toLocaleString()}원
+      <span
+        className={`tnum ${split ? "text-amber-700 dark:text-amber-400" : ""}`}
+        title={
+          split
+            ? "⚠️ 서점마다 정가가 다릅니다. 가장 많이 나온 값을 보여드리는 것이라 틀릴 수 있습니다. 서점별 화면에서 각 서점 값을 확인해 주세요."
+            : "정가 (출판사가 정한 값이라 3사가 같아야 정상입니다)"
+        }
+      >
+        {value.toLocaleString()}원{split && " ⚠️"}
       </span>
     </>
   );

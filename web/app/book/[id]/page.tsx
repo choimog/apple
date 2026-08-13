@@ -12,6 +12,7 @@ import {
   NoValue,
   PageHead,
   PeriodBadge,
+  Price,
   RankBadge,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
@@ -24,6 +25,7 @@ import {
   getBookDetail,
   PERIOD_HELP,
   PERIOD_LABEL,
+  priceOf,
   type CurrentPlacement,
   type Period,
 } from "@/lib/queries";
@@ -174,6 +176,21 @@ export default async function BookPage({
     );
   }
 
+  /*
+    🚨 【2026-08-12 대표님 신고 — 화면마다 정가가 달랐습니다】
+      "검색해서 나오는 목록에서는 가격이 12,500원으로 나오고
+       도서를 클릭해서 나오는 페이지에는 15,000원으로 나오는 문제"
+
+    원인은 규칙이 두 벌이었던 것입니다.
+      · 목록·검색 → 가장 많이 나온 값 (12,500 이 2표)
+      · 이 화면   → main.list_price, 즉 **표지를 준 서점(알라딘)의 값**
+
+    같은 책인데 화면마다 다른 값이 나오면 어느 쪽도 못 믿게 됩니다.
+    이제 목록과 **똑같은 함수**(priceOf)를 씁니다.
+    이 화면은 서점별 자료를 이미 갖고 있어서 따로 물어볼 필요가 없습니다.
+  */
+  const price = priceOf(stores.map((b) => b.list_price));
+
   // 표지 우선순위: 알라딘(3) → 예스24(2) → 교보(1)
   const main =
     [3, 2, 1].map((s) => stores.find((b) => b.store_id === s && b.cover_url)).find(Boolean) ??
@@ -277,15 +294,11 @@ export default async function BookPage({
                       <span>{main.pub_ym}</span>
                     </>
                   )}
-                  {/* 정가 — 2026-08-11 추가. 3사가 같아야 정상입니다 */}
-                  {main.list_price && (
-                    <>
-                      <span className="text-ink-faint">·</span>
-                      <span className="tnum">
-                        {main.list_price.toLocaleString()}원
-                      </span>
-                    </>
-                  )}
+                  {/*
+                    정가 — 2026-08-11 추가. 3사가 같아야 정상입니다.
+                    2026-08-12: 목록·검색과 **같은 규칙**을 쓰도록 고쳤습니다.
+                  */}
+                  <Price value={price.value} split={price.split} />
                 </span>
               }
             />

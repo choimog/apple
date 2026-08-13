@@ -40,7 +40,9 @@ const screens = [
   ["종합·출판사·작가 (공통 줄)", "components/BookRow.tsx", /<Price value=\{row\.listPrice\}/],
   ["서점별", "app/store/page.tsx", /list_price[^\n]*toLocaleString\(\)\}?원/],
   ["도서 검색", "app/search/page.tsx", /<Price value=\{b\.listPrice\}/],
-  ["도서 상세", "app/book/[id]/page.tsx", /main\.list_price/],
+  // 2026-08-12: 목록·검색과 같은 규칙(priceOf)을 쓰도록 고쳤습니다.
+  //             예전에는 '표지 준 서점의 값' 을 그대로 썼습니다.
+  ["도서 상세", "app/book/[id]/page.tsx", /<Price value=\{price\.value\}/],
 ];
 for (const [label, file, re] of screens) {
   const src = readFileSync(file, "utf8");
@@ -109,7 +111,20 @@ check("아무 값도 없으면 null", bestPrice(new Map()) === null);
 
 console.log("\n[4] 값이 없을 때 화면이 지어내지 않는다");
 const priceFn = ui.slice(ui.indexOf("export function Price"), ui.indexOf("접기 설명"));
-check("정가가 없으면 아무것도 안 그린다", /if \(!value\) return null;/.test(priceFn));
+/*
+  ⚠️ 【2026-08-12 — 이 규칙을 한 겹 더 나눴습니다】
+  예전 규칙: "값이 없으면 아무것도 안 그린다."
+  그런데 비어 있는 이유가 두 가지라는 것이 드러났습니다.
+
+    ① 아직 정가를 안 걷었다        → 그릴 것이 없습니다 (예전 그대로)
+    ② 🚨 서점마다 값이 달라 못 정했다 → '정가 갈림' 이라고 적습니다
+
+  둘을 같이 비워 두면 대표님이 ②를 ①로 오해하고 넘어가게 됩니다.
+  『긴긴밤』 처럼 한 서점이 잘못 수집한 경우를 못 찾게 됩니다.
+  ※ 값을 지어내는 것이 아니라 **없는 이유**를 적는 것입니다.
+*/
+check("정가를 아직 안 걷었으면 아무것도 안 그린다",
+  /if \(!split\) return null;/.test(priceFn));
 check(
   "'0원' 이나 '정가 미상' 같은 말을 안 만든다",
   // ⚠️ 설명글(주석)에는 그 말이 나옵니다. 그리는 부분만 봅니다.

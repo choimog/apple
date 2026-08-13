@@ -163,7 +163,7 @@ export default async function SearchPage({
                         </>
                       )}
                       {/* 정가 — 2026-08-11 대표님 요청 */}
-                      <Price value={b.listPrice} />
+                      <Price value={b.listPrice} split={b.priceSplit} />
                     </p>
 
                     {/* 어느 서점에 있는 책인지 — 줄을 나누지 않고 배지로 */}

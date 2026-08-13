@@ -207,9 +207,47 @@ export function buildStoreTree(cats: Category[]): StoreTree[] {
  * 정말 다른 판형이 묶였거나). 가장 많이 나온 값을 씁니다.
  * 동점이면 **비웁니다.** 모르는 것을 아는 척하지 않습니다.
  */
+export type PriceView = {
+  /** 화면에 쓸 정가. 못 정하면 null */
+  value: number | null;
+  /** 🚨 서점마다 값이 갈렸는가 */
+  split: boolean;
+  /** 정가를 아는 서점 수 */
+  known: number;
+};
+
+/**
+ * 서점별 정가들을 놓고 **화면에 쓸 값 하나**를 정합니다.
+ *
+ * 🚨 【2026-08-12 대표님 신고 — 화면마다 값이 달랐습니다】
+ *   "검색해서 나오는 목록에서는 가격이 12,500원으로 나오고
+ *    도서를 클릭해서 나오는 페이지에는 15,000원으로 나오는 문제"
+ *
+ * 목록은 '가장 많이 나온 값'(12,500 이 2표)을 쓰고, 도서 상세는
+ * '표지를 준 서점(알라딘)의 값'(15,000)을 그대로 쓰고 있었습니다.
+ * 규칙이 두 벌이었던 것입니다. 이제 두 화면이 이 함수 하나를 씁니다.
+ *
+ * 【정하는 법】
+ *   · 가장 많이 나온 값 (3사 중 2사가 같으면 그 값)
+ *   · 동점이면 **비웁니다** — 한쪽을 골라 보여주면 확인된 값인 줄 아십니다
+ *   · 값이 갈리면 split = true 로 알려서 화면에 표시하게 합니다
+ */
+export function priceOf(list: (number | null | undefined)[]): PriceView {
+  const votes = new Map<number, number>();
+  for (const v of list) {
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    votes.set(v, (votes.get(v) ?? 0) + 1);
+  }
+  let known = 0;
+  for (const n of votes.values()) known += n;
+  return { value: bestPrice(votes), split: votes.size > 1, known };
+}
+
 export type BookStoreInfo = {
   /** 책번호 → 정가 */
   prices: Map<number, number>;
+  /** 🚨 책번호 → 서점마다 정가가 갈렸는가 */
+  splits: Set<number>;
   /** 책번호 → 이 책에 묶여 있는 서점 번호들 */
   linked: Map<number, Set<number>>;
 };
@@ -225,9 +263,10 @@ export async function storeInfoByBook(
   bookIds: number[]
 ): Promise<BookStoreInfo> {
   const prices = new Map<number, number>();
+  const splits = new Set<number>();
   const linked = new Map<number, Set<number>>();
   const ids = [...new Set(bookIds.filter((n) => Number.isFinite(n)))];
-  if (!ids.length) return { prices, linked };
+  if (!ids.length) return { prices, splits, linked };
 
   // ⚠️ .in() 목록이 길면 주소가 너무 길어져 요청 자체가 실패합니다.
   //    (2026-08-10 에 겪은 것과 같은 문제라 300개씩 나눕니다)
@@ -258,8 +297,12 @@ export async function storeInfoByBook(
   for (const [bookId, m] of votes) {
     const got = bestPrice(m);
     if (got !== null) prices.set(bookId, got);
+    // 🚨 값이 갈렸으면 화면에 표시할 수 있게 남깁니다.
+    //    (비어 있는 것이 '아직 안 걷음' 인지 '서점마다 다름' 인지
+    //     구분이 안 되면 대표님이 또 물어보셔야 합니다)
+    if (m.size > 1) splits.add(bookId);
   }
-  return { prices, linked };
+  return { prices, splits, linked };
 }
 
 /**
@@ -305,12 +348,20 @@ export function defaultDepth(period: Period): number {
  * ⚠️ 조회는 한 번입니다. 예전에 정가만 채울 때와 요청 수가 같습니다.
  */
 async function fillStoreInfo(
-  rows: { bookId: number; listPrice: number | null; linked?: number[] }[]
+  rows: {
+    bookId: number;
+    listPrice: number | null;
+    priceSplit?: boolean;
+    linked?: number[];
+  }[]
 ) {
   if (!rows.length) return;
-  const { prices, linked } = await storeInfoByBook(rows.map((r) => r.bookId));
+  const { prices, splits, linked } = await storeInfoByBook(
+    rows.map((r) => r.bookId)
+  );
   for (const r of rows) {
     r.listPrice = prices.get(r.bookId) ?? null;
+    r.priceSplit = splits.has(r.bookId);
     // ⚠️ 못 읽었으면 **빈 배열이 아니라** 그대로 둡니다.
     //    빈 배열은 "어느 서점에도 안 묶임" 이라는 뜻이 되어 버립니다.
     //    모르는 것을 아는 척하면 안 됩니다.
@@ -483,6 +534,12 @@ export type CombinedRow = {
    * 이 값이 있으면 화면이 둘을 구분해서 적을 수 있습니다.
    */
   linked: number[];
+  /**
+   * 🚨 서점마다 정가가 갈렸는가.
+   * 갈렸는데 아무 표시가 없으면, 비어 있는 정가를 보고 '아직 안 걷었나'
+   * 하고 넘어가게 됩니다. 둘은 뜻이 다릅니다.
+   */
+  priceSplit?: boolean;
   /** 서점별 판매지수. 교보는 제공하지 않아 항상 없습니다 */
   sales: Record<number, number>;
   /** 등장한 서점 수 */

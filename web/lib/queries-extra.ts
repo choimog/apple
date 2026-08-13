@@ -24,6 +24,8 @@ export type SearchHit = {
   bestRank: number | null;
   /** 정가(원). 아직 안 걷힌 책은 null (2026-08-11 대표님 요청) */
   listPrice: number | null;
+  /** 🚨 서점마다 정가가 갈렸는가 */
+  priceSplit?: boolean;
 };
 
 /**
@@ -59,12 +61,16 @@ export async function searchMerged(
     lastSeen: r.last_seen,
     bestRank: r.best_rank === null ? null : Number(r.best_rank),
     listPrice: null,
+    priceSplit: false,
   }));
 
   // 정가는 검색 함수(db/perf.sql)가 안 돌려주므로 따로 물어봅니다.
   // 이렇게 하면 대표님이 SQL 을 다시 실행하지 않으셔도 됩니다.
-  const { prices } = await storeInfoByBook(rows.map((r) => r.bookId));
-  for (const r of rows) r.listPrice = prices.get(r.bookId) ?? null;
+  const { prices, splits } = await storeInfoByBook(rows.map((r) => r.bookId));
+  for (const r of rows) {
+    r.listPrice = prices.get(r.bookId) ?? null;
+    r.priceSplit = splits.has(r.bookId);
+  }
 
   return { ok: true, rows };
 }

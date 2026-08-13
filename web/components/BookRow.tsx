@@ -67,7 +67,7 @@ export default function BookRow({
               </Link>
             </>
           )}
-          <Price value={row.listPrice} />
+          <Price value={row.listPrice} split={row.priceSplit} />
           <span className="text-ink-faint">·</span>
           <span>{row.storeCount}개 서점</span>
         </p>

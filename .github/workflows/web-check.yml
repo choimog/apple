@@ -93,6 +93,13 @@ jobs:
         # 통째로 거절합니다. 누르셨는데 아무 일도 안 일어납니다.
         run: node scripts/test-join.mjs
 
+      - name: "'순위 밖' / '안 묶임' 구분 시험"
+        # 2026-08-12 대표님 지적: 둘 다 '순위 밖' 으로 적혀 헷갈렸습니다.
+        # 뜻이 완전히 다릅니다 — 하나는 시장 신호, 하나는 자료의 한계.
+        # 섞이면 "교보에서 안 팔리는구나" 로 잘못 읽게 됩니다.
+        # 모를 때 '안 묶임' 으로 단정하지 않는지도 함께 봅니다.
+        run: node scripts/test-norank.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

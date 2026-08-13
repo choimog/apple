@@ -35,6 +35,8 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
 const PAGES = [
   ["/", ["오늘의 베스트셀러", "종합 베스트셀러 TOP 10"]],
   ["/best", ["종합 베스트셀러", "몇 개 서점에 올라야 넣을지"]],
+  // '순위 밖' 과 '안 묶임' 의 뜻이 화면에 적혀 있는지 (2026-08-12 추가)
+  ["/best", ["안 묶임"]],
   ["/best?period=weekly", ["주간"]],
   ["/store", ["서점별 순위", "집계 기간", "온라인 일간"]],
   ["/store?tab=weekly", ["집계 기간"]],

@@ -178,11 +178,32 @@ export default async function BestPage({
             서점 조건을 <strong>2개 이상</strong>으로 낮추면 더 많이 나옵니다.
           </Empty>
         ) : (
-          <ul className="divide-y divide-line-soft">
-            {rows.map((r, i) => (
-              <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
-            ))}
-          </ul>
+          <>
+            {/*
+              🚨 【2026-08-12 대표님 지적】
+              "묶이지 않은 서점이 있는 경우에도 '순위 밖' 으로 표시하고,
+               묶인 경우인데 순위에서 빠진 경우도 '순위 밖' 이라고 표시하거든?
+               그래서 가끔 좀 헷갈리는데"
+
+              둘을 갈라 놓았으니, 무슨 뜻인지도 화면에 적어 둡니다.
+              말만 바꾸고 설명이 없으면 '안 묶임' 이 또 새로운 수수께끼가
+              됩니다.
+            */}
+            <p className="border-b border-line-soft px-4 py-2 text-2xs leading-relaxed text-ink-faint sm:px-5">
+              <strong className="text-ink-soft">순위 밖</strong> — 그 서점에
+              이 책이 있는데 {depth}위 안에 못 들었습니다 (그 서점에서는 덜
+              팔렸다는 뜻)
+              <br />
+              <strong className="text-ink-soft">안 묶임</strong> — 그 서점
+              상품을 이 책에서 못 찾았습니다. 그 서점에 없거나, 있는데 아직
+              같은 책으로 묶이지 않았습니다
+            </p>
+            <ul className="divide-y divide-line-soft">
+              {rows.map((r, i) => (
+                <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
+              ))}
+            </ul>
+          </>
         )}
       </Card>
     </div>

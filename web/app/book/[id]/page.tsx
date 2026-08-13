@@ -8,6 +8,7 @@ import {
   Card,
   CardHead,
   Empty,
+  NoRank,
   NoValue,
   PageHead,
   PeriodBadge,
@@ -322,6 +323,14 @@ export default async function BookPage({
             const d = latest.get(`${sid}|daily`);
             const w = latest.get(`${sid}|weekly`);
             const none = !d && !w;
+            /*
+              🚨 【2026-08-12 대표님 지적】 '순위 밖' 이 두 가지 뜻으로 쓰임
+                · 이 서점 상품이 이 책에 묶여 있는데 순위에 없음 → 순위 밖
+                · 아예 안 묶여 있음                          → 안 묶임
+              이 화면은 stores(묶인 서점별 도서)를 이미 갖고 있어서
+              따로 물어볼 필요가 없습니다.
+            */
+            const linked = stores.some((b) => b.store_id === sid);
             return (
               <div
                 key={sid}
@@ -332,6 +341,15 @@ export default async function BookPage({
                 <span className={`rounded-md px-2 py-0.5 text-2xs font-medium ${s.chip}`}>
                   {s.name}
                 </span>
+                {/* 묶이지 않은 서점은 '왜 비었는지' 를 한 줄로 적습니다 */}
+                {!linked && (
+                  <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
+                    이 서점 상품이 이 책에 <strong>묶여 있지 않습니다.</strong>
+                    <br />
+                    그 서점에 없거나, 있는데 아직 같은 책으로 묶이지
+                    않았습니다.
+                  </p>
+                )}
                 <dl className="mt-2.5 space-y-1.5">
                   {(["daily", "weekly"] as Period[]).map((p) => {
                     const cell = p === "daily" ? d : w;
@@ -375,9 +393,10 @@ export default async function BookPage({
                               )}
                             </>
                           ) : (
-                            <NoValue
-                              label="순위 밖"
-                              why="이 날짜에 그 서점의 순위 목록에 없었습니다"
+                            <NoRank
+                              storeName={s.name}
+                              depth={p === "weekly" ? 500 : 300}
+                              linked={linked}
                             />
                           )}
                         </dd>

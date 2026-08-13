@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import SalesPoint from "@/components/SalesPoint";
-import { NoValue, Price, RankBadge } from "@/components/ui";
+import { NoRank, Price, RankBadge } from "@/components/ui";
 import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
 import type { CombinedRow } from "@/lib/queries";
 
@@ -78,11 +78,31 @@ export default function BookRow({
             const rank = row.ranks[sid];
             const has = rank !== undefined;
             const s = store(sid);
+            /*
+              🚨 【2026-08-12 대표님 지적】
+              "묶이지 않은 서점이 있는 경우에도 '순위 밖' 으로 표시하고,
+               묶인 경우인데 순위에서 빠진 경우도 '순위 밖' 이라고 표시"
+
+              둘은 뜻이 완전히 다릅니다.
+                · 묶여 있는데 순위 없음 → 그 서점에서 덜 팔림 (시장 신호)
+                · 아예 안 묶임         → 상품을 못 찾음 (자료 한계)
+
+              linked 를 아직 못 읽었으면(빈 배열이 아니라 값이 없으면)
+              예전처럼 '순위 밖' 으로 둡니다. 모르면서 단정하지 않습니다.
+            */
+            const linked = row.linked?.length
+              ? row.linked.includes(sid)
+              : null;
             return (
               <div
                 key={sid}
                 className={`rounded-lg border px-2 py-1.5 ${
-                  has ? "border-line bg-surface" : "border-dashed border-line bg-surface-2"
+                  has
+                    ? "border-line bg-surface"
+                    : linked === false
+                      // 안 묶인 칸은 한 단계 더 옅게 — 눈으로도 구분되게
+                      ? "border-dotted border-line-soft bg-surface-2 opacity-70"
+                      : "border-dashed border-line bg-surface-2"
                 }`}
               >
                 <div className="flex items-baseline justify-between gap-1">
@@ -95,10 +115,7 @@ export default function BookRow({
                     {has ? (
                       `${rank}위`
                     ) : (
-                      <NoValue
-                        label="순위 밖"
-                        why={`${s.name} ${depth}위 안에 없습니다`}
-                      />
+                      <NoRank storeName={s.name} depth={depth} linked={linked} />
                     )}
                   </span>
                 </div>

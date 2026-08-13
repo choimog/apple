@@ -3,7 +3,7 @@
  * 기능이 아직 안 켜졌으면 ok:false 를 돌려주고, 화면이 그 사실을 알립니다.
  */
 
-import { pricesByBook } from "./queries";
+import { storeInfoByBook } from "./queries";
 import { db } from "./supabase";
 
 /* ------------------------------------------------------------- 도서 검색 */
@@ -63,7 +63,7 @@ export async function searchMerged(
 
   // 정가는 검색 함수(db/perf.sql)가 안 돌려주므로 따로 물어봅니다.
   // 이렇게 하면 대표님이 SQL 을 다시 실행하지 않으셔도 됩니다.
-  const prices = await pricesByBook(rows.map((r) => r.bookId));
+  const { prices } = await storeInfoByBook(rows.map((r) => r.bookId));
   for (const r of rows) r.listPrice = prices.get(r.bookId) ?? null;
 
   return { ok: true, rows };

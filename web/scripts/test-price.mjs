@@ -56,17 +56,28 @@ check(
 );
 
 console.log("\n[2] 정가를 어디서 가져오나");
-check("한 번에 여러 권을 물어보는 함수가 있다", /export async function pricesByBook/.test(q));
+check("한 번에 여러 권을 물어보는 함수가 있다", /export async function storeInfoByBook/.test(q));
 check(
   "주소가 길어지지 않게 나눠서 물어본다",
   /i \+= 300/.test(q),
   "300개씩 안 나누면 요청 자체가 실패합니다"
 );
-check("정가가 없는 줄은 아예 안 받아온다", /\.not\("list_price", "is", null\)/.test(q));
-check("종합 순위에 정가를 채운다", /await fillPrices\(rows\)/.test(q));
-check("느린 길에도 채운다", /await fillPrices\(top\)/.test(q));
-check("출판사·작가 목록에도 채운다", (q.match(/await fillPrices\(/g) || []).length >= 3);
-check("검색 결과에도 채운다", /pricesByBook\(rows\.map/.test(qx));
+/*
+  ⚠️ 【2026-08-12 — 이 규칙은 일부러 뒤집었습니다】
+  예전에는 정가가 있는 줄만 받아왔습니다(받는 양을 줄이려고).
+  그런데 같은 조회로 '이 책에 묶여 있는 서점' 도 함께 읽게 되면서,
+  정가로 걸러내면 **정가를 아직 안 걷은 서점이 '안 묶인' 것처럼**
+  보이게 됩니다. 그래서 전부 받아 오고 코드에서 나눕니다.
+  (받는 양은 조금 늘지만 화면에 보이는 100권뿐이라 차이가 없습니다)
+*/
+check("🚨 정가로 줄을 걸러내지 않는다 (걸러내면 '안 묶임' 이 틀리게 나옵니다)",
+  !/\.select\("book_id, store_id, list_price"\)[\s\S]{0,150}\.not\("list_price"/.test(q));
+check("대신 코드에서 빈 정가를 건너뛴다",
+  /if \(r\.list_price === null\) continue;/.test(q));
+check("종합 순위에 정가를 채운다", /await fillStoreInfo\(rows\)/.test(q));
+check("느린 길에도 채운다", /await fillStoreInfo\(top\)/.test(q));
+check("출판사·작가 목록에도 채운다", (q.match(/await fillStoreInfo\(/g) || []).length >= 3);
+check("검색 결과에도 채운다", /storeInfoByBook\(rows\.map/.test(qx));
 
 console.log("\n[3] 🚨 값이 갈리면 지어내지 않는다 (가장 중요)");
 // bestPrice 를 이 파일 안에서 그대로 옮겨 와 동작을 확인합니다.

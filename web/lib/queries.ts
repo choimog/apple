@@ -207,12 +207,27 @@ export function buildStoreTree(cats: Category[]): StoreTree[] {
  * 정말 다른 판형이 묶였거나). 가장 많이 나온 값을 씁니다.
  * 동점이면 **비웁니다.** 모르는 것을 아는 척하지 않습니다.
  */
-export async function pricesByBook(
+export type BookStoreInfo = {
+  /** 책번호 → 정가 */
+  prices: Map<number, number>;
+  /** 책번호 → 이 책에 묶여 있는 서점 번호들 */
+  linked: Map<number, Set<number>>;
+};
+
+/**
+ * 여러 책의 **정가**와 **묶여 있는 서점**을 한 번에 읽어옵니다.
+ *
+ * ⚠️ 조회는 하나입니다. 정가만 볼 때와 요청 수가 똑같습니다.
+ *    (예전에는 정가가 있는 줄만 골라 읽었는데, 그러면 '정가를 아직 안
+ *     걷은 서점' 이 안 묶인 것처럼 보입니다. 그래서 전부 읽고 나눕니다)
+ */
+export async function storeInfoByBook(
   bookIds: number[]
-): Promise<Map<number, number>> {
-  const out = new Map<number, number>();
+): Promise<BookStoreInfo> {
+  const prices = new Map<number, number>();
+  const linked = new Map<number, Set<number>>();
   const ids = [...new Set(bookIds.filter((n) => Number.isFinite(n)))];
-  if (!ids.length) return out;
+  if (!ids.length) return { prices, linked };
 
   // ⚠️ .in() 목록이 길면 주소가 너무 길어져 요청 자체가 실패합니다.
   //    (2026-08-10 에 겪은 것과 같은 문제라 300개씩 나눕니다)
@@ -220,12 +235,20 @@ export async function pricesByBook(
   for (let i = 0; i < ids.length; i += 300) {
     const { data, error } = await db()
       .from("store_books")
-      .select("book_id, list_price")
-      .in("book_id", ids.slice(i, i + 300))
-      .not("list_price", "is", null);
-    if (error || !data) continue; // 정가는 곁들이는 값이라 실패해도 화면은 뜹니다
-    for (const r of data as { book_id: number | null; list_price: number }[]) {
+      .select("book_id, store_id, list_price")
+      .in("book_id", ids.slice(i, i + 300));
+    if (error || !data) continue; // 곁들이는 값이라 실패해도 화면은 뜹니다
+    const rows = data as {
+      book_id: number | null;
+      store_id: number;
+      list_price: number | null;
+    }[];
+    for (const r of rows) {
       if (!r.book_id) continue;
+      let set = linked.get(r.book_id);
+      if (!set) linked.set(r.book_id, (set = new Set()));
+      set.add(r.store_id);
+      if (r.list_price === null) continue;   // 정가는 아직 없을 수 있습니다
       let m = votes.get(r.book_id);
       if (!m) votes.set(r.book_id, (m = new Map()));
       m.set(r.list_price, (m.get(r.list_price) ?? 0) + 1);
@@ -234,9 +257,9 @@ export async function pricesByBook(
 
   for (const [bookId, m] of votes) {
     const got = bestPrice(m);
-    if (got !== null) out.set(bookId, got);
+    if (got !== null) prices.set(bookId, got);
   }
-  return out;
+  return { prices, linked };
 }
 
 /**
@@ -276,11 +299,24 @@ export function defaultDepth(period: Period): number {
   return period === "weekly" ? 500 : 300;
 }
 
-/** 목록 한 벌에 정가를 채워 넣습니다 (자리에서 바로 고칩니다) */
-async function fillPrices(rows: { bookId: number; listPrice: number | null }[]) {
+/**
+ * 목록 한 벌에 **정가**와 **묶인 서점**을 채워 넣습니다 (자리에서 바로).
+ *
+ * ⚠️ 조회는 한 번입니다. 예전에 정가만 채울 때와 요청 수가 같습니다.
+ */
+async function fillStoreInfo(
+  rows: { bookId: number; listPrice: number | null; linked?: number[] }[]
+) {
   if (!rows.length) return;
-  const map = await pricesByBook(rows.map((r) => r.bookId));
-  for (const r of rows) r.listPrice = map.get(r.bookId) ?? null;
+  const { prices, linked } = await storeInfoByBook(rows.map((r) => r.bookId));
+  for (const r of rows) {
+    r.listPrice = prices.get(r.bookId) ?? null;
+    // ⚠️ 못 읽었으면 **빈 배열이 아니라** 그대로 둡니다.
+    //    빈 배열은 "어느 서점에도 안 묶임" 이라는 뜻이 되어 버립니다.
+    //    모르는 것을 아는 척하면 안 됩니다.
+    const set = linked.get(r.bookId);
+    if (set) r.linked = [...set];
+  }
 }
 
 /** 순위 한 줄에 딸려오는 도서 정보 (rankings → store_books 이어붙이기) */
@@ -432,6 +468,21 @@ export type CombinedRow = {
   coverUrl: string | null;
   /** 서점별 순위. 그 서점 목록에 없으면 키가 없습니다 (0 으로 채우지 않음) */
   ranks: Record<number, number>;
+  /**
+   * 이 책에 **묶여 있는** 서점 번호들.
+   *
+   * 【2026-08-12 대표님 지적 — 왜 이게 필요한가요?】
+   *   "묶이지 않은 서점이 있는 경우에도 그 서점을 '순위 밖' 으로 표시하고,
+   *    묶인 경우인데 순위에서 빠진 경우 '순위 밖' 이라고 표시하거든?
+   *    그래서 가끔 좀 헷갈리는데"
+   *
+   * 맞습니다. 뜻이 완전히 다릅니다.
+   *   · 묶여 있는데 순위에 없음 → 그 서점에서 **순위 밖** (시장 신호)
+   *   · 아예 안 묶여 있음       → 그 서점 상품을 **못 찾음** (자료 한계)
+   *
+   * 이 값이 있으면 화면이 둘을 구분해서 적을 수 있습니다.
+   */
+  linked: number[];
   /** 서점별 판매지수. 교보는 제공하지 않아 항상 없습니다 */
   sales: Record<number, number>;
   /** 등장한 서점 수 */
@@ -521,8 +572,9 @@ export async function getCombinedBest(
       storeCount: r.store_count,
       avgRank: Number(r.avg_rank),
       listPrice: null as number | null,
+      linked: [] as number[],
     }));
-    await fillPrices(rows);
+    await fillStoreInfo(rows);
     return {
       rows,
       depth,
@@ -578,6 +630,7 @@ export async function getCombinedBest(
         coverUrl: r.store_book.cover_url,
         ranks: {},
         sales: {},
+        linked: [],       // 아래 fillStoreInfo 가 채웁니다
       };
       acc.set(bookId, cur);
     }
@@ -599,12 +652,13 @@ export async function getCombinedBest(
       storeCount: rankList.length,
       avgRank: rankList.reduce((x, y) => x + y, 0) / rankList.length,
       listPrice: null,
+      linked: [],
     });
   }
 
   rows.sort((x, y) => x.avgRank - y.avgRank || y.storeCount - x.storeCount);
   const top = rows.slice(0, limit);
-  await fillPrices(top);
+  await fillStoreInfo(top);
   return { rows: top, depth, usedCategories: await usedIn(cats, date), fast: false };
 }
 
@@ -1106,8 +1160,9 @@ export async function getBooksOf(
     storeCount: r.store_count,
     avgRank: Number(r.avg_rank),
     listPrice: null as number | null,
+    linked: [] as number[],
   }));
-  await fillPrices(rows);
+  await fillStoreInfo(rows);
   return { rows, ok: true };
 }
 

@@ -77,7 +77,7 @@ export default function Nav({
   if (!email) {
     return (
       <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-4 sm:h-14">
           <span className="text-[15px] font-bold tracking-[-0.01em]">
             <span aria-hidden>📚</span> 베스트셀러 트래커
           </span>
@@ -99,10 +99,62 @@ export default function Nav({
     return path.startsWith(href);
   };
 
+  /*
+    묶음을 옅은 상자로 감싸 경계를 냅니다.
+    (글자 머리표는 대표님이 2026-08-08 에 없애라고 하셔서 안 씁니다.
+     name 은 화면에 안 그리고 구분·읽어주기 용도로만 씁니다)
+
+    휴대폰에서는 아래 줄에, 넓은 화면에서는 제목 옆에 — 같은 것을 두 번
+    그리지 않도록 이 함수 하나로 만듭니다.
+  */
+  const menu = (extra: string) => (
+    <nav aria-label="주요 메뉴" className={`scroll-x flex items-center gap-2.5 ${extra}`}>
+      {groups.map((g) => (
+        <div
+          key={g.name}
+          role="group"
+          aria-label={g.name}
+          className="flex shrink-0 items-center gap-1 rounded-xl border border-line-soft bg-surface-2/60 px-1 py-1"
+        >
+          {g.items.map((it) => {
+            const on = isOn(it.href);
+            return (
+              <Link
+                key={it.href}
+                href={it.href}
+                aria-current={on ? "page" : undefined}
+                className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-sm transition-colors ${
+                  on
+                    ? "bg-accent font-semibold text-accent-ink shadow-sm"
+                    : "text-ink-soft hover:bg-surface hover:text-ink"
+                }`}
+              >
+                {it.label}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
+    </nav>
+  );
+
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
       <div className="mx-auto max-w-6xl px-4">
-        <div className="flex h-14 items-center gap-4">
+        {/*
+          🚨 【2026-08-12 대표님 지적】
+            "맨 상단에 메뉴가 넘어가는 영역이 모바일에서 보면 너무 좁아.
+             홈페이지명, 다크모드, 로그인 영역 때문에 말이지."
+
+          맞습니다. 한 줄에 넷을 다 넣고 있었습니다. 휴대폰 폭이 360px
+          쯤인데 제목 150 · 다크모드 36 · 로그아웃 62 · 여백을 빼면
+          메뉴에 남는 자리가 100px 도 안 됩니다. 열 개 가까운 메뉴를
+          그 틈으로 밀어 봐야 두세 개밖에 안 보입니다.
+
+          그래서 **휴대폰에서는 메뉴를 아랫줄로 내려 폭을 전부** 씁니다.
+          넓은 화면(sm 이상)은 예전처럼 한 줄입니다.
+        */}
+        <div className="flex h-12 items-center justify-between gap-3 sm:h-14 sm:gap-4">
           <Link
             href="/"
             className={`shrink-0 text-[15px] font-bold tracking-[-0.01em] ${
@@ -112,59 +164,30 @@ export default function Nav({
             <span aria-hidden>📚</span> 베스트셀러 트래커
           </Link>
 
-          {/*
-            묶음을 옅은 상자로 감싸 경계를 냅니다.
-            (글자 머리표는 대표님이 2026-08-08 에 없애라고 하셔서 안 씁니다.
-             name 은 화면에 안 그리고 구분·읽어주기 용도로만 씁니다)
-          */}
-          <nav
-            aria-label="주요 메뉴"
-            className="scroll-x flex min-w-0 flex-1 items-center gap-2.5"
-          >
-            {groups.map((g) => (
-              <div
-                key={g.name}
-                role="group"
-                aria-label={g.name}
-                className="flex shrink-0 items-center gap-1 rounded-xl border border-line-soft bg-surface-2/60 px-1 py-1"
+          {/* 넓은 화면에서만 제목 옆에 (휴대폰에서는 아랫줄에 그립니다) */}
+          {menu("hidden min-w-0 flex-1 sm:flex")}
+
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <ThemeToggle />
+
+            {/*
+              로그아웃은 링크가 아니라 버튼입니다.
+              링크로 두면 남이 보낸 주소를 눌렀을 때 나도 모르게 로그아웃됩니다.
+            */}
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                title={email}
+                className="rounded-lg px-2 py-1.5 text-sm text-ink-soft hover:bg-surface-2 hover:text-ink sm:px-2.5"
               >
-                {g.items.map((it) => {
-                  const on = isOn(it.href);
-                  return (
-                    <Link
-                      key={it.href}
-                      href={it.href}
-                      aria-current={on ? "page" : undefined}
-                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-sm transition-colors ${
-                        on
-                          ? "bg-accent font-semibold text-accent-ink shadow-sm"
-                          : "text-ink-soft hover:bg-surface hover:text-ink"
-                      }`}
-                    >
-                      {it.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
-
-          <ThemeToggle />
-
-          {/*
-            로그아웃은 링크가 아니라 버튼입니다.
-            링크로 두면 남이 보낸 주소를 눌렀을 때 나도 모르게 로그아웃됩니다.
-          */}
-          <form action="/auth/signout" method="post" className="shrink-0">
-            <button
-              type="submit"
-              title={email}
-              className="rounded-lg px-2.5 py-1.5 text-sm text-ink-soft hover:bg-surface-2 hover:text-ink"
-            >
-              로그아웃
-            </button>
-          </form>
+                로그아웃
+              </button>
+            </form>
+          </div>
         </div>
+
+        {/* 휴대폰 전용 — 메뉴가 화면 폭을 전부 씁니다 */}
+        {menu("-mx-1 border-t border-line-soft px-1 py-1.5 sm:hidden")}
       </div>
     </header>
   );

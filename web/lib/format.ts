@@ -9,20 +9,37 @@
 
 const KST = "Asia/Seoul";
 
-/** 2026-08-08 → "8월 8일 (금)" */
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
+
+/**
+ * "2026-08-12" → "8월 12일 (수)"
+ *
+ * 🚨 【2026-08-12 대표님 지적 — 요일이 하루씩 밀려 있었습니다】
+ *   "수집하는 일자는 표기가 맞는데, 요일 표기가 하루씩 밀려서
+ *    표기되는거 같은데?"
+ *
+ * 맞았습니다. 예전 코드는 이랬습니다.
+ *
+ *     const d = new Date(`${iso}T00:00:00+09:00`);   // 한국 자정
+ *     ... d.getUTCDay()                             // ← UTC 기준 요일
+ *
+ * 한국 자정은 **세계표준시로는 전날 15시**입니다. 그래서 UTC 기준
+ * 요일을 읽으면 언제나 **하루 전 요일**이 나옵니다.
+ * 8월 12일(수) → '화' 로 나오고 있었습니다.
+ *
+ * 【왜 여기에 시간대가 아예 필요 없나요】
+ * 넘어오는 값은 "2026-08-12" 같은 **달력 날짜**입니다. 몇 시인지는
+ * 처음부터 없습니다. 수집 날짜는 이미 한국시간 기준으로 정해져
+ * 저장된 값이라, 여기서 또 시간대를 씌우면 그때부터 어긋납니다.
+ * 그래서 시각을 만들지 않고 **날짜 그대로** 요일을 셉니다.
+ * (Date.UTC 를 쓰는 것은 시간대 영향을 아예 안 받게 하려는 것입니다)
+ */
 export function dayLabel(iso: string): string {
-  const d = new Date(`${iso}T00:00:00+09:00`);
-  const wd = ["일", "월", "화", "수", "목", "금", "토"][
-    Number(
-      new Intl.DateTimeFormat("en-US", { timeZone: KST, weekday: "short" })
-        .formatToParts(d)
-        .find((p) => p.type === "weekday")
-        ? d.getUTCDay()
-        : 0
-    )
-  ];
-  const [, m, day] = iso.split("-");
-  return `${Number(m)}월 ${Number(day)}일 (${wd})`;
+  const [y, m, day] = iso.split("-").map(Number);
+  // 이상한 값이 와도 화면이 깨지지 않게 합니다 (요일만 비웁니다)
+  if (!y || !m || !day) return iso;
+  const wd = WEEKDAYS[new Date(Date.UTC(y, m - 1, day)).getUTCDay()];
+  return `${m}월 ${day}일 (${wd})`;
 }
 
 /** 2026-08-08 → "08-08" (좁은 자리용) */

@@ -156,9 +156,13 @@ class _FakeClient:
 print("\n[6] 🚨 지우는 순서 — 상품이 먼저, 묶음이 나중")
 # 반대로 하면 묶음이 없어진 상품이 잠깐 생깁니다. 그 사이에 매칭이 돌면
 # 엉뚱하게 다시 묶습니다.
-tmp = ROOT / "tests" / "_tmp_prune"
-tmp.mkdir(exist_ok=True)
-(tmp / "sb.gz").write_bytes(b"")
+# ⚠️ 시험이 만든 파일은 저장소에 남기지 않습니다.
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+tmp = Path(tempfile.mkdtemp(prefix="prune-test-"))
+atexit.register(shutil.rmtree, tmp, True)
 
 rows_sb = [{"id": 1, "raw_title": "가"}, {"id": 2, "raw_title": "나"}]
 rows_bk = [{"id": 10, "title": "가"}]

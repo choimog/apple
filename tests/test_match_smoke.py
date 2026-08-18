@@ -96,8 +96,11 @@ ALIAS = {
 class FakeDB:
     """main() 이 부르는 db.* 를 전부 가짜로 받아 줍니다."""
 
-    def __init__(self, rows, alias, manual=None):
+    def __init__(self, rows, alias, manual=None, old_matches=None):
         self.rows, self.alias, self.manual = rows, alias, manual or {}
+        # 지난 실행에서 이미 저장돼 있던 '자동으로 묶음' 기록
+        self.old_matches = list(old_matches or [])
+        self.deleted_matches: list[int] = []
         self.saved_matches: list[dict] = []
         self.inserted: list[dict] = []
         self.updated: list[dict] = []
@@ -121,6 +124,13 @@ class FakeDB:
     def save_matches(self, client, rows):
         self.saved_matches.extend(rows)
 
+    def fetch_auto_match_pairs(self, client):
+        return [dict(r) for r in self.old_matches]
+
+    def delete_matches(self, client, ids):
+        self.deleted_matches.extend(ids)
+        return len(ids)
+
     def insert_books(self, client, rows):
         self.inserted.extend(rows)
         # 진짜 DB 처럼 새 번호를 돌려줍니다
@@ -137,14 +147,15 @@ class FakeDB:
         return 0
 
 
-def run(rows=ROWS, alias=ALIAS, manual=None, dry=False):
+def run(rows=ROWS, alias=ALIAS, manual=None, dry=False, old_matches=None):
     """main() 을 통째로 돌리고 (종료코드, 화면글, 가짜DB) 를 돌려줍니다."""
-    fake = FakeDB(rows, alias, manual)
+    fake = FakeDB(rows, alias, manual, old_matches)
     saved = {name: getattr(real_db, name, None)
              for name in ("connect", "fetch_all_store_books",
                           "fetch_manual_decisions", "fetch_publisher_aliases",
                           "save_matches", "insert_books", "update_books",
-                          "link_store_books_bulk", "delete_orphan_books")}
+                          "link_store_books_bulk", "delete_orphan_books",
+                          "fetch_auto_match_pairs", "delete_matches")}
     for name in saved:
         setattr(real_db, name, getattr(fake, name))
     old_argv, old_dry = sys.argv, __import__("os").environ.get("DRY_RUN", "")
@@ -264,6 +275,45 @@ check("표에 '알라딘↔알라딘' 같은 줄이 없다",
       "알라딘↔알라딘" not in out7 and "교보↔교보" not in out7
       and "예스24↔예스24" not in out7,
       [ln for ln in out7.splitlines() if "↔" in ln and "정가" not in ln][:6])
+
+print("\n[10] 🚨 검토 화면이 '자동으로 묶음' 이라고 거짓말하지 않는가")
+# 【2026-08-18 대표님 신고】
+#   "실제로는 안 묶여있는데, 왜 매칭도서 페이지에는 자동으로 묶은 것으로
+#    나오지?"
+#
+# 원인 둘:
+#   ① 저장이 '덮어쓰기' 뿐이라, 어제 묶였다가 오늘 안 묶이는 짝의 옛
+#      기록('auto_high')이 그대로 남았습니다. 지우는 코드가 없었습니다.
+#   ② 무리를 정리하면서 갈라진 짝도 '묶음' 으로 저장되고 있었습니다.
+#
+# 여기서는 ①을 봅니다. 7번(1권)과 9번(2권)은 이번 규칙으로 갈라지므로,
+# 지난 실행에 남아 있던 그 짝의 기록은 **지워져야** 합니다.
+OLD = [
+    {"id": 5001, "store_book_a": 7, "store_book_b": 9},   # 이제는 안 묶임
+    {"id": 5002, "store_book_a": 7, "store_book_b": 8},   # 여전히 묶임
+]
+code8, out8, fake8 = run(rows=SERIES, alias={}, old_matches=OLD)
+check("죽지 않는다", code8 == 0, code8)
+check("이제 안 묶이는 옛 기록을 지운다", 5001 in fake8.deleted_matches,
+      fake8.deleted_matches)
+check("아직 묶여 있는 기록은 안 지운다", 5002 not in fake8.deleted_matches,
+      fake8.deleted_matches)
+check("몇 건을 지웠는지 화면에 적는다", "옛 기록" in out8, out8[-500:])
+
+# ② 갈라진 짝은 애초에 '묶음' 으로 저장하지 않습니다.
+#    저장한 짝은 전부 **같은 책 번호**를 달고 있어야 합니다.
+links8 = {r["id"]: r["book_id"] for r in fake8.linked}
+bad = [(m["store_book_a"], m["store_book_b"]) for m in fake8.saved_matches
+       if links8.get(m["store_book_a"]) != links8.get(m["store_book_b"])]
+check("저장한 짝은 전부 실제로 한 책에 묶여 있다", not bad, bad)
+
+# 🚨 사람이 내린 결정은 이 정리에서 절대 건드리면 안 됩니다.
+#    (읽어 오는 함수 자체가 auto_high / auto_low 만 봅니다)
+import inspect                                     # noqa: E402
+
+src = inspect.getsource(real_db.fetch_auto_match_pairs)
+check("사람 결정은 읽지도 않는다",
+      "auto_high" in src and "auto_low" in src and "manual" not in src, src)
 
 print()
 if failures:

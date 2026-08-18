@@ -186,6 +186,21 @@ export type ReviewPair = {
   b: ReviewBook;
   /** 이 짝이 속한 책에 지금 몇 권이 묶여 있는지 (모르면 null) */
   groupSize: number | null;
+  /**
+   * 🚨 **지금 정말로 한 책으로 묶여 있는가.**
+   *
+   * 【2026-08-18 대표님 신고】
+   *   "실제로는 안 묶여있는데, 왜 매칭도서 페이지에는 자동으로 묶은
+   *    것으로 나오지?"
+   *
+   * 이 화면은 book_matches 에 적힌 판정('auto_high')을 읽습니다. 그런데
+   * 그 판정과 **실제로 묶였는지**는 다른 값입니다. 실제는 store_books 의
+   * book_id 가 같은지로만 알 수 있습니다.
+   *
+   * 원인은 매칭 쪽에서 고쳤지만(옛 기록 지우기 + 갈라진 짝 제외), 여기서
+   * 한 번 더 봅니다. **판정을 그대로 믿으면 또 조용히 거짓말을 합니다.**
+   */
+  linked: boolean;
 };
 
 const PAGE_SIZE = 20;
@@ -521,6 +536,8 @@ async function shapePairs(
       a,
       b,
       groupSize: sizeByStoreBook?.get(m.store_book_a) ?? null,
+      // 🚨 판정이 아니라 **실제 소속**으로 판단합니다 (위 linked 설명).
+      linked: a.bookId !== null && a.bookId === b.bookId,
     });
   }
 

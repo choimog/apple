@@ -669,6 +669,23 @@ function PairCard({
               {pair.groupSize >= 4 && " ⚠️"}
             </span>
           )}
+          {/*
+            🚨 【2026-08-18 대표님 신고】
+            "실제로는 안 묶여있는데, 왜 자동으로 묶은 것으로 나오지?"
+
+            이 화면은 '판정' 을 읽는데, 실제로 묶였는지는 **다른 값**
+            (store_books.book_id) 입니다. 둘이 어긋나면 화면이 조용히
+            거짓말을 합니다. 원인은 매칭 쪽에서 고쳤지만, 또 어긋나면
+            여기서 눈에 보이게 합니다. 숨기지 않습니다.
+          */}
+          {!pair.linked && pair.decision !== "manual_split" && (
+            <span
+              title="판정은 '같은 책' 인데 지금은 서로 다른 책으로 갈라져 있습니다. 매칭을 한 번 더 돌리면 정리됩니다."
+              className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400"
+            >
+              지금은 안 묶임 ⚠️
+            </span>
+          )}
           {reasons.map((r, i) => (
             <ReasonChip key={i} reason={r} />
           ))}

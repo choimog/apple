@@ -272,6 +272,30 @@ def save_matches(client: Client, rows: list[dict]) -> None:
         ).execute()
 
 
+def fetch_auto_match_pairs(client: Client) -> list[dict]:
+    """
+    **기계가 내린 판정만** 읽어옵니다 (id, 짝). 사람 결정은 안 읽습니다.
+
+    지금 남아 있는 '자동으로 묶음' 기록이 무엇인지 알아야, 이번 실행에서
+    더 이상 묶이지 않는 기록을 지울 수 있습니다 (아래 delete_matches).
+    """
+    return _select_all(
+        lambda: client.table("book_matches")
+        .select("id,store_book_a,store_book_b")
+        .in_("decision", ["auto_high", "auto_low"])
+        .order("id")
+    )
+
+
+def delete_matches(client: Client, ids: list[int]) -> int:
+    """매칭 기록을 번호로 지웁니다. 지운 개수를 돌려줍니다."""
+    if not ids:
+        return 0
+    for chunk in _chunks(ids, 200):
+        client.table("book_matches").delete().in_("id", chunk).execute()
+    return len(ids)
+
+
 def insert_books(client: Client, rows: list[dict]) -> list[int]:
     """
     도서 마스터를 한꺼번에 만듭니다. 넣은 순서대로 id 목록을 돌려줍니다.

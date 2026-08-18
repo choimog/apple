@@ -110,7 +110,9 @@ check("'며칠 남았나' 에도 기록 증가분을 넣는다",
 
 print("\n[3] 구조적으로 안 맞으면 먼저 알린다")
 # 보관 일수를 늘리면 넘칩니다. '며칠 남았다' 만 봐서는 이걸 못 봅니다.
-long_keep = project(real, 2, 30)
+# ⚠️ catalog_per_day=0 을 일부러 넣습니다. 안 넣으면 '못 쟀다' 가 먼저
+#    걸려서, 여기서 보고 싶은 '보관 일수' 문제가 가려집니다.
+long_keep = project(real, 2, 30, catalog_per_day=0.0)
 check("보관 30일이면 넘친다고 알린다", long_keep["problem"] is not None)
 check("보관 일수를 줄이라고 말한다",
       "보관 일수" in (long_keep["problem"] or ""), long_keep["problem"])
@@ -179,6 +181,137 @@ if m:
     check(f"설정({acfg_days}일) 과 화면({m.group(1)}일) 이 같다",
           int(m.group(1)) == acfg_days, (acfg_days, m.group(1)))
 
+
+print("\n[8] 🚨 2026-08-18 — 도서 목록을 '안 늘어난다' 고 세지 않는다")
+# 【대표님 질문에서 찾은 잘못】
+#   "7일 정도 수집됐어. 용량이 얼마나 버틸 수 있을것 같아?"
+#
+# db/space-growth.sql 로 재 보니 도서 목록이 하루 12MB 씩 늘고 있었는데,
+# 이 계산은 그것을 '거의 안 늘어남' 으로 보고 있었습니다. 전체 증가량의
+# 58% 를 0 으로 센 것입니다. 그러면 경고가 영영 안 뜹니다.
+#
+# 그때의 실제 표 크기를 그대로 넣어 둡니다.
+real_0818 = [
+    t("rankings", 60), t("books", 59), t("store_books", 48),
+    t("book_matches", 29), t("crawl_logs", 1.12),
+]
+CAT_PER_DAY = 12.2      # 실측: store_books 4.4 + books 5.3 + matches 2.5
+
+none_p = project(real_0818, 7, 14)
+check("🚨 못 쟀으면 '못 쟀다' 고 말한다 (0 으로 세지 않는다)",
+      none_p["catalog_measured"] is False and none_p["problem"] is not None,
+      none_p["problem"])
+check("못 쟀다는 것이 문제 문구에 드러난다",
+      "재지 못했" in (none_p["problem"] or ""), none_p["problem"])
+
+now = project(real_0818, 7, 14, catalog_per_day=CAT_PER_DAY)
+check("도서 목록 증가분이 '며칠 남았나' 에 들어간다",
+      now["days_left"] < none_p["days_left"], (now["days_left"], none_p["days_left"]))
+# 순위 60/7=8.57 + 기록 1.12/7=0.16 + 목록 12.2 = 20.9MB/일
+# 남은 여유 (500-197.1)=302.9 → 14일
+check("하루 약 21MB · 약 14일 남았다고 본다",
+      13 <= now["days_left"] <= 15, now["days_left"])
+check("🚨 정리 장치가 없다는 것을 먼저 알린다",
+      "정리하는 장치가 없" in (now["problem"] or ""), now["problem"])
+check("보관 일수를 줄이라는 엉뚱한 말을 하지 않는다",
+      "보관 일수" not in (now["problem"] or ""), now["problem"])
+
+print("\n[8-1] 정리 장치를 붙이면 예상치가 실제로 내려간다")
+fixed = project(real_0818, 7, 14, catalog_per_day=CAT_PER_DAY,
+                catalog_keep_days=14)
+check("1년 뒤 예상이 크게 준다", fixed["steady"] < now["steady"] / 3,
+      (fixed["steady"], now["steady"]))
+check("한도 안에 들어온다", fixed["steady"] < FREE_LIMIT_MB, fixed["steady"])
+check("몇 일치로 정리하는지 알려준다", fixed["catalog_keep"] == 14)
+# 목록 12.2×14 = 171 + 순위 8.57×14 = 120 + 기록 0.16×180 = 29 → 320MB
+check("예상 최대 약 320MB", abs(fixed["steady"] - 320) < 5, fixed["steady"])
+
+print("\n[8-2] 첫 수집일을 증가 속도로 세지 않는다 (2026-08-09 의 그 잘못)")
+from capacity import CATALOG_SAMPLE_DAYS, measure_catalog_growth  # noqa: E402
+
+
+class _FakeTable:
+    """first_seen_at 이 cutoff 이후인 줄만 세는 흉내."""
+
+    def __init__(self, per_day: dict[str, int]):
+        self.per_day = per_day
+        self.lo, self.hi = "", "9999"
+
+    def select(self, *a, **k):
+        return self
+
+    def gte(self, _col, value):
+        self.lo = value
+        return self
+
+    def lt(self, _col, value):
+        self.hi = value
+        return self
+
+    def execute(self):
+        n = sum(v for d, v in self.per_day.items() if self.lo <= d < self.hi)
+        return types.SimpleNamespace(count=n)
+
+
+class _FakeClient:
+    def __init__(self, per_day):
+        self._t = _FakeTable(per_day)
+
+    def table(self, _name):
+        return self._t
+
+
+import datetime as _dt  # noqa: E402
+
+# 첫날 36,058 · 그 뒤 6,738 (대표님이 보내주신 실제 값)
+_today = _dt.date.today()
+per_day = {(_today - _dt.timedelta(days=6)).isoformat(): 36058}
+for i in range(6):
+    per_day[(_today - _dt.timedelta(days=i)).isoformat()] = 6738
+
+rows_with_count = [
+    dict(t("store_books", 48), row_count=76485),
+    t("books", 59), t("book_matches", 29), t("rankings", 60),
+]
+got = measure_catalog_growth(_FakeClient(per_day), rows_with_count, n_days=7)
+check("첫날(36,058줄)이 창 밖으로 빠진다",
+      got is not None and got < 20, got)
+# 6,738줄/일 × (136MB ÷ 76,485줄) = 약 12.0MB/일
+check("실측과 맞는다 (약 12MB/일)", got is not None and abs(got - 12.0) < 1.0, got)
+# 첫날까지 세면 (36,058+6,738×6)/7 = 11,001줄/일 → 약 19.6MB/일 (63% 부풀림)
+check("🚨 첫날까지 세는 값(약 19.6MB)이 아니다",
+      got is not None and got < 15, got)
+
+# 🚨 오늘치가 아직 안 들어왔거나 반만 들어와도 값이 흔들리면 안 됩니다.
+#    (수집이 실패한 날 검사가 돌면 '갑자기 여유가 생겼다' 고 착각합니다)
+half = dict(per_day)
+half[_today.isoformat()] = 0          # 오늘 수집이 아직 안 됨
+check("오늘 수집이 안 됐어도 같은 값이 나온다",
+      abs((measure_catalog_growth(_FakeClient(half), rows_with_count, 7) or 0)
+          - (got or 0)) < 0.01)
+
+print("\n[8-3] 못 잴 때는 지어내지 않는다")
+check("첫날 하루뿐이면 None", measure_catalog_growth(_FakeClient(per_day),
+                                                 rows_with_count, 1) is None)
+check("줄 수를 모르면 None",
+      measure_catalog_growth(_FakeClient(per_day),
+                             [t("store_books", 48)], 7) is None)
+check("DB 가 답을 못 주면 None (죽지 않는다)",
+      measure_catalog_growth(object(), rows_with_count, 7) is None)
+check("창은 첫 수집일을 넘지 않는다 (3일 기본)", CATALOG_SAMPLE_DAYS == 3)
+
+print("\n[8-4] capacity 와 archive 가 같은 표를 본다")
+from capacity import CATALOG_TABLES  # noqa: E402
+
+check("도서 목록과 순위 자료가 겹치지 않는다",
+      not (CATALOG_TABLES & PER_DAY_TABLES), CATALOG_TABLES & PER_DAY_TABLES)
+check("도서 목록과 기록·리포트가 겹치지 않는다",
+      not (CATALOG_TABLES & SLOW_GROW_TABLES), CATALOG_TABLES & SLOW_GROW_TABLES)
+# 🚨 archive.py 가 도서 목록을 안 지운다는 것이 이 계산의 전제입니다.
+#    나중에 지우게 되면 catalog_keep_days 를 넣어야 합니다.
+check("archive.py 는 도서 목록을 정리하지 않는다 (그래서 계속 쌓임)",
+      not (CATALOG_TABLES & set(archive.PRUNE_TABLES)),
+      set(archive.PRUNE_TABLES))
 
 print("\n[7] 이상한 값이 들어와도 안 터진다")
 check("빈 목록", project([], 0, 14)["total"] == 0)

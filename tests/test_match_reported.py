@@ -70,6 +70,7 @@ def mk(store_id, title, author, publisher, pub_ym, price, sb_id):
         norm_publisher=norm.normalize_publisher(publisher, P),
         pub_ym=pub_ym, isbn13=None,
         edition_tags=t["editions"], set_volumes=t["set_volumes"],
+        raw_title=title,
         list_price=price,
     )
 

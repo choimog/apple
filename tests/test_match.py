@@ -49,6 +49,7 @@ def make(store_id: int, title: str, author: str | None,
         isbn13=isbn13,
         edition_tags=t["editions"],
         set_volumes=t["set_volumes"],
+        raw_title=title,
     )
 
 

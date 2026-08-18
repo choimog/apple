@@ -45,7 +45,7 @@ from common.match import (  # noqa: E402
 # 화면에 쓸 출판사·저자 이름을 온 자료를 통틀어 하나로 정합니다.
 # (웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 꼬이던 원인 — names.py 설명 참고)
 from common.names import canonical_map, merge_examples  # noqa: E402
-from common.normalize import fold_fortis  # noqa: E402
+from common.normalize import extract_volume, fold_fortis  # noqa: E402
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
 #   알라딘 → 예스24 → 교보
@@ -341,6 +341,62 @@ def split_by_publisher(
     return [sorted(p) for p in parts.values()]
 
 
+def split_by_volume(
+    cluster: list[int],
+    by_id: dict[int, dict],
+    pair_score: dict[tuple[int, int], float],
+) -> list[list[int]]:
+    """
+    한 무리 안에 서로 다른 **시리즈 권 번호**가 섞여 있으면 번호별로 쪼갭니다.
+
+    【왜 또 필요한가요? — 2026-08-18】
+    "번호가 다르면 다른 책" 은 두 권씩 비교할 때 적용됩니다. 그런데 무리를
+    만들 때는 이어진 것을 계속 따라갑니다. 그래서 이런 일이 생깁니다.
+
+        빛과 수의 시대 1 ─ (번호가 안 적힌 빛과 수의 시대) ─ 빛과 수의 시대 2
+
+    가운데 책은 번호가 없으니 양쪽 다 통과합니다. 결과적으로 1권과 2권이
+    한 권이 됩니다. 규칙은 지켰는데 결과는 틀립니다.
+    출판사에서 똑같은 일이 있었고(split_by_publisher), 같은 방법으로 막습니다.
+
+    번호를 모르는 책은 점수가 가장 높았던 상대 쪽에 붙입니다.
+    붙일 근거(짝지어진 기록)가 없으면 혼자 둡니다.
+    """
+    known: dict[int, list[int]] = defaultdict(list)   # 권 번호 → 책들
+    unknown: list[int] = []
+    for i in cluster:
+        v = extract_volume(by_id[i].get("raw_title"))
+        if v is None:
+            unknown.append(i)
+        else:
+            known[v].append(i)
+
+    if len(known) <= 1:
+        return [cluster]            # 번호가 하나뿐이거나 전부 모릅니다
+
+    parts: dict[int, list[int]] = {}
+    root_of: dict[int, int] = {}    # 책 id → 번호 무리 대표
+    for ids in known.values():
+        root = min(ids)
+        parts[root] = list(ids)
+        for i in ids:
+            root_of[i] = root
+
+    for i in unknown:
+        best_root, best_score = None, -1.0
+        for j, root in root_of.items():
+            lo, hi = (i, j) if i < j else (j, i)
+            s = pair_score.get((lo, hi))
+            if s is not None and s > best_score:
+                best_root, best_score = root, s
+        if best_root is not None:
+            parts[best_root].append(i)
+        else:
+            parts[i] = [i]
+
+    return [sorted(p) for p in parts.values()]
+
+
 def rejoin_manual_merges(
     parts: list[list[int]],
     merged: set[tuple[int, int]],
@@ -581,7 +637,14 @@ def fill_missing_store(
 
 
 def _cand(r: dict) -> Candidate:
-    """store_books 한 줄 → 비교용 값"""
+    """
+    store_books 한 줄 → 비교용 값
+
+    🚨 비교용 값을 만드는 자리는 **여기 한 곳뿐**입니다.
+       한때 아래 main() 에도 똑같은 코드가 한 벌 더 있었습니다. 칸을
+       하나 더할 때 한쪽만 고치면, 그 칸을 보는 규칙이 어느 쪽에서는
+       조용히 안 먹습니다 (2026-08-18 권 번호를 더하면서 합쳤습니다).
+    """
     return Candidate(
         id=r["id"],
         store_id=r["store_id"],
@@ -594,6 +657,9 @@ def _cand(r: dict) -> Candidate:
         set_volumes=r.get("set_volumes"),
         list_price=r.get("list_price"),
         norm_subtitle=r.get("norm_subtitle"),
+        # 권 번호는 서점이 적은 그대로의 제목에서만 꺼낼 수 있습니다
+        # (norm_title 은 띄어쓰기를 지워 놓아 번호가 글자에 파묻힙니다).
+        raw_title=r.get("raw_title"),
     )
 
 
@@ -688,22 +754,10 @@ def main() -> int:
               + (" …" if len(pub_ignored) > 20 else ""))
 
     by_id = {r["id"]: r for r in rows}
-    cands = [
-        Candidate(
-            id=r["id"],
-            store_id=r["store_id"],
-            norm_title=r.get("norm_title") or "",
-            norm_author=r.get("norm_author"),
-            norm_publisher=r.get("norm_publisher"),
-            pub_ym=r.get("pub_ym"),
-            isbn13=r.get("isbn13"),
-            edition_tags=r.get("edition_tags") or [],
-            set_volumes=r.get("set_volumes"),
-            list_price=r.get("list_price"),
-            norm_subtitle=r.get("norm_subtitle"),
-        )
-        for r in rows
-    ]
+    cands = [_cand(r) for r in rows]
+    with_volume = sum(1 for c in cands if c.volume is not None)
+    print(f"제목에 권 번호가 적힌 책 {with_volume:,}권 — 번호가 다르면 "
+          f"점수와 상관없이 다른 책으로 봅니다 (2026-08-18 대표님 지시).")
 
     manual = db.fetch_manual_decisions(client)
     if manual:
@@ -727,6 +781,9 @@ def main() -> int:
     price_reject: dict[tuple[int, int], int] = {}
     # 양쪽 다 정가를 아는 짝의 수 (비율을 내려면 분모가 필요합니다)
     price_seen: dict[tuple[int, int], int] = {}
+    # 권 번호가 달라서 갈라낸 짝 (2026-08-18 대표님 지시로 생긴 새 규칙)
+    vol_rejected = 0
+    vol_examples: list[str] = []
     counts = {"auto_high": 0, "auto_low": 0, "rejected": 0, "by_isbn": 0}
 
     for group in blocks:
@@ -772,6 +829,16 @@ def main() -> int:
                         key = (min(a.store_id, b.store_id),
                                max(a.store_id, b.store_id))
                         price_reject[key] = price_reject.get(key, 0) + 1
+                    # 【2026-08-18 — 권 번호로 갈라낸 짝도 눈에 보이게】
+                    # 새 규칙입니다. 조용히 갈라내면 잘못 갈라내도 아무도
+                    # 모릅니다. 몇 건인지와 실제 보기를 찍어 둡니다.
+                    elif result.reasons.get("rejected_by") == "권 번호가 다름":
+                        vol_rejected += 1
+                        if len(vol_examples) < 8:
+                            vol_examples.append(
+                                f"{(a.raw_title or '')[:34]} ({a.volume}권)"
+                                f"  ↔  {(b.raw_title or '')[:34]} ({b.volume}권)"
+                            )
                     continue
 
                 counts[result.decision] += 1
@@ -791,6 +858,14 @@ def main() -> int:
     print(f"  자동병합 {counts['auto_high']:,}쌍 "
           f"(그중 ISBN 확정 {counts['by_isbn']:,}쌍) · "
           f"검토대기 {counts['auto_low']:,}쌍 · 거부 {counts['rejected']:,}쌍")
+
+    # ---- 권 번호로 갈라낸 짝 (2026-08-18 대표님 지시) ----
+    #  새 규칙이라 **실제로 무엇이 갈라졌는지 눈으로 보셔야** 합니다.
+    #  잘못 갈라낸 것이 보이면 알려 주세요. 무엇을 번호로 볼지는
+    #  crawler/common/normalize.py 의 extract_volume 에 있습니다.
+    print(f"  · 권 번호가 달라 갈라낸 짝 {vol_rejected:,}쌍")
+    for line in vol_examples:
+        print(f"      {line}")
 
     # ---- 정가 건강 점검 (2026-08-11) ----
     #  도서정가제상 정가는 출판사가 정한 하나의 값이라 3사가 같아야 합니다.
@@ -841,6 +916,9 @@ def main() -> int:
                   for m in match_rows}
     clusters: dict[int, list[int]] = {}
     split_count = 0
+    # 권 번호가 섞여 있어 갈라낸 무리 (2026-08-18 대표님 지시)
+    vol_hard = bool(mcfg["thresholds"].get("volume_hard", True))
+    vol_split_count = 0
 
     # 사람이 누른 결정을 다시 적용하기 위한 재료 (아래 split_by_manual 설명)
     forbidden = {p for p, d in manual.items() if d == "manual_split"}
@@ -864,7 +942,22 @@ def main() -> int:
                  else split_by_publisher(cluster, by_id, pair_score, floor))
         if len(parts) > 1:
             split_count += 1
-            # 🚨 출판사로 가른 것이 사람 결정을 덮어쓰면 안 됩니다.
+
+        # 🚨 권 번호가 섞인 무리를 갈라냅니다 (2026-08-18, 위 설명 참고)
+        #    번호가 안 적힌 책을 다리 삼아 1권과 2권이 한 권이 되는 것을
+        #    막습니다. 출판사에서 똑같은 일이 있었습니다.
+        if vol_hard:
+            wider: list[list[int]] = []
+            for part in parts:
+                pieces = (split_by_volume(part, by_id, pair_score)
+                          if len(part) >= 2 else [part])
+                if len(pieces) > 1:
+                    vol_split_count += 1
+                wider.extend(pieces)
+            parts = wider
+
+        if len(parts) > 1:
+            # 🚨 출판사·권 번호로 가른 것이 사람 결정을 덮어쓰면 안 됩니다.
             #    "사람이 내린 결정이 최우선" 은 여기서도 지켜야 합니다.
             before = len(parts)
             parts = rejoin_manual_merges(parts, merged_pairs)
@@ -890,6 +983,9 @@ def main() -> int:
     if split_count:
         print(f"  ⚠️ 출판사가 섞여 있어 갈라낸 무리 {split_count:,}종 "
               f"→ 출판사별로 따로 셉니다.")
+    if vol_split_count:
+        print(f"  ⚠️ 권 번호가 섞여 있어 갈라낸 무리 {vol_split_count:,}종 "
+              f"→ 1권과 2권을 따로 셉니다.")
     if manual_split_count:
         print(f"  ✂️ 사람이 '다른 책' 이라고 한 짝 때문에 갈라낸 무리 "
               f"{manual_split_count:,}종.")

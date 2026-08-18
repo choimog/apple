@@ -232,6 +232,24 @@ try:
 except Exception as exc:                      # noqa: BLE001
     check("db 층이 예외를 삼킨다", False, repr(exc))
 
+print("\n[9] 🚨 시리즈 1권과 2권이 한 권이 되지 않는가 (2026-08-18 대표님 지시)")
+#  규칙(함수)만 보는 시험은 tests/test_volume_split.py 에 있습니다.
+#  여기서는 **매칭을 처음부터 끝까지 돌려서** 실제로 따로 남는지 봅니다.
+#  가운데 책(번호가 안 적힌 것)이 다리가 되어 1권과 2권이 이어지는 것이
+#  이 규칙에서 가장 위험한 자리입니다.
+SERIES = [
+    book(7, 3, "빛과 수의 시대 1", "김상욱", "동아시아"),
+    book(8, 2, "빛과 수의 시대", "김상욱", "동아시아"),     # 번호가 없습니다
+    book(9, 1, "빛과 수의 시대 2", "김상욱", "동아시아"),
+]
+code7, out7, fake7 = run(rows=SERIES, alias={})
+links7 = {r["id"]: r["book_id"] for r in fake7.linked}
+check("죽지 않는다", code7 == 0, code7)
+check("1권과 2권이 한 책이 되지 않는다",
+      links7.get(7) is not None and links7.get(7) != links7.get(9), links7)
+check("무엇이 갈라졌는지 화면에 적는다", "권 번호" in out7,
+      "조용히 갈라내면 잘못 갈라내도 아무도 모릅니다")
+
 print()
 if failures:
     print(f"❌ {len(failures)}개 실패")

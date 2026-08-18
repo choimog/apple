@@ -374,6 +374,52 @@ def describe(p: dict, top: str, limit: int = FREE_LIMIT_MB) -> str:
     )
 
 
+def save(client, p: dict) -> None:
+    """
+    잰 결과를 하루 한 줄 남깁니다 (사이트 [저장 용량] 화면이 읽습니다).
+
+    【2026-08-18 대표님 요청】
+        "혹시 남은 저장용량을 사이트에 올려서 확인할 수 있나?
+         매칭 검토처럼 관리자 페이지에 말이지."
+
+    🚨 재는 계산은 **여기 한 곳에만** 둡니다. 화면은 읽어서 보여주기만
+       합니다. 이 파일 맨 위에 적어 둔 이유 그대로입니다 —
+       같은 계산을 두 군데 두면 반드시 어긋납니다.
+
+    ⚠️ 저장에 실패해도 **수집을 실패로 만들지 않습니다.** 표가 아직
+       없을 수도 있고(db/capacity-log.sql 미실행), 그건 고장이 아닙니다.
+    """
+    row = {
+        "measured_on": date.today().isoformat(),
+        "total_mb": round(p["total"], 2),
+        "limit_mb": FREE_LIMIT_MB,
+        "daily_mb": round(p["daily"], 2),
+        "catalog_mb": round(p["catalog"], 2),
+        "slow_mb": round(p["slow"], 2),
+        "per_day": round(p["per_day"], 3),
+        # 🚨 못 쟀으면 0 이 아니라 빈 값입니다. 0 으로 넣으면 화면이
+        #    '안 늘어난다' 고 읽습니다 (오늘 세 번 되풀이한 그 잘못).
+        "catalog_day": (round(p["catalog_per_day"], 3)
+                        if p["catalog_measured"] else None),
+        "slow_day": round(p["slow_per_day"], 3),
+        "steady_mb": round(p["steady"], 2),
+        "days_left": int(p["days_left"]),
+        "stale_prune": bool(p["stale_prune"]),
+        "problem": p["problem"],
+    }
+    try:
+        client.table("capacity_log").upsert(row, on_conflict="measured_on").execute()
+        print("  · 기록을 남겼습니다 (사이트 [저장 용량] 에서 보실 수 있습니다)")
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "capacity_log" in msg and ("not find" in msg or "does not exist" in msg
+                                      or "schema cache" in msg):
+            print("  ℹ️ 기록표가 아직 없습니다 — db/capacity-log.sql 을 한 번")
+            print("     실행하시면 사이트에서 용량을 보실 수 있습니다.")
+        else:
+            print(f"  ℹ️ 기록을 남기지 못했습니다(수집과는 무관): {msg}")
+
+
 def main() -> int:
     from common import db  # 여기서 불러야 시험이 DB 없이 돕니다
 
@@ -422,6 +468,7 @@ def main() -> int:
     print("  데이터베이스 용량")
     print("=" * 66)
     print(describe(p, top))
+    save(client, p)
 
     if p["problem"]:
         print("\n" + "=" * 66)

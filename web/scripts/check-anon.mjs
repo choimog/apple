@@ -56,6 +56,9 @@ const PROTECTED = [
   ["store_books", "서점별 도서"],
   ["books", "도서 마스터"],
   ["crawl_logs", "수집 기록"],
+  // 🚨 2026-08-18 추가. 표 크기는 회원도 볼 이유가 없어서 관리자만
+  //    읽도록 막아 두었습니다(db/capacity-log.sql). 로그인 없이는 더더욱.
+  ["capacity_log", "용량 기록"],
 ];
 
 let leaking = [];

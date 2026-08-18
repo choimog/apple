@@ -58,7 +58,10 @@ const GROUPS: Group[] = [
 /** 관리자에게만 보이는 메뉴 */
 const ADMIN_GROUP: Group = {
   name: "관리",
-  items: [{ href: "/review", label: "매칭 검토" }],
+  items: [
+    { href: "/review", label: "매칭 검토" },
+    { href: "/capacity", label: "저장 용량" },
+  ],
 };
 
 export default function Nav({

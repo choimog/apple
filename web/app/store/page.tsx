@@ -281,7 +281,20 @@ export default async function StorePage({
           <>
             <ul className="divide-y divide-line-soft">
               {rows.map((r) => (
-                <li key={r.rank} className="flex items-start gap-3 px-4 py-3">
+                /*
+                  🚨 【2026-08-18 대표님 지적 — 휴대폰 가독성】
+                  예전에는 판매지수 칸이 오른쪽에서 폭 112px 를 늘 차지해서,
+                  360px 화면에서 제목에 남는 자리가 60px 남짓이었습니다.
+                  제목이 두세 글자씩 끊겨 내려가 읽기가 어려웠습니다.
+
+                  이제 휴대폰에서는 판매지수를 **아랫줄 전체**로 내립니다
+                  (w-full). 제목이 폭을 다 쓰고, 판매지수 막대도 길어져
+                  오히려 잘 보입니다. 넓은 화면은 예전 그대로입니다.
+                */
+                <li
+                  key={r.rank}
+                  className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3"
+                >
                   <div className="w-11 shrink-0 text-center">
                     <RankBadge rank={r.rank} />
                     <div className="mt-1">
@@ -291,7 +304,7 @@ export default async function StorePage({
 
                   <Cover url={r.store_book.cover_url} alt={r.store_book.raw_title} />
 
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-40">
                     {r.store_book.book_id ? (
                       <Link
                         href={`/book/${r.store_book.book_id}`}
@@ -314,7 +327,8 @@ export default async function StorePage({
                     </p>
                   </div>
 
-                  <div className="w-28 shrink-0 text-right">
+                  {/* 휴대폰에서는 아랫줄 전체, 넓은 화면에서는 오른쪽 */}
+                  <div className="w-full shrink-0 pl-[3.5rem] sm:w-28 sm:pl-0 sm:text-right">
                     <SalesPoint
                       value={r.sales_point}
                       storeProvides={storeMeta(storeId).hasSalesPoint}

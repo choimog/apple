@@ -349,7 +349,7 @@ export function defaultDepth(period: Period): number {
  *
  * ⚠️ 조회는 한 번입니다. 예전에 정가만 채울 때와 요청 수가 같습니다.
  */
-async function fillStoreInfo(
+export async function fillStoreInfo(
   rows: {
     bookId: number;
     listPrice: number | null;
@@ -546,8 +546,15 @@ export type CombinedRow = {
   sales: Record<number, number>;
   /** 등장한 서점 수 */
   storeCount: number;
-  /** 등장한 서점들의 순위 평균. 없는 서점은 계산에서 뺍니다 */
-  avgRank: number;
+  /**
+   * 등장한 서점들의 순위 평균. 없는 서점은 계산에서 뺍니다.
+   *
+   * 🚨 **어느 서점에도 안 올랐으면 null 입니다. 0 이 아닙니다.**
+   * 즐겨찾기 화면은 순위가 없는 책도 목록에 남겨 두기 때문에(담아 두신
+   * 책이 소리 없이 사라지면 안 되니까요) 이 값이 비어 있을 수 있습니다.
+   * 0 으로 채우면 화면에 '0.0위' 라고 적힙니다. 1위보다 높은 순위입니다.
+   */
+  avgRank: number | null;
   /**
    * 정가(원). 아직 안 걷힌 책은 null 입니다.
    *
@@ -629,7 +636,7 @@ export async function getCombinedBest(
       ranks: numberMap(r.ranks),
       sales: numberMap(r.sales),
       storeCount: r.store_count,
-      avgRank: Number(r.avg_rank),
+      avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
       listPrice: null as number | null,
       linked: [] as number[],
     }));
@@ -715,7 +722,12 @@ export async function getCombinedBest(
     });
   }
 
-  rows.sort((x, y) => x.avgRank - y.avgRank || y.storeCount - x.storeCount);
+  // 이 느린 길에서는 순위가 있는 책만 담으므로 avgRank 가 늘 있습니다.
+  rows.sort(
+    (x, y) =>
+      (x.avgRank ?? Infinity) - (y.avgRank ?? Infinity) ||
+      y.storeCount - x.storeCount
+  );
   const top = rows.slice(0, limit);
   await fillStoreInfo(top);
   return { rows: top, depth, usedCategories: await usedIn(cats, date), fast: false };
@@ -1219,7 +1231,7 @@ export async function getBooksOf(
     ranks: numberMap(r.ranks),
     sales: numberMap(r.sales),
     storeCount: r.store_count,
-    avgRank: Number(r.avg_rank),
+    avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
     listPrice: null as number | null,
     linked: [] as number[],
   }));

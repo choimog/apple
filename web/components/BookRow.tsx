@@ -15,23 +15,41 @@ export default function BookRow({
   row,
   position,
   depth,
+  action,
 }: {
   row: CombinedRow;
   /** 이 목록에서의 자리(1부터) */
   position: number;
   /** 각 서점에서 몇 위까지 봤는지 — '없음' 의 뜻을 정확히 적기 위함 */
   depth: number;
+  /** 줄 오른쪽에 붙일 것 (즐겨찾기 화면의 [빼기] 버튼) */
+  action?: import("react").ReactNode;
 }) {
   return (
     <li className="flex items-start gap-3 px-4 py-3.5 sm:px-5">
       <div className="w-11 shrink-0 pt-0.5 text-center">
         <RankBadge rank={position} />
+        {/*
+          🚨 어느 서점 목록에도 없으면 평균이 **없습니다.**
+          0 으로 채우면 '0.0위' 라고 적히는데, 1위보다 높은 순위입니다.
+          (즐겨찾기 화면은 순위가 없는 책도 목록에 남겨 둡니다)
+        */}
         <div className="mt-1 text-[10px] leading-tight text-ink-faint">
-          평균
-          <br />
-          <span className="font-medium text-ink-soft tnum">
-            {row.avgRank.toFixed(1)}위
-          </span>
+          {row.avgRank === null ? (
+            <span title="이 날짜에는 세 서점 어디에서도 순위에 없었습니다">
+              순위
+              <br />
+              없음
+            </span>
+          ) : (
+            <>
+              평균
+              <br />
+              <span className="font-medium text-ink-soft tnum">
+                {row.avgRank.toFixed(1)}위
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -133,6 +151,8 @@ export default function BookRow({
           })}
         </div>
       </div>
+
+      {action && <div className="shrink-0 pt-0.5">{action}</div>}
     </li>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import BookExportButton from "@/components/BookExportButton";
+import FavoriteButton from "@/components/FavoriteButton";
 import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
 import SalesPoint from "@/components/SalesPoint";
@@ -17,6 +18,7 @@ import {
   RankBadge,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
+import { isFavorite } from "@/lib/favorites";
 import { store, storeUrl, STORE_ORDER, type StoreId } from "@/lib/stores";
 
 /** 판매지수를 공개하는 서점 (예스24 · 알라딘). 교보는 목록에 안 냅니다 */
@@ -192,6 +194,10 @@ export default async function BookPage({
   */
   const price = priceOf(stores.map((b) => b.list_price));
 
+  // 즐겨찾기 별표가 쓰는 값. 표가 아직 없으면(SQL 미실행) null 이고,
+  // 그때는 별표를 아예 안 그립니다 — 눌러도 안 되는 버튼은 방해입니다.
+  const faved = await isFavorite(Number(id));
+
   // 표지 우선순위: 알라딘(3) → 예스24(2) → 교보(1)
   const main =
     [3, 2, 1].map((s) => stores.find((b) => b.store_id === s && b.cover_url)).find(Boolean) ??
@@ -266,6 +272,18 @@ export default async function BookPage({
             <PageHead
               eyebrow="도서"
               title={main.raw_title}
+              right={
+                faved === null ? null : (
+                  <FavoriteButton
+                    bookId={Number(id)}
+                    title={main.raw_title}
+                    author={main.raw_author}
+                    publisher={main.raw_publisher}
+                    on={faved}
+                    back={`/book/${id}`}
+                  />
+                )
+              }
               lead={
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   {main.raw_author ? (

@@ -33,6 +33,8 @@ const GROUPS: Group[] = [
     items: [
       { href: "/best", label: "종합" },
       { href: "/store", label: "서점별" },
+      // 회원마다 자기 것만 보입니다 (2026-08-18 대표님 요청)
+      { href: "/favorites", label: "즐겨찾기" },
     ],
   },
   {

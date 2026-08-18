@@ -29,6 +29,7 @@ Supabase → 왼쪽 [SQL Editor] → [New query] → 파일 전체 붙여넣기 
 | `archive_schema.sql` | 자료 보관(archive) 표 |
 | `force-join.sql` | [강제로 묶기] — 검토 화면에서 책을 직접 이어 붙이기 |
 | `publisher-alias.sql` | [출판사 묶기] — 청림Life = 청림라이프 처럼 직접 정하기 |
+| `favorites.sql` | [즐겨찾기] — 회원마다 담아 둔 도서. **자기 것만 보입니다** |
 
 > ### 🚨 `share.sql` 과 `share-open.sql` 은 **순서가 있습니다**
 >

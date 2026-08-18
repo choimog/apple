@@ -183,7 +183,7 @@ export default async function Home({
                   <StoreRankStrip ranks={r.ranks} />
                 </div>
                 <span className="w-12 shrink-0 text-right text-xs text-ink-faint tnum">
-                  평균 {r.avgRank.toFixed(1)}
+                  평균 {r.avgRank === null ? "—" : r.avgRank.toFixed(1)}
                 </span>
               </li>
             ))}

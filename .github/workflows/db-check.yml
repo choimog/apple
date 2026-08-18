@@ -27,6 +27,7 @@ on:
       - "db/**"
       - "tests/test_auth_sql.sh"
       - "tests/test_share_open.sh"
+      - "tests/test_favorites_sql.sh"
       - ".github/workflows/db-check.yml"
   workflow_dispatch:
 
@@ -51,3 +52,13 @@ jobs:
       #    (이 시험이 다른 가지에만 남아 있어 여기로 옮겨 왔습니다)
       - name: 공유 링크 회원 공개가 실제로 되는지
         run: bash tests/test_share_open.sh
+
+      # 🚨 【2026-08-18 대표님 요청으로 만든 즐겨찾기】
+      #    여기서 틀리면 화면은 멀쩡해 보입니다.
+      #      · 남의 즐겨찾기가 새어 나가도 아무 표시가 안 납니다
+      #      · 안내문이 안 뜨면 "지워진 책이 없나 보다" 로 읽힙니다
+      #      · 반대로 거짓 안내문이 매일 뜨면 진짜 안내문을 못 봅니다
+      #    특히 [도서 매칭] 이 도서 번호를 새로 매기는 것(하루 552종)까지
+      #    "지워졌습니다" 로 알리지 않는지를 실제 자료로 확인합니다.
+      - name: 즐겨찾기가 남에게 새지 않는지 · 거짓 안내문이 없는지
+        run: bash tests/test_favorites_sql.sh

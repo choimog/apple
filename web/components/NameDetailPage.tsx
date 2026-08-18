@@ -72,7 +72,9 @@ export default async function NameDetailPage({
   // 화면에 '몇 위 안에 없습니다' 라고 적을 때 쓰는 숫자.
   // 모으는 기준과 같아야 합니다 (일간 300 · 주간 500).
   const depth = defaultDepth(period);
-  const best = rows.length ? Math.min(...rows.map((r) => r.avgRank)) : null;
+  // 순위가 없는 책(avgRank 가 빈 값)은 '가장 높은 순위' 계산에서 뺍니다.
+  const ranked = rows.map((r) => r.avgRank).filter((v): v is number => v !== null);
+  const best = ranked.length ? Math.min(...ranked) : null;
   const inThree = rows.filter((r) => r.storeCount >= 3).length;
   const href = (over: Record<string, string>) =>
     `?${new URLSearchParams({ period, cat: unified, date, ...over }).toString()}`;

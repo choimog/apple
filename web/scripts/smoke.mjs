@@ -72,6 +72,10 @@ const PAGES = [
   ["/review/publishers", ["출판사 묶기"]],
   ["/review/publishers?q=%ED%95%9C%EB%B9%9B", ["출판사 묶기"]],
   ["/share", ["공유 링크"]],
+  // 즐겨찾기 (2026-08-18 추가). db/favorites.sql 을 아직 안 돌렸으면
+  // "아직 준비가 안 됐습니다" 가 뜹니다 — 그것도 정상 화면입니다.
+  ["/favorites", ["즐겨찾기"]],
+  ["/favorites?basis=top&period=weekly", ["즐겨찾기"]],
 ];
 
 /**
@@ -154,7 +158,8 @@ if (!(await waitForServer())) {
       로그인이 되어 있어서 늘 정상으로 보입니다.
 --------------------------------------------------------------------------- */
 console.log("\n[회원 전용] 로그인 안 하면 못 들어가는지");
-for (const path of ["/", "/best", "/status", "/book/1", "/review", "/share", "/report"]) {
+for (const path of ["/", "/best", "/status", "/book/1", "/review", "/share", "/report",
+                    "/favorites"]) {
   try {
     const res = await fetch(BASE + path, {
       redirect: "manual",

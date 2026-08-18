@@ -45,6 +45,25 @@ DROP INDEX IF EXISTS idx_store_books_isbn;
 
 
 -- ---------------------------------------------------------------------------
+--  ①-2 안 쓰는 색인 하나 더  (약 1.1MB)  — 2026-08-18 추가
+-- ---------------------------------------------------------------------------
+--  위 둘을 지우고 나니 목록에 이것이 드러났습니다.
+--
+--      store_books → idx_store_books_unmatched  1,168 kB  🚨 한 번도 안 씀
+--
+--  '아직 안 묶인 상품' 을 빨리 찾으라고 만든 것인데, 지금은 76,485권이
+--  **전부 묶여 있어서** 이 색인이 비어 있습니다. 게다가 코드를 훑어보니
+--  'book_id 가 비어 있는 상품' 을 찾는 곳이 한 군데도 없습니다.
+--  (사이트·수집·매칭 모두 그 반대인 '묶인 것' 만 찾습니다)
+--
+--  ⚠️ 대표님이 따로 하실 일은 없습니다. 이 파일을 다시 돌리실 일이 생기면
+--     (예: db/schema.sql 을 다시 실행해서 색인이 되살아났을 때)
+--     그때 함께 지워집니다.
+-- ---------------------------------------------------------------------------
+DROP INDEX IF EXISTS idx_store_books_unmatched;
+
+
+-- ---------------------------------------------------------------------------
 --  ② 검색용 색인 세 개  (약 37MB)  ← 🚨 지금은 지우지 않습니다
 -- ---------------------------------------------------------------------------
 --  이게 제일 큽니다. 도서 표 59MB 중 **37MB 가 이 셋** 입니다.
@@ -88,6 +107,8 @@ DROP INDEX IF EXISTS idx_store_books_isbn;
 --      ON books(isbn13) WHERE isbn13 IS NOT NULL;
 --  CREATE INDEX IF NOT EXISTS idx_store_books_isbn
 --      ON store_books(isbn13) WHERE isbn13 IS NOT NULL;
+--  CREATE INDEX IF NOT EXISTS idx_store_books_unmatched
+--      ON store_books(store_id) WHERE book_id IS NULL;
 --  CREATE INDEX IF NOT EXISTS idx_books_title_trgm
 --      ON books USING gin (title gin_trgm_ops);
 --  CREATE INDEX IF NOT EXISTS idx_books_author_trgm

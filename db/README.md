@@ -56,6 +56,7 @@ Supabase → 왼쪽 [SQL Editor] → [New query] → 파일 전체 붙여넣기 
 | `space-growth.sql` | 🔍 날짜별로 얼마나 늘고 있는지 |
 | `space-why.sql` | 🔍 왜 늘어나는지 (재등록 비율·중복·순위권 밖 비중) |
 | `decision-check.sql` | 사람이 내린 결정 8만여 건이 어디서 왔는지 |
+| `price-check.sql` | 🔍 정가가 서점마다 갈리는 것이 진짜 문제인지 (매칭 로그의 74% 해석) |
 | `prune-catalog.sql` | 잠든 도서 자료를 **고르는 계산만** 등록합니다. 지우는 일은 GitHub 의 [도서 목록 정리] 버튼이 확인 뒤에 합니다 |
 
 ## ④ 🚨 자료를 지우는 것 — 누르기 전에 반드시 읽어 주세요

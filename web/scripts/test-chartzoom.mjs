@@ -29,27 +29,66 @@ function check(name, ok, got) {
   }
 }
 
-/* ChartZoom.tsx 의 delta() 를 그대로 옮겨 온 것 — 규칙만 확인합니다
+/* ChartZoom.tsx 의 규칙을 그대로 옮겨 온 것 — 값만 확인합니다
    (tsx 는 node 가 바로 못 읽습니다) */
+const isBetter = (a, b, metric) => (metric === "rank" ? a < b : a > b);
+
 function delta(rows, i, storeId, metric) {
   const now = rows[i]?.by.get(storeId);
   if (!now) return null;
   for (let k = i + 1; k < rows.length; k++) {
     const prev = rows[k].by.get(storeId);
     if (!prev) continue;
-    const d = now.v - prev.v;
-    if (d === 0) return { text: "—", up: false };
-    const up = metric === "rank" ? d < 0 : d > 0;
-    return { text: `${up ? "▲" : "▼"}${Math.abs(d).toLocaleString("ko-KR")}`, up };
+    const d = now.best - prev.best;
+    if (d === 0) return { text: "그대로", up: false, flat: true };
+    const up = isBetter(now.best, prev.best, metric);
+    return {
+      text: `${up ? "▲" : "▼"}${Math.abs(d).toLocaleString("ko-KR")}`,
+      up,
+      flat: false,
+    };
   }
   return null;
+}
+
+function statOf(rows, storeId, metric) {
+  const seen = rows
+    .map((r) => ({ date: r.date, cell: r.by.get(storeId) }))
+    .filter((e) => !!e.cell);
+  if (!seen.length) return null;
+  const vals = seen.map((e) => e.cell.best);
+  let best = vals[0];
+  let worst = vals[0];
+  for (const v of vals) {
+    if (isBetter(v, best, metric)) best = v;
+    if (isBetter(worst, v, metric)) worst = v;
+  }
+  let ups = 0, downs = 0, sames = 0;
+  for (let i = seen.length - 2; i >= 0; i--) {
+    const d = seen[i].cell.best - seen[i + 1].cell.best;
+    if (d === 0) sames++;
+    else if (isBetter(seen[i].cell.best, seen[i + 1].cell.best, metric)) ups++;
+    else downs++;
+  }
+  let streak = 0;
+  for (const r of rows) {
+    if (!r.by.has(storeId)) break;
+    streak++;
+  }
+  return {
+    days: seen.length, best, worst,
+    avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+    first: seen[seen.length - 1].cell.best,
+    last: seen[0].cell.best,
+    ups, downs, sames, streak,
+  };
 }
 
 /** 최신이 위 (표와 같은 차례) */
 const mk = (...days) =>
   days.map(([date, v]) => ({
     date,
-    by: new Map(v === null ? [] : [[1, { v, cat: "소설" }]]),
+    by: new Map(v === null ? [] : [[1, { best: v, places: [{ cat: "소설", v }] }]]),
   }));
 
 console.log("\n[1] 🚨 순위는 작아지는 것이 '오름' 입니다");
@@ -90,28 +129,84 @@ check("앞 기록이 없으면 null",
 check("값이 없는 줄도 null",
   delta(mk(["2026-08-18", null], ["2026-08-17", 3]), 0, 1, "rank") === null);
 
-console.log("\n[5] 같으면 — 로 적습니다 (▲0 이 아니라)");
+console.log("\n[5] 같으면 '그대로' 라고 적습니다 (▲0 이 아니라)");
 const same = mk(["2026-08-18", 3], ["2026-08-17", 3]);
-check("변화가 없으면 —", delta(same, 0, 1, "rank")?.text === "—");
-check("— 는 오름으로 칠하지 않는다", delta(same, 0, 1, "rank")?.up === false);
+check("변화가 없으면 '그대로'", delta(same, 0, 1, "rank")?.text === "그대로");
+check("'그대로' 는 오름으로 칠하지 않는다",
+  delta(same, 0, 1, "rank")?.flat === true &&
+  delta(same, 0, 1, "rank")?.up === false);
+
+console.log("\n[6] 🚨 요약 숫자 — 순위와 판매지수가 반대인 것들");
+// 최고/최저·오른 날/내린 날은 방향을 한 번만 잘못 잡으면 전부 뒤집힙니다.
+const r = mk(
+  ["2026-08-18", 8],   // 5 → 8 : 내림
+  ["2026-08-17", 5],   // 20 → 5 : 오름
+  ["2026-08-16", 20],
+  ["2026-08-15", null] // 순위 밖
+);
+const sr = statOf(r, 1, "rank");
+check("순위 최고는 가장 작은 수 (5위)", sr.best === 5, sr);
+check("순위 최저는 가장 큰 수 (20위)", sr.worst === 20, sr);
+check("기록된 날은 값이 있는 날만 (3일)", sr.days === 3, sr);
+check("평균은 (8+5+20)/3 = 11", Math.abs(sr.avg - 11) < 0.001, sr.avg);
+check("오른 날 1 · 내린 날 1", sr.ups === 1 && sr.downs === 1, sr);
+check("처음은 가장 오래된 값 (20위)", sr.first === 20, sr);
+check("지금은 가장 최근 값 (8위)", sr.last === 8, sr);
+
+const sv = statOf(
+  mk(["2026-08-18", 9000], ["2026-08-17", 12000], ["2026-08-16", 5000]),
+  1, "sales"
+);
+check("🚨 판매지수 최고는 가장 큰 수 (12,000)", sv.best === 12000, sv);
+check("🚨 판매지수 최저는 가장 작은 수 (5,000)", sv.worst === 5000, sv);
+check("판매지수도 오른 날 1 · 내린 날 1", sv.ups === 1 && sv.downs === 1, sv);
+
+console.log("\n[6-1] '연속' 은 날이 아니라 '몇 번' 입니다");
+// 수집이 안 된 날은 애초에 표에 없습니다. 그 날을 끊긴 것으로 세면
+// "어제 끊겼다" 는 거짓말이 됩니다.
+check("최근부터 이어진 횟수 (3회)", sr.streak === 3, sr.streak);
+const broke = statOf(mk(["2026-08-18", null], ["2026-08-17", 5]), 1, "rank");
+check("가장 최근에 값이 없으면 0회", broke.streak === 0, broke.streak);
 
 const src = readFileSync("components/ChartZoom.tsx", "utf8");
 const chart = readFileSync("components/TrendChart.tsx", "utf8");
 const page = readFileSync("app/book/[id]/page.tsx", "utf8");
 
-console.log("\n[6] 🚨 값이 없는 날을 '0' 이나 '-' 로 적지 않는다");
-check("'순위 밖' 이라고 적는다", /순위 밖/.test(src),
+console.log("\n[7] 🚨 값이 없는 날을 '0' 이나 '-' 로 적지 않는다");
+check("순위는 '순위 밖' 이라고 적는다", /"순위 밖"/.test(src),
   "0 으로 적으면 '그날 0위' 처럼 읽힙니다");
+check("판매지수는 '기록 없음' 이라고 적는다", /"기록 없음"/.test(src),
+  "판매지수에 '순위 밖' 은 말이 안 됩니다");
 check("빈 칸에 숫자를 안 넣는다", !/\?\?\s*0/.test(src) && !/\|\|\s*0/.test(src));
 
-console.log("\n[7] 자세히 보기가 실제로 더 자세한가");
-check("세로를 늘린다 (tall)", /tall\b/.test(src) && /tall\?: boolean/.test(chart));
-check("펴면 400, 평소엔 220", /const H_TALL = 400/.test(chart) &&
-  /const H_BASE = 220/.test(chart));
-check("펴면 눈금이 늘어난다", /tall \? 8 : 4/.test(chart));
-check("펴면 날짜도 더 적는다", /tall \? 7 : 3/.test(chart));
-check("🚨 숫자를 표로 보여준다", /<table/.test(src));
-check("전날 대비 등락을 적는다", /▲/.test(src) && /▼/.test(src));
+console.log("\n[7-1] 🚨 그림은 다시 그리지 않는다 (2026-08-18 대표님 지시)");
+// "자세히보기를 클릭했을 때, 그래프까지는 보여줄 필요는 없을 것 같아.
+//  말한 것처럼 숫자 정도만 나오면 좋을 것 같아."
+// 위에 이미 그림이 있는데 밑에 또 그리면 자리만 먹습니다.
+check("TrendChart 를 안 쓴다", !/TrendChart/.test(src),
+  "위에 있는 그림을 한 번 더 그리면 안 됩니다");
+check("TrendChart 에 안 쓰는 tall 이 남아 있지 않다", !/tall/.test(chart),
+  "안 쓰는 코드가 남으면 다음 사람이 쓰는 줄 압니다");
+
+console.log("\n[7-2] 그림이 못 말해 주는 것을 전부 보여주는가");
+check("① 정확한 값 (표)", /<table/.test(src));
+check("② 앞 기록 대비 등락", /▲/.test(src) && /▼/.test(src));
+check("③ 어느 분야에서 나온 순위인지", /cell\.places/.test(src));
+check("③-1 한 날에 여러 분야면 전부 적는다",
+  /places\s*\n?\s*\.map/.test(src) || /places\.map/.test(src),
+  "그림은 대표값 하나만 그리므로 나머지는 여기가 아니면 볼 곳이 없습니다");
+check("④ 요약 — 최고", /최고/.test(src));
+check("④ 요약 — 최저", /최저/.test(src));
+check("④ 요약 — 평균", /평균/.test(src));
+check("④ 요약 — 오른 날 / 내린 날", /오른 날/.test(src) && /내린 날/.test(src));
+check("④ 요약 — 연속", /연속/.test(src));
+check("④ 요약 — 처음 → 지금", /처음 → 지금/.test(src));
+check("⑤ 없는 날을 글자로 적는다", /\{missing\}/.test(src));
+check("기간을 적는다 (언제부터 언제까지)", /기록된 날/.test(src));
+
+console.log("\n[7-3] 순위 평균은 소수점까지 (반올림하면 다 같아 보입니다)");
+check("순위 평균에 toFixed(1)", /avg\.toFixed\(1\)/.test(src));
+check("판매지수 평균은 정수", /Math\.round\(s\.avg\)/.test(src));
 
 console.log("\n[8] 🚨 그래프마다 하나씩 붙어 있는가 (네 개)");
 // 순위 추이 일간 · 주간 + 판매지수 예스24 · 알라딘 = 네 개.
@@ -139,9 +234,17 @@ check("표가 너무 좁아지지 않는다", /min-w-\[/.test(src));
 
 console.log("\n[11] 같은 날 같은 서점에 여러 분야가 있으면");
 // 한 책이 '소설' 3위이자 '종합' 150위일 수 있습니다.
-// 표에 아무거나 적으면 그래프와 다른 숫자가 나옵니다.
-check("순위는 더 높은 쪽(작은 수)을 쓴다", /v < cur\.v/.test(src));
-check("어느 분야에서 나온 값인지 적는다", /cell\.cat/.test(src));
+// 표에 아무거나 적으면 위 그림과 다른 숫자가 나옵니다.
+check("대표값은 더 좋은 쪽 (순위는 작은 수, 지수는 큰 수)",
+  /isBetter\(v, cur\.best, metric\)/.test(src));
+check("나머지 분야도 버리지 않고 들고 있다", /cur\.places\.push/.test(src));
+check("좋은 순서로 정렬한다", /places\.sort/.test(src));
+
+console.log("\n[12] 판매지수 그래프에는 분야를 안 적는다");
+// 판매지수는 서점이 책 한 권에 하나씩 매기는 값이라 분야와 무관합니다.
+// 분야를 적으면 '분야마다 다른 지수' 라고 오해하게 됩니다.
+check("순위일 때만 분야를 적는다", /const showCat = metric === "rank"/.test(src));
+check("분야 표시가 showCat 에 묶여 있다", /showCat && \(/.test(src));
 
 console.log();
 if (bad) {

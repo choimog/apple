@@ -782,8 +782,11 @@ def main() -> int:
     # 양쪽 다 정가를 아는 짝의 수 (비율을 내려면 분모가 필요합니다)
     price_seen: dict[tuple[int, int], int] = {}
     # 권 번호가 달라서 갈라낸 짝 (2026-08-18 대표님 지시로 생긴 새 규칙)
+    #   vol_seen = 양쪽 다 번호를 아는 '나머지가 전부 같은' 짝 = 분모
+    vol_seen = 0
     vol_rejected = 0
     vol_examples: list[str] = []
+    vol_shown: set[tuple[str, str]] = set()
     counts = {"auto_high": 0, "auto_low": 0, "rejected": 0, "by_isbn": 0}
 
     for group in blocks:
@@ -803,11 +806,6 @@ def main() -> int:
                 if decided == "manual_split":
                     continue
 
-                if a.list_price and b.list_price:
-                    key = (min(a.store_id, b.store_id),
-                           max(a.store_id, b.store_id))
-                    price_seen[key] = price_seen.get(key, 0) + 1
-
                 # ISBN 이 양쪽에 다 있으면 그것으로 확정
                 result = compare_with_isbn(a, b, mcfg)
                 if result is not None:
@@ -816,29 +814,48 @@ def main() -> int:
                 else:
                     result = compare(a, b, mcfg)
 
-                if result.decision == "rejected":
-                    counts["rejected"] += 1
-                    # 【2026-08-11 — 정가로 갈라낸 짝을 서점 짝별로 셉니다】
-                    # 정가가 다르면 다른 책으로 확정 거부합니다. 그런데
-                    # 어느 서점이 가격을 잘못 읽으면 **멀쩡한 짝이 조용히
-                    # 갈라집니다.** 실제로 교보에서 할인율과 가격이
-                    # 이어붙어 2,918,000원이 저장된 적이 있습니다.
-                    # 화면에 아무 표시도 안 나기 때문에, 여기서 세어
-                    # 두고 아래에서 서점 짝별로 보여 줍니다.
-                    if result.reasons.get("rejected_by") == "정가가 다름":
-                        key = (min(a.store_id, b.store_id),
-                               max(a.store_id, b.store_id))
+                # -------------------------------------------------------------
+                #  🚨 【2026-08-18 — 분모를 여기서 셉니다. 위가 아니라】
+                #
+                #  예전에는 비교하기 **전**에 "양쪽 다 정가를 아는 짝" 을
+                #  모두 분모에 넣었습니다. 그런데 그 짝의 대부분은 애초에
+                #  남남인 책입니다(제목 앞 네 글자만 같은 책). 그래서 비율이
+                #  62.8% 까지 올라가 🚨 가 떴는데, 정가는 멀쩡했습니다.
+                #  같은 서점끼리(맨 첫 줄에서 갈라져 정가까지 오지도 못하는
+                #  짝)까지 분모에 98,466쌍이나 들어 있었습니다.
+                #
+                #  이제는 **나머지 조건이 전부 같았던 짝만** 셉니다.
+                #  compare 가 그 자리까지 갔을 때만 reasons 에 표시를
+                #  남기므로, 그 표시가 곧 분모입니다.
+                # -------------------------------------------------------------
+                why = result.reasons.get("rejected_by")
+                key = (min(a.store_id, b.store_id), max(a.store_id, b.store_id))
+
+                if why == "정가가 다름" or str(
+                        result.reasons.get("price", "")).startswith("same"):
+                    price_seen[key] = price_seen.get(key, 0) + 1
+                    if why == "정가가 다름":
                         price_reject[key] = price_reject.get(key, 0) + 1
-                    # 【2026-08-18 — 권 번호로 갈라낸 짝도 눈에 보이게】
-                    # 새 규칙입니다. 조용히 갈라내면 잘못 갈라내도 아무도
-                    # 모릅니다. 몇 건인지와 실제 보기를 찍어 둡니다.
-                    elif result.reasons.get("rejected_by") == "권 번호가 다름":
+
+                if why == "권 번호가 다름" or str(
+                        result.reasons.get("volume", "")).startswith("same"):
+                    vol_seen += 1
+                    if why == "권 번호가 다름":
                         vol_rejected += 1
-                        if len(vol_examples) < 8:
+                        # 조용히 갈라내면 잘못 갈라내도 아무도 모릅니다.
+                        # 실제 보기를 찍되, 같은 책이 두 번 나오지 않게
+                        # 합니다 (서점 짝만 다른 같은 짝이 줄줄이 찍힙니다).
+                        tag = tuple(sorted(((a.raw_title or "")[:40],
+                                            (b.raw_title or "")[:40])))
+                        if len(vol_examples) < 8 and tag not in vol_shown:
+                            vol_shown.add(tag)
                             vol_examples.append(
                                 f"{(a.raw_title or '')[:34]} ({a.volume}권)"
                                 f"  ↔  {(b.raw_title or '')[:34]} ({b.volume}권)"
                             )
+
+                if result.decision == "rejected":
+                    counts["rejected"] += 1
                     continue
 
                 counts[result.decision] += 1
@@ -863,7 +880,16 @@ def main() -> int:
     #  새 규칙이라 **실제로 무엇이 갈라졌는지 눈으로 보셔야** 합니다.
     #  잘못 갈라낸 것이 보이면 알려 주세요. 무엇을 번호로 볼지는
     #  crawler/common/normalize.py 의 extract_volume 에 있습니다.
-    print(f"  · 권 번호가 달라 갈라낸 짝 {vol_rejected:,}쌍")
+    #
+    #  ⚠️ 분모(vol_seen)는 **나머지 조건이 전부 같았던 짝**입니다.
+    #     정가 점검과 같은 잣대입니다. 분모 없이 건수만 적으면 그 숫자가
+    #     큰지 작은지 알 수 없습니다 (2026-08-18 정가에서 겪었습니다).
+    if vol_seen:
+        pct = 100.0 * vol_rejected / vol_seen
+        print(f"  · 권 번호 점검 — 나머지가 다 같은 짝 중 번호가 달라 갈라낸 것: "
+              f"{vol_rejected:,} / {vol_seen:,}쌍 ({pct:.1f}%)")
+    else:
+        print("  · 권 번호가 달라 갈라낸 짝 없음")
     for line in vol_examples:
         print(f"      {line}")
 
@@ -874,7 +900,7 @@ def main() -> int:
     #  (교보에서 할인율과 가격이 이어붙어 2,918,000원이 저장된 적이 있습니다)
     if price_seen:
         names = {1: "교보", 2: "예스24", 3: "알라딘"}
-        print("  · 정가 점검 — 양쪽 다 정가를 아는 짝 중, 정가가 달라 갈라낸 비율")
+        print("  · 정가 점검 — 나머지 조건이 다 같은 짝 중, 정가가 달라 갈라낸 비율")
         worst = 0.0
         for key in sorted(price_seen):
             seen_n = price_seen[key]

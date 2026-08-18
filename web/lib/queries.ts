@@ -34,6 +34,8 @@ export type Category = {
 export type StoreBook = {
   id: number;
   store_id: number;
+  /** 서점 내부 상품번호. 상품 페이지 주소를 만들 때 씁니다 (lib/stores.ts) */
+  store_book_key: string | null;
   raw_title: string;
   raw_author: string | null;
   raw_publisher: string | null;
@@ -879,7 +881,9 @@ export async function getBookDetail(bookId: number): Promise<{
   const { data: sbs, error } = await db()
     .from("store_books")
     .select(
-      "id,store_id,raw_title,raw_author,raw_publisher,pub_ym,list_price,sale_price,cover_url,isbn13,book_id"
+      // ⚠️ 한 줄로 두어야 합니다. 이어 붙이면 supabase 가 열 이름을 못 읽어
+      //    타입이 통째로 어긋납니다 (2026-08-18 실제로 겪음).
+      "id,store_id,store_book_key,raw_title,raw_author,raw_publisher,pub_ym,list_price,sale_price,cover_url,isbn13,book_id"
     )
     .eq("book_id", bookId);
   if (error) throw error;

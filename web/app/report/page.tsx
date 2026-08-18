@@ -3,7 +3,7 @@ import DataError from "@/components/DataError";
 import DatePicker from "@/components/DatePicker";
 import Markdown from "@/components/Markdown";
 import { Card, CardHead, Empty, PageHead } from "@/components/ui";
-import { configError } from "@/lib/supabase";
+import { configError, currentRole } from "@/lib/supabase";
 import { dayLabel, kstDateTime, num } from "@/lib/format";
 import { getReport, monthCost, REPORT_KEEP_DAYS, reportDates } from "@/lib/report";
 
@@ -25,6 +25,7 @@ export default async function ReportPage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
+  const isAdmin = (await currentRole()) === "admin";
   if (configError) {
     return (
       <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
@@ -70,8 +71,7 @@ export default async function ReportPage({
         lead={
           <>
             어제 순위에서 무슨 일이 있었는지를 AI 가 한 장으로 정리합니다.
-            <strong className="text-ink"> 순위 자료에 있는 것만</strong> 씁니다 —
-            판매 부수·광고 같은 것은 자료에 없으므로 다루지 않습니다.
+            <strong className="text-ink"> 순위 자료에 있는 것만</strong> 씁니다.
           </>
         }
       />
@@ -79,17 +79,13 @@ export default async function ReportPage({
       {!report ? (
         <Card>
           <Empty title="아직 리포트가 없습니다">
-            매일 아침 수집·매칭이 끝나면 자동으로 만들어집니다 (보통 7시 30분쯤).
+            매일 아침 자동으로 만들어집니다.
             <br />
             아직 안 켜셨다면{" "}
             <code className="rounded bg-surface-2 px-1 py-0.5">
               docs/ai-report-setup.md
             </code>{" "}
             를 보세요 (3분).
-            <br />
-            <span className="text-ink-faint">
-              켜지 않으셔도 순위표·그래프·엑셀은 그대로 다 됩니다.
-            </span>
           </Empty>
         </Card>
       ) : (
@@ -164,11 +160,11 @@ export default async function ReportPage({
             </div>
           </Card>
 
+          {/* 🚨 비용과 설정 파일 이름은 관리자에게만 (2026-08-18 대표님 지적).
+              방문자는 볼 이유도, 바꿀 방법도 없습니다. */}
+          {isAdmin && (
           <Card>
-            <CardHead
-              title="이번 달 비용"
-              desc="돈이 드는 유일한 기능이라 그대로 적어 둡니다"
-            />
+            <CardHead title="이번 달 비용" desc="이 기능만 돈이 듭니다" />
             <div className="px-4 py-4 text-sm sm:px-5">
               {cost === null ? (
                 <p className="text-ink-faint">
@@ -183,14 +179,12 @@ export default async function ReportPage({
                   </span>
                 </p>
               )}
-              <p className="mt-2 text-xs leading-relaxed text-ink-faint">
-                한도는 <code className="rounded bg-surface-2 px-1 py-0.5">config/report.yaml</code>{" "}
-                의 <code className="rounded bg-surface-2 px-1 py-0.5">monthly_cap_usd</code> 입니다.
-                한도에 닿으면 그 달 남은 날은 리포트를 만들지 않고 멈춥니다.
-                순위표와 그래프는 그대로 다 보입니다.
+              <p className="mt-2 text-xs text-ink-faint">
+                한도에 닿으면 그 달 남은 날은 리포트를 만들지 않습니다.
               </p>
             </div>
           </Card>
+          )}
         </>
       )}
     </div>

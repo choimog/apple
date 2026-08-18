@@ -79,9 +79,14 @@ export default async function PublisherAliasPage({
         </p>
       )}
 
-      <Card className="p-4 text-xs leading-relaxed text-ink-soft sm:p-5">
-        <p className="font-semibold text-ink">언제 쓰나요</p>
-        <p className="mt-1">
+      {/* 🚨 도움말은 접어 둡니다 (2026-08-18 대표님 지적 — 설명이 장황함).
+          지우지는 않습니다. 처음 쓰실 때는 필요한 내용입니다. */}
+      <details className="overflow-hidden rounded-2xl border border-line bg-surface">
+        <summary className="cursor-pointer list-none px-4 py-2.5 text-xs font-semibold text-ink-soft hover:bg-surface-2 sm:px-5">
+          이 화면은 언제 쓰나요 ▾
+        </summary>
+        <div className="border-t border-line-soft p-4 text-xs leading-relaxed text-ink-soft sm:p-5">
+        <p>
           글자만 보면 남남인데 실제로는 같은 출판사인 경우입니다.
         </p>
         <pre className="scroll-x mt-2 rounded-lg bg-surface-2 p-3 text-2xs leading-relaxed">
@@ -107,10 +112,8 @@ export default async function PublisherAliasPage({
             입니다.
           </li>
           <li>
-            <strong>되돌리기</strong> — 아래에서 [풀기] 를 누르면 끝입니다.
-            순위는 매일 처음부터 다시 계산하므로{" "}
-            <strong>다음 [도서 매칭] 에서 곧바로 원래대로</strong> 돌아갑니다.
-            쌓이거나 어긋나는 값이 없습니다.
+            <strong>되돌리기</strong> — [풀기] 를 누르면 다음 [도서 매칭]
+            에서 원래대로 돌아갑니다.
           </li>
           <li>
             <strong>반영 시점</strong> — 다음 [도서 매칭] 부터입니다(보통 내일
@@ -122,7 +125,8 @@ export default async function PublisherAliasPage({
           창비 / 창비교육, 김영사 / 김영사on 처럼 이름이 닮았지만 다른 곳은
           묶지 마세요. 실수하셨으면 [풀기] 로 되돌리면 됩니다.
         </p>
-      </Card>
+        </div>
+      </details>
 
       {/* ---------- 지금 정해 둔 무리 ---------- */}
       <Card>

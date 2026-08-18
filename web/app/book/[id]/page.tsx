@@ -17,7 +17,7 @@ import {
   RankBadge,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
-import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
+import { store, storeUrl, STORE_ORDER, type StoreId } from "@/lib/stores";
 
 /** 판매지수를 공개하는 서점 (예스24 · 알라딘). 교보는 목록에 안 냅니다 */
 const SALES_STORES: StoreId[] = STORE_ORDER.filter((s) => store(s).hasSalesPoint);
@@ -327,7 +327,7 @@ export default async function BookPage({
           title="지금 순위"
           desc={
             latestDate
-              ? `${dayLabel(latestDate)} · 종합(전체) 목록에 있으면 그 순위, 없으면 가장 높이 오른 분야의 순위입니다`
+              ? dayLabel(latestDate)
               : "순위 기록이 없습니다"
           }
         />
@@ -345,6 +345,12 @@ export default async function BookPage({
               따로 물어볼 필요가 없습니다.
             */
             const linked = stores.some((b) => b.store_id === sid);
+            // 서점 상품 페이지 주소 — 저장하지 않고 상품번호로 그때그때 만듭니다
+            const href = storeUrl(
+              sid,
+              stores.find((b) => b.store_id === sid)?.store_book_key
+            );
+            const chip = `inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-2xs font-medium ${s.chip}`;
             return (
               <div
                 key={sid}
@@ -352,16 +358,24 @@ export default async function BookPage({
                   none ? "border-dashed border-line bg-surface-2/50" : "border-line"
                 }`}
               >
-                <span className={`rounded-md px-2 py-0.5 text-2xs font-medium ${s.chip}`}>
-                  {s.name}
-                </span>
+                {href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${chip} transition-opacity hover:opacity-80`}
+                    title={`${s.name}에서 이 책 보기 (새 창)`}
+                  >
+                    {s.name}
+                    <span aria-hidden>↗</span>
+                  </a>
+                ) : (
+                  <span className={chip}>{s.name}</span>
+                )}
                 {/* 묶이지 않은 서점은 '왜 비었는지' 를 한 줄로 적습니다 */}
                 {!linked && (
-                  <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
-                    이 서점 상품이 이 책에 <strong>묶여 있지 않습니다.</strong>
-                    <br />
-                    그 서점에 없거나, 있는데 아직 같은 책으로 묶이지
-                    않았습니다.
+                  <p className="mt-1.5 text-2xs text-ink-faint">
+                    이 책에 묶여 있지 않습니다
                   </p>
                 )}
                 <dl className="mt-2.5 space-y-1.5">
@@ -450,10 +464,10 @@ export default async function BookPage({
           title="순위 추이"
           desc={
             basis === "overall"
-              ? "종합(전체) 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일"
+              ? "종합(전체) 기준"
               : pickedCat
-                ? `${categoryChoices.find((c) => c.unifiedCode === pickedCat)?.name ?? "분야"} 순위 기준 · 위로 갈수록 높은 순위 · 최근 30일`
-                : "분야(상위) 기준 · 위로 갈수록 높은 순위 · 최근 30일"
+                ? `${categoryChoices.find((c) => c.unifiedCode === pickedCat)?.name ?? "분야"} 기준`
+                : "분야(상위) 기준"
           }
           right={
             <BookExportButton
@@ -497,25 +511,14 @@ export default async function BookPage({
                 ))}
               </div>
             </div>
-            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
-              {mixedNames.length > 1 ? (
-                <>
-                  <strong>분야(상위)</strong>는 그날 올라 있는 분야 중 가장
-                  높은 순위를 따라갑니다. 지금 {mixedNames.length}개 분야(
-                  {mixedNames.join(" · ")})가 섞여 있어서, 오르내림이 실제
-                  움직임과 다를 수 있습니다. 정확히 보시려면 분야를 하나
-                  골라 주세요.
-                </>
-              ) : (
-                <>
-                  한 번에 <strong>한 가지 기준</strong>만 그립니다. 기준이
-                  다르면 숫자의 뜻도 다르기 때문입니다. 소설에서 3위이던
-                  책이 종합에 처음 들면 150위가 되는데, 섞어 그리면 폭락처럼
-                  보이지만 실제로는 <strong>더 잘 팔려서</strong> 종합에 든
-                  것입니다.
-                </>
-              )}
-            </p>
+            {/* 🚨 섞여 있을 때만 알립니다. 평소에는 굳이 설명하지 않습니다
+                (2026-08-18 대표님 지적 — 설명이 너무 장황함) */}
+            {mixedNames.length > 1 && (
+              <p className="mt-1.5 text-2xs text-ink-faint">
+                지금 {mixedNames.length}개 분야가 섞여 있습니다. 분야를 하나
+                고르시면 정확합니다.
+              </p>
+            )}
           </div>
         )}
         <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
@@ -540,12 +543,11 @@ export default async function BookPage({
       <Card>
         <CardHead
           title="판매지수 추이"
-          desc="서점마다 기준이 다릅니다. 한 화면에 합치지 않고 나란히 둡니다"
+          desc="서점마다 기준이 달라 나란히 둡니다"
         />
         {!hasSales ? (
           <Empty title="판매지수를 공개하는 서점이 없습니다">
-            교보문고는 판매지수를 목록에 공개하지 않습니다. 예스24·알라딘에서
-            이 책이 순위에 들면 여기에 그래프가 생깁니다.
+            교보문고는 판매지수를 공개하지 않습니다.
           </Empty>
         ) : (
           <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
@@ -583,9 +585,7 @@ export default async function BookPage({
             })}
           </div>
         )}
-        <p className="border-t border-line-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-faint sm:px-5">
-          판매지수는 서점이 책 한 권에 하나씩 매기는 값이라 일간·주간이 같습니다.
-          그래서 기간별로 나누지 않고 <strong>서점별</strong>로 나눠 보여줍니다.
+        <p className="border-t border-line-soft px-4 py-2 text-2xs text-ink-faint sm:px-5">
           두 서점의 숫자는 계산 방식이 달라 <strong>서로 비교하면 안 됩니다.</strong>
         </p>
       </Card>

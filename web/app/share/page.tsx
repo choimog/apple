@@ -124,7 +124,7 @@ export default async function SharePage({
           <Card>
             <CardHead
               title="새 주소 만들기"
-              desc="분야를 고르면 그 분야의 순위표를 보여주는 주소가 만들어집니다. 날짜를 고르면 그날로 고정됩니다."
+              desc="고른 분야·날짜의 순위표만 보여주는 주소가 만들어집니다."
             />
             <form
               action="/share/action"
@@ -290,7 +290,7 @@ export default async function SharePage({
               title={isAdmin ? "만든 주소 (회원 것 포함)" : "내가 만든 주소"}
               desc={
                 isAdmin
-                  ? "회원이 만든 것도 여기 다 보입니다. 누구 것이든 끄실 수 있습니다."
+                  ? "누가 만든 것이든 끄실 수 있습니다."
                   : "끄면 그 주소는 즉시 열리지 않습니다. 기록은 남습니다."
               }
             />

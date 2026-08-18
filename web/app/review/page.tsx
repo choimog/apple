@@ -114,9 +114,8 @@ export default async function ReviewPage({
       <div>
         <h1 className="text-2xl font-bold tracking-tight">매칭 검토</h1>
         <p className="mt-1 text-sm text-ink-soft">
-          서점마다 제목·저자 표기가 조금씩 달라서, 같은 책인지 기계가
-          확신하지 못하는 경우가 있습니다. 여기서 대표님이 정해 주시면
-          그 결정이 항상 우선합니다.
+          기계가 확신하지 못한 짝입니다. 여기서 정해 주시면 그 결정이
+          항상 우선합니다.
         </p>
       </div>
 
@@ -150,14 +149,9 @@ export default async function ReviewPage({
                   브라우저가 나눠 가져오는 방식으로 바꿨습니다. */}
               <ExportAll />
             </div>
-            <p className="mt-1.5 text-2xs leading-relaxed text-ink-faint">
-              <strong>전체</strong>는 세 가지(검토 대기·자동으로 묶은
-              것·내가 내린 결정)를 조건 없이 전부 담습니다. 건수가 많으면
-              시간이 좀 걸립니다.
-              <br />
-              받으신 뒤 <strong>맨 아래 줄에 「여기까지가 전부입니다」</strong>
-              가 있는지 봐 주세요. 없으면 중간에 끊긴 것이니 다시 받아
-              주세요.
+            <p className="mt-1.5 text-2xs text-ink-faint">
+              받으신 뒤 맨 아래에 <strong>「여기까지가 전부입니다」</strong>가
+              있는지 봐 주세요. 없으면 중간에 끊긴 것입니다.
             </p>
           </div>
 
@@ -368,8 +362,7 @@ export default async function ReviewPage({
           )}
           {result.capped && (
             <p className="mt-1.5 text-2xs leading-relaxed text-amber-700 dark:text-amber-400">
-              ⚠️ 짝이 너무 많아 앞쪽 일부만 훑었습니다. 여기 보이는 것이
-              전부는 아닙니다. 점수 구간을 같이 좁히면 정확해집니다.
+              ⚠️ 앞쪽 일부만 보여줍니다. 점수 구간을 좁히면 정확해집니다.
             </p>
           )}
 
@@ -502,10 +495,9 @@ export default async function ReviewPage({
             받으려면 따로 돌려야 합니다. 이걸 안 적어 두면 "저절로
             바뀌었겠지" 하고 옛 리포트를 보시게 됩니다.
           */}
-          <p className="mt-2 text-xs leading-relaxed text-ink-faint">
-            ⚠️ <strong>AI 리포트는 따로입니다.</strong> 매칭을 다시 돌려도
-            그날 리포트가 이미 있으면 다시 쓰지 않습니다 (돈이 두 번 나가지
-            않게). 새 묶음 기준으로 리포트를 다시 받으시려면{" "}
+          <p className="mt-2 text-xs text-ink-faint">
+            ⚠️ <strong>AI 리포트는 따로입니다.</strong> 새 묶음 기준으로 다시
+            받으시려면{" "}
             <a
               href="https://github.com/choimog/apple/actions/workflows/report.yml"
               target="_blank"
@@ -516,11 +508,6 @@ export default async function ReviewPage({
             </a>
             에서 <strong>force</strong> 를 <code>true</code> 로 두고 돌리세요
             (1회 약 85원).
-          </p>
-          <p className="mt-2 text-xs text-ink-faint">
-            한 짝을 고치면 그 책이 속한 무리 전체를 다시 계산해야 해서,
-            누를 때마다 돌리면 몇 분씩 걸립니다. 그래서 평소에는 모아서
-            합니다.
           </p>
         </div>
       </Card>

@@ -75,7 +75,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Nav email={who.email} isAdmin={who.role === "admin"} />
 
         <main id="main" className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-          {stale && latest && <StaleWarning info={stale} latest={latest} />}
+          {stale && latest && (
+            <StaleWarning
+              info={stale}
+              latest={latest}
+              isAdmin={who.role === "admin"}
+            />
+          )}
           {children}
         </main>
 

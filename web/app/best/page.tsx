@@ -93,7 +93,7 @@ export default async function BestPage({
         <div>
           <h1 className="text-2xl font-bold tracking-tight">종합 베스트셀러</h1>
           <p className="mt-1 text-sm text-ink-soft">
-            교보문고·예스24·알라딘 3사의 순위를 평균낸 순위입니다.
+            3사 순위를 평균낸 순위입니다.
           </p>
         </div>
         <PeriodSwitch period={period} hrefFor={(p) => href({ period: p, cat: "" })} />

@@ -61,8 +61,12 @@ export default async function JoinPage({
 
       {params.msg && <Message params={params} />}
 
-      <Card className="p-4 text-xs leading-relaxed text-ink-soft sm:p-5">
-        <p className="font-semibold text-ink">언제 쓰나요</p>
+      {/* 🚨 도움말은 접어 둡니다 (2026-08-18 대표님 지적) */}
+      <details className="overflow-hidden rounded-2xl border border-line bg-surface">
+        <summary className="cursor-pointer list-none px-4 py-2.5 text-xs font-semibold text-ink-soft hover:bg-surface-2 sm:px-5">
+          이 화면은 언제 쓰나요 ▾
+        </summary>
+        <div className="border-t border-line-soft p-4 text-xs leading-relaxed text-ink-soft sm:p-5">
         <p className="mt-1">
           예를 들어 아래 둘은 저자·출판사·출간월·정가가 전부 같은데
           <strong> 「리커버」 </strong>
@@ -95,7 +99,8 @@ export default async function JoinPage({
             &lsquo;도서번호&rsquo; 를 보고 판단하세요.
           </li>
         </ul>
-      </Card>
+        </div>
+      </details>
 
       {/* ---------- 찾기 ---------- */}
       <form action="/review/join" role="search" className="flex flex-wrap gap-2">

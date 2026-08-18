@@ -75,7 +75,7 @@ export default async function StatusPage({
       <div>
         <h1 className="text-2xl font-bold tracking-tight">수집 상태</h1>
         <p className="mt-1 text-sm text-ink-soft">
-          매일 한국시간 오전 6시에 자동 수집합니다. 실패한 날은 실패로 나옵니다.
+          매일 아침 6시에 자동 수집합니다.
         </p>
       </div>
 
@@ -98,7 +98,7 @@ export default async function StatusPage({
       <Card>
         <CardHead
           title="날짜별 · 서점별 수집 기록"
-          desc="실패 숫자를 누르면 어느 분야가 실패했는지 볼 수 있습니다. 시각은 한국시간입니다."
+          desc="실패 숫자를 누르면 어느 분야인지 볼 수 있습니다."
         />
         {days.length === 0 ? (
           <Empty title="아직 수집 기록이 없습니다" />
@@ -251,9 +251,8 @@ export default async function StatusPage({
                   {archived.daysLeft !== null && ` (${archived.daysLeft}일 남음)`}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-                  GitHub 보관 기간은 최대 90일입니다. 그 전에 파일을 내려받아
-                  PC 나 구글 드라이브에 두세요. 한 번 사라지면 되살릴 수
-                  없습니다. 30일 밑으로 남으면 메일로도 알려드립니다.
+                  보관 기간은 최대 90일입니다. 그 전에 내려받아 두세요.
+                  한 번 사라지면 되살릴 수 없습니다.
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-ink-faint">
                   받으신 뒤 GitHub → Actions →{" "}

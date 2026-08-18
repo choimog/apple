@@ -97,9 +97,8 @@ export default async function LoginPage({
         </form>
       )}
 
-      <p className="mt-6 text-xs leading-relaxed text-ink-faint">
-        계정이 없으시면 운영자에게 말씀해 주세요. 가입 신청 칸은 두지
-        않았습니다 — 주소를 아는 누구나 회원이 되면 회원제가 아니게 됩니다.
+      <p className="mt-6 text-xs text-ink-faint">
+        계정이 없으시면 운영자에게 말씀해 주세요.
       </p>
     </div>
   );
@@ -113,10 +112,7 @@ function errorText(code: string, detail?: string): string {
     case "empty":
       return "이메일과 비밀번호를 모두 적어 주세요.";
     case "unconfirmed":
-      return (
-        "계정이 아직 확인되지 않았습니다. Supabase → Authentication → Users 에서 " +
-        "이 계정의 확인을 완료해 주세요."
-      );
+      return "계정이 아직 확인되지 않았습니다. 운영자에게 말씀해 주세요.";
     case "toomany":
       return "너무 여러 번 시도했습니다. 잠시 뒤에 다시 해주세요.";
     case "config":

@@ -46,9 +46,10 @@ check("종합·분야(상위)·분야 하나를 고를 수 있다",
   page.includes('basis={`cat:'));
 check("고른 기준으로 걸러서 그린다",
   /allHistory\.filter\([\s\S]{0,80}h\.isOverall\)/.test(page));
+// ⚠️ 2026-08-18 문구를 줄였습니다("… 순위 기준 · 위로 갈수록 높은 순위 ·
+//    최근 30일" → "… 기준"). 글자가 아니라 **기준을 적는다는 것**을 봅니다.
 check("무슨 기준인지 제목 옆에 적는다",
-  page.includes("종합(전체) 순위 기준") &&
-  page.includes("분야(상위) 기준"));
+  page.includes("종합(전체) 기준") && page.includes("분야(상위) 기준"));
 // 한쪽밖에 없는 책에서 버튼을 보여주면 눌러도 아무 일이 없습니다
 check("고를 것이 하나뿐이면 버튼 줄을 안 보여준다",
   /Number\(hasOverall\) \+ categoryChoices\.length > 1/.test(page));
@@ -71,16 +72,19 @@ check("이름이 '분야(상위)' 다",
   page.includes("분야(상위)") && !page.includes("분야 최고"));
 check("분야(상위)는 그날 가장 높은 분야를 따라간다",
   /if \(!cur \|\| h\.rank < cur\.rank\) top\.set\(k, h\)/.test(page));
-check("제목 옆에 고른 분야 이름을 적는다",
-  page.includes("순위 기준 · 위로 갈수록"));
+check("분야를 고르면 그 분야 이름을 적는다",
+  /categoryChoices\.find\(\(c\) => c\.unifiedCode === pickedCat\)\?\.name/.test(page));
 // 🚨 조용히 섞이면 안 됩니다
+// 🚨 조용히 섞이면 안 됩니다. 설명 문구가 아니라 **거르는 코드**가 증거입니다.
 check("한 번에 한 가지 기준만 그린다",
-  page.includes("한 가지 기준</strong>만 그립니다"));
+  /history = allHistory\.filter\(\(h\) => h\.isOverall\)/.test(page) &&
+  /allHistory\.filter\(\(h\) => h\.unifiedCode === pickedCat\)/.test(page));
 check("고른 분야 하나만 걸러낸다",
   /allHistory\.filter\(\(h\) => h\.unifiedCode === pickedCat\)/.test(page));
 // 🚨 분야(상위)는 날마다 다른 분야를 가리킬 수 있습니다. 조용히 두면 안 됩니다.
-check("분야가 섞이면 몇 개인지 이름까지 알려준다",
-  page.includes("mixedNames") && page.includes("mixedNames.join"));
+// ⚠️ 이름을 전부 적으면 줄이 넘어가서 개수만 적습니다 (2026-08-18).
+check("분야가 섞이면 몇 개인지 알려준다",
+  page.includes("mixedNames") && page.includes("mixedNames.length > 1"));
 check("분야 하나를 고르라고 권한다",
   page.includes("분야를 하나\n                  골라 주세요") ||
   page.includes("분야를 하나"));

@@ -54,6 +54,27 @@ export const STORES: Record<StoreId, StoreMeta> = {
 /** 화면에 보여주는 순서: 교보 → 예스24 → 알라딘 */
 export const STORE_ORDER: StoreId[] = [1, 2, 3];
 
+/**
+ * 서점 상품 페이지 주소.
+ *
+ * 【2026-08-18 대표님 질문 — "용량이 많이 추가될까?"】
+ * 한 글자도 안 늘어납니다. 주소를 저장하는 게 아니라, 이미 갖고 있는
+ * **서점 상품번호(store_book_key)로 그때그때 만들어** 씁니다.
+ * 그 번호는 목록을 걷을 때부터 저장하고 있었습니다.
+ *
+ * ⚠️ 이건 '상세 페이지에 들어가지 않는다' 는 규칙과 어긋나지 않습니다.
+ *    그 규칙은 **우리가 긁어오는 것**을 막는 것이고, 이건 대표님이
+ *    누르셨을 때 브라우저가 여는 것입니다. 우리는 아무것도 안 받아옵니다.
+ */
+export function storeUrl(id: number, key: string | null | undefined): string | null {
+  const k = (key ?? "").trim();
+  if (!k) return null;
+  if (id === 1) return `https://product.kyobobook.co.kr/detail/${k}`;
+  if (id === 2) return `https://www.yes24.com/product/goods/${k}`;
+  if (id === 3) return `https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=${k}`;
+  return null;
+}
+
 export function store(id: number): StoreMeta {
   return STORES[id as StoreId] ?? STORES[1];
 }

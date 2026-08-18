@@ -111,7 +111,7 @@ export default async function SearchPage({
             }
             desc={
               rows.length >= 50
-                ? "가장 관련 있는 50종만 보여줍니다. 더 좁혀서 찾아보세요."
+                ? "가장 관련 있는 50종만 보여줍니다."
                 : undefined
             }
           />

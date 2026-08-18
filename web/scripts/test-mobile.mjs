@@ -83,7 +83,37 @@ check("휴대폰에서는 판매지수가 아랫줄로 내려간다",
   "w-28 로만 두면 제목에 60px 밖에 안 남습니다");
 check("제목 칸에 최소 폭이 있다", /min-w-0 flex-1 basis-40/.test(storePage));
 
-console.log("\n[5] 자로 재는 도구가 남아 있는가");
+console.log("\n[5] 🚨 분야 고르기가 네 화면에서 같은가");
+// 【2026-08-18 대표님 요청】
+//   "종합, 서점별에서 분야 스크롤 방식이랑
+//    출판사, 저자에서 분야 스크롤 방식의 차이도 통일해줘."
+//
+// 상자 자체는 원래 같았습니다. 다른 것은 **폭**이었습니다 (360px 실측).
+//   종합·서점별   분야칸  80px · 상자가 꽉 차서 스크롤 생김
+//   출판사·저자   분야칸 294px · 스크롤 없음
+// 폭이 다르면 버튼이 접히는 줄 수가 달라져서 '스크롤 방식' 이 달라 보입니다.
+const picker = readFileSync("components/CategoryPicker.tsx", "utf8");
+const best = readFileSync("app/best/page.tsx", "utf8");
+const names = readFileSync("components/NameRankingPage.tsx", "utf8");
+check("부품이 하나 있다", /export default function CategoryPicker/.test(picker));
+check("휴대폰에서는 한 줄을 다 쓴다",
+  /basis-full sm:basis-0 sm:flex-1/.test(picker),
+  "min-w-0 flex-1 로 두면 휴대폰에서 분야칸이 80px 까지 줄어듭니다");
+check("높이를 정해 두고 그 안에서만 넘긴다",
+  /max-h-48[\s\S]{0,40}overflow-y-auto/.test(picker));
+for (const [name, src] of [
+  ["종합(/best)", best],
+  ["서점별(/store)", storePage],
+  ["출판사·저자", names],
+]) {
+  check(`${name} 이 그 부품을 쓴다`,
+    /<CategoryPicker/.test(src) && /<PickerBar>/.test(src));
+  check(`${name} 에 상자를 또 만들지 않았다`,
+    !/max-h-48 flex-wrap gap-1\.5 overflow-y-auto/.test(src),
+    "같은 코드를 두 벌 두면 반드시 어긋납니다");
+}
+
+console.log("\n[6] 자로 재는 도구가 남아 있는가");
 const measure = readFileSync("scripts/measure-mobile.mjs", "utf8");
 check("측정 도구가 있다", measure.includes("scrollWidth"));
 check("여러 폭을 본다", /320, 360, 390, 430, 768, 1024, 1280/.test(measure));

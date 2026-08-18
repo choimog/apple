@@ -5,7 +5,8 @@ import ExportButton from "@/components/ExportButton";
 import DataError from "@/components/DataError";
 import DatePicker from "@/components/DatePicker";
 import SalesPoint from "@/components/SalesPoint";
-import { Card, Empty, FieldLabel, Pill, RankBadge } from "@/components/ui";
+import CategoryPicker, { PickerBar, PickerSide } from "@/components/CategoryPicker";
+import { Card, Empty, FieldLabel, RankBadge } from "@/components/ui";
 import { configError } from "@/lib/supabase";
 import { store as storeMeta, STORE_NAME } from "@/lib/stores";
 import {
@@ -187,24 +188,21 @@ export default async function StorePage({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <FieldLabel>{tab === "branch" ? "매장" : "분야"}</FieldLabel>
-            {/* 종합(전체)이 항상 맨 앞에 옵니다 — lib/queries.ts 의 overallFirst */}
-            <div className="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
-              {list.map((c) => (
-                <Pill
-                  key={c.id}
-                  href={href({ cat: String(c.id), date: "", n: String(PAGE_SIZE) })}
-                  active={c.id === category.id}
-                >
-                  {tab === "branch" ? c.branch_name : c.name}
-                </Pill>
-              ))}
-            </div>
-          </div>
-          <div className="shrink-0">
-            <FieldLabel>날짜</FieldLabel>
+        {/* 분야·날짜 고르기는 [종합]·[출판사]·[저자]와 같은 부품입니다
+            (2026-08-18 대표님 요청으로 하나로 모았습니다) */}
+        <div className="mt-4">
+        <PickerBar>
+          {/* 종합(전체)이 항상 맨 앞에 옵니다 — lib/queries.ts 의 overallFirst */}
+          <CategoryPicker
+            label={tab === "branch" ? "매장" : "분야"}
+            items={list.map((c) => ({
+              key: String(c.id),
+              label: (tab === "branch" ? c.branch_name : c.name) ?? "",
+              href: href({ cat: String(c.id), date: "", n: String(PAGE_SIZE) }),
+            }))}
+            activeKey={String(category.id)}
+          />
+          <PickerSide label="날짜">
             {date ? (
               <DatePicker
                 dates={dates}
@@ -220,7 +218,8 @@ export default async function StorePage({
             ) : (
               <p className="text-sm text-ink-faint">기록 없음</p>
             )}
-          </div>
+          </PickerSide>
+        </PickerBar>
         </div>
       </Card>
 

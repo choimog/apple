@@ -96,6 +96,39 @@ const CASES = {
   </div>
  </li></ul></div>`,
 
+  "분야 고르기 (종합·서점별·출판사·저자 공통)": `
+<div class="rounded-2xl border border-line bg-surface shadow-card p-4 sm:p-5">
+ <div class="flex flex-wrap items-start gap-4">
+  <div class="min-w-0 basis-full sm:basis-0 sm:flex-1">
+   <p class="mb-1.5 text-xs font-medium text-ink-faint">분야</p>
+   <div class="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
+    ${[
+      "종합", "소설", "한국소설", "경제경영", "자기계발", "인문",
+      "청소년 교양·학습", "유아(0~7세) 그림책", "중고등 참고서·문제집",
+      "외국어", "과학", "역사", "에세이", "만화", "여행",
+    ]
+      .map(
+        (t, i) =>
+          `<a class="rounded-full border px-3 py-1 text-xs ${
+            i === 0
+              ? "border-transparent bg-accent font-semibold text-accent-ink"
+              : "border-line bg-surface text-ink-soft"
+          }">${t}</a>`
+      )
+      .join("")}
+   </div>
+  </div>
+  <div class="shrink-0">
+   <p class="mb-1.5 text-xs font-medium text-ink-faint">날짜</p>
+   <div class="flex items-center gap-1.5">
+     <button class="grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-soft">‹</button>
+     <select class="tnum h-9 rounded-lg border border-line bg-surface px-2.5 text-sm text-ink"><option>2026-08-18</option></select>
+     <button class="grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-soft">›</button>
+   </div>
+  </div>
+ </div>
+</div>`,
+
   "서점별 한 줄 (/store)": `
 <div class="rounded-2xl border border-line bg-surface shadow-card"><ul class="divide-y divide-line-soft">
  <li class="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">

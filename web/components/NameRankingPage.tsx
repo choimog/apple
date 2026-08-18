@@ -2,14 +2,13 @@ import Link from "next/link";
 import DataError from "@/components/DataError";
 import SetupNotice from "@/components/SetupNotice";
 import DatePicker from "@/components/DatePicker";
+import CategoryPicker, { PickerBar, PickerSide } from "@/components/CategoryPicker";
 import {
   Card,
   CardHead,
   Empty,
-  FieldLabel,
   PeriodBadge,
   PeriodSwitch,
-  Pill,
   RankBadge,
 } from "@/components/ui";
 import { configError } from "@/lib/supabase";
@@ -96,27 +95,29 @@ export default async function NameRankingPage({
         />
       )}
 
+      {/* 분야·날짜 고르기는 [종합]·[서점별]과 **같은 부품**입니다.
+          예전에는 여기만 분야가 한 줄을 다 쓰고 날짜가 아랫줄이라,
+          같은 분야 수인데도 스크롤이 생기는 시점이 달랐습니다.
+          (2026-08-18 대표님 요청으로 하나로 모았습니다) */}
       <Card className="p-4 sm:p-5">
-        <FieldLabel>분야</FieldLabel>
-        {/* 분야가 많아 휴대폰에서 화면 절반을 덮습니다.
-            [서점별]·[종합] 화면과 같은 방식으로 높이를 정하고 그 안에서 스크롤합니다.
-            (2026-08-09 대표님 요청) */}
-        <div className="scroll-x flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line-soft bg-surface-2 p-2">
-          {options.map((o) => (
-            <Pill key={o.code} href={href({ cat: o.code })} active={o.code === unified}>
-              {o.label}
-            </Pill>
-          ))}
-        </div>
-        <div className="mt-4">
-          <FieldLabel>날짜</FieldLabel>
-          <DatePicker
-            dates={dates}
-            value={date}
-            basePath={base}
-            query={{ period, cat: unified }}
+        <PickerBar>
+          <CategoryPicker
+            items={options.map((o) => ({
+              key: o.code,
+              label: o.label,
+              href: href({ cat: o.code }),
+            }))}
+            activeKey={unified}
           />
-        </div>
+          <PickerSide label="날짜">
+            <DatePicker
+              dates={dates}
+              value={date}
+              basePath={base}
+              query={{ period, cat: unified }}
+            />
+          </PickerSide>
+        </PickerBar>
       </Card>
 
       <Card>

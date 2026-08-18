@@ -36,6 +36,13 @@ from common.normalize import normalize_title  # noqa: E402
 from run_match import fill_missing_store, split_same_store  # noqa: E402
 
 MCFG = cfg.load("matching.yaml")
+
+from run_match import _cand  # noqa: E402
+
+
+def cands_of(by_id: dict) -> dict:
+    """{번호: 줄} → {번호: 비교용 값}. 매칭이 시작할 때 만들어 두는 것과 같습니다."""
+    return {i: _cand(r) for i, r in by_id.items()}
 failures: list[str] = []
 
 
@@ -100,7 +107,7 @@ by_id2 = {
     3: book(3, 3, "원소 원정대: 118개 캐릭터로 마스터하는 주기율표 공략집"),
 }
 clusters = {1: [1, 2], 3: [3]}
-out2, n = fill_missing_store(dict(clusters), by_id2, MCFG, set())
+out2, n = fill_missing_store(dict(clusters), by_id2, MCFG, set(), cands_of(by_id2))
 check("한 종이 채워졌다", n == 1, n)
 check("세 권이 한 무리가 됐다", sorted(out2.get(1, [])) == [1, 2, 3], out2)
 check("혼자였던 무리는 사라졌다", 3 not in out2, out2)
@@ -109,7 +116,7 @@ print("\n[3] 🚨 붙이면 안 되는 경우 — 여기가 진짜 시험입니�
 
 # (가) 이미 있는 서점이면 채울 자리가 아닙니다 (4권 방지)
 same_store = {1: book(1, 1, "가"), 2: book(2, 2, "가"), 3: book(3, 1, "가")}
-_, n_a = fill_missing_store({1: [1, 2], 3: [3]}, same_store, MCFG, set())
+_, n_a = fill_missing_store({1: [1, 2], 3: [3]}, same_store, MCFG, set(), cands_of(same_store))
 check("이미 있는 서점 것은 안 붙인다", n_a == 0, n_a)
 
 # (나) 정가가 다르면 안 붙입니다
@@ -117,11 +124,11 @@ price_diff = {
     1: book(1, 1, "가나다라"), 2: book(2, 2, "가나다라"),
     3: book(3, 3, "가나다라", price=22000),
 }
-_, n_b = fill_missing_store({1: [1, 2], 3: [3]}, price_diff, MCFG, set())
+_, n_b = fill_missing_store({1: [1, 2], 3: [3]}, price_diff, MCFG, set(), cands_of(price_diff))
 check("정가가 다르면 안 붙인다", n_b == 0, n_b)
 
 # (다) 사람이 '다른 책' 이라고 한 짝은 절대 안 붙입니다
-_, n_c = fill_missing_store({1: [1, 2], 3: [3]}, by_id2, MCFG, {(1, 3)})
+_, n_c = fill_missing_store({1: [1, 2], 3: [3]}, by_id2, MCFG, {(1, 3)}, cands_of(by_id2))
 check("사람이 '다른 책' 이라 한 것은 안 붙인다", n_c == 0, n_c)
 
 # (라) 무리의 한 권과만 닮고 다른 한 권과 안 닮으면 안 붙입니다
@@ -130,13 +137,13 @@ half = {
     2: book(2, 2, "가나다라마바", author="다른저자", pub="창비"),
     3: book(3, 3, "가나다라마바"),
 }
-_, n_d = fill_missing_store({1: [1, 2], 3: [3]}, half, MCFG, set())
+_, n_d = fill_missing_store({1: [1, 2], 3: [3]}, half, MCFG, set(), cands_of(half))
 check("두 권 모두와 맞아야 붙인다", n_d == 0, n_d)
 
 # (마) 이미 3권이면 손대지 않습니다
 three = {i: book(i, i, "가나다라") for i in (1, 2, 3)}
 three[4] = book(4, 1, "가나다라")
-_, n_e = fill_missing_store({1: [1, 2, 3], 4: [4]}, three, MCFG, set())
+_, n_e = fill_missing_store({1: [1, 2, 3], 4: [4]}, three, MCFG, set(), cands_of(three))
 check("3권짜리에는 손대지 않는다", n_e == 0, n_e)
 
 # (바) 제목이 아예 다르면 안 붙입니다
@@ -144,13 +151,13 @@ other = {
     1: book(1, 1, "달러구트 꿈 백화점"), 2: book(2, 2, "달러구트 꿈 백화점"),
     3: book(3, 3, "완전히 다른 제목의 책"),
 }
-_, n_f = fill_missing_store({1: [1, 2], 3: [3]}, other, MCFG, set())
+_, n_f = fill_missing_store({1: [1, 2], 3: [3]}, other, MCFG, set(), cands_of(other))
 check("제목이 다르면 안 붙인다", n_f == 0, n_f)
 
 print("\n[4] 설정으로 끌 수 있다")
 off = dict(MCFG)
 off["thresholds"] = dict(MCFG["thresholds"], fill_min_score=0)
-_, n_off = fill_missing_store({1: [1, 2], 3: [3]}, by_id2, off, set())
+_, n_off = fill_missing_store({1: [1, 2], 3: [3]}, by_id2, off, set(), cands_of(by_id2))
 check("fill_min_score 를 0 으로 두면 아무것도 안 한다", n_off == 0, n_off)
 
 

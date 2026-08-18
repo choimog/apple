@@ -288,10 +288,16 @@ def fetch_auto_match_pairs(client: Client) -> list[dict]:
 
 
 def delete_matches(client: Client, ids: list[int]) -> int:
-    """매칭 기록을 번호로 지웁니다. 지운 개수를 돌려줍니다."""
+    """
+    매칭 기록을 번호로 지웁니다. 지운 개수를 돌려줍니다.
+
+    ⚠️ 한 번에 500개씩 보냅니다. 번호를 주소에 적어 보내는 방식이라
+       너무 많이 담으면 주소가 길어서 거절당하고, 너무 적게 담으면
+       요청이 수천 번 나가서 느려집니다.
+    """
     if not ids:
         return 0
-    for chunk in _chunks(ids, 200):
+    for chunk in _chunks(ids, 500):
         client.table("book_matches").delete().in_("id", chunk).execute()
     return len(ids)
 

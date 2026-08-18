@@ -198,11 +198,20 @@ sys.modules.setdefault("supabase", _fake)
 
 from run_match import split_by_volume                 # noqa: E402
 
-by_id = {
-    11: {"raw_title": "빛과 수의 시대 1", "store_id": 3},
-    12: {"raw_title": "빛과 수의 시대", "store_id": 2},     # 번호 없음
-    13: {"raw_title": "빛과 수의 시대 2", "store_id": 1},
-}
+
+def cmap(items):
+    """{번호: 제목} → {번호: 비교용 값}. 권 번호는 Candidate 가 꺼냅니다."""
+    return {
+        i: mk(1, t, "김상욱", "동아시아", "2026-06", sb_id=i)
+        for i, t in items.items()
+    }
+
+
+by_id = cmap({
+    11: "빛과 수의 시대 1",
+    12: "빛과 수의 시대",          # 번호 없음
+    13: "빛과 수의 시대 2",
+})
 # 12번은 11번과 더 높은 점수로 이어졌습니다 → 1권 쪽에 붙어야 합니다.
 scores = {(11, 12): 92.0, (12, 13): 88.0}
 parts = split_by_volume([11, 12, 13], by_id, scores)
@@ -211,19 +220,16 @@ check("번호 없는 책은 점수가 높은 쪽에 붙는다",
       sorted(parts) == [[11, 12], [13]], parts)
 
 # 번호가 하나뿐이면 손대지 않습니다 (멀쩡한 무리를 쪼개면 안 됩니다).
-same_vol = {
-    21: {"raw_title": "빛과 수의 시대 2", "store_id": 3},
-    22: {"raw_title": "빛과 수의 시대", "store_id": 2},
-    23: {"raw_title": "빛과 수의 시대 2", "store_id": 1},
-}
+same_vol = cmap({
+    21: "빛과 수의 시대 2",
+    22: "빛과 수의 시대",
+    23: "빛과 수의 시대 2",
+})
 check("번호가 하나뿐이면 그대로 둔다",
       split_by_volume([21, 22, 23], same_vol, {}) == [[21, 22, 23]])
 
 # 번호를 아무도 안 적었으면 그대로 둡니다.
-no_vol = {
-    31: {"raw_title": "코스모스", "store_id": 3},
-    32: {"raw_title": "코스모스", "store_id": 1},
-}
+no_vol = cmap({31: "코스모스", 32: "코스모스"})
 check("번호가 전혀 없으면 그대로 둔다",
       split_by_volume([31, 32], no_vol, {}) == [[31, 32]])
 

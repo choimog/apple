@@ -45,7 +45,7 @@ from common.match import (  # noqa: E402
 # 화면에 쓸 출판사·저자 이름을 온 자료를 통틀어 하나로 정합니다.
 # (웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 꼬이던 원인 — names.py 설명 참고)
 from common.names import canonical_map, merge_examples  # noqa: E402
-from common.normalize import extract_volume, fold_fortis  # noqa: E402
+from common.normalize import fold_fortis  # noqa: E402
 
 # 대표 정보를 고를 때의 서점 우선순위 (표지 우선순위와 동일)
 #   알라딘 → 예스24 → 교보
@@ -343,7 +343,7 @@ def split_by_publisher(
 
 def split_by_volume(
     cluster: list[int],
-    by_id: dict[int, dict],
+    cand_by_id: dict[int, Candidate],
     pair_score: dict[tuple[int, int], float],
 ) -> list[list[int]]:
     """
@@ -365,7 +365,7 @@ def split_by_volume(
     known: dict[int, list[int]] = defaultdict(list)   # 권 번호 → 책들
     unknown: list[int] = []
     for i in cluster:
-        v = extract_volume(by_id[i].get("raw_title"))
+        v = cand_by_id[i].volume        # 시작할 때 한 번 꺼내 둔 값
         if v is None:
             unknown.append(i)
         else:
@@ -562,6 +562,7 @@ def fill_missing_store(
     by_id: dict[int, dict],
     mcfg: dict,
     forbidden: set[tuple[int, int]],
+    cand_by_id: dict[int, Candidate],
 ) -> tuple[dict[int, list[int]], int]:
     """
     2개만 묶인 무리에, **홀로 남은 한 권**을 붙여 3권으로 채웁니다.
@@ -615,7 +616,12 @@ def fill_missing_store(
                     if (lo, hi) in forbidden:
                         ok = False
                         break
-                    r = compare(_cand(by_id[cid]), _cand(by_id[i]), mcfg)
+                    # 🚨 후보를 여기서 새로 만들면 안 됩니다.
+                    #    이 안쪽은 '2권짜리 무리 × 혼자 남은 책' 이라
+                    #    수천만 번 돕니다. 2026-08-18 에 재 보니 한 번
+                    #    만드는 데 3.8µs 라, 견주는 일(4.6µs)보다 만드는
+                    #    일이 더 비쌌습니다. 시작할 때 만들어 둔 것을 씁니다.
+                    r = compare(cand_by_id[cid], cand_by_id[i], mcfg)
                     if r.decision == "rejected" or r.score < fill:
                         ok = False
                         break
@@ -670,6 +676,22 @@ def main() -> int:
     dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() == "true"
 
     started = time.monotonic()
+
+    # -------------------------------------------------------------------------
+    #  단계별로 얼마나 걸렸는지 찍습니다 (2026-08-18).
+    #
+    #  🚨 이날 매칭이 30분 제한에 걸려 멈췄는데, **로그가 한 줄도 없어서**
+    #     어디서 오래 걸렸는지 알 수 없었습니다. 다음부터는 느려지면
+    #     어느 단계인지 바로 보입니다.
+    # -------------------------------------------------------------------------
+    marks: list[tuple[str, float]] = []
+
+    def step(what: str) -> None:
+        now = time.monotonic()
+        before = marks[-1][1] if marks else started
+        marks.append((what, now))
+        print(f"    ⏱ {what} {now - before:.1f}초 (누적 {now - started:.1f}초)")
+
     mcfg = cfg.load("matching.yaml")
 
     print("=" * 66)
@@ -755,9 +777,14 @@ def main() -> int:
 
     by_id = {r["id"]: r for r in rows}
     cands = [_cand(r) for r in rows]
+    # 🚨 비교용 값은 **여기서 딱 한 번** 만듭니다. 아래 갈라내기·채우기가
+    #    이걸 그대로 씁니다 (2026-08-18 느려진 원인 중 하나였습니다).
+    cand_by_id = {c.id: c for c in cands}
     with_volume = sum(1 for c in cands if c.volume is not None)
     print(f"제목에 권 번호가 적힌 책 {with_volume:,}권 — 번호가 다르면 "
           f"점수와 상관없이 다른 책으로 봅니다 (2026-08-18 대표님 지시).")
+
+    step("자료 읽기·이름 정리")
 
     manual = db.fetch_manual_decisions(client)
     if manual:
@@ -770,6 +797,8 @@ def main() -> int:
     print(f"  묶음 {len(blocks):,}개 · 비교할 짝 최대 {total_pairs:,}쌍")
 
     # ---- 비교 ----
+    step("비교 후보 좁히기")
+
     print("\n▶ 비교 중...")
     groups = Groups()
     for c in cands:
@@ -934,6 +963,8 @@ def main() -> int:
               f"(제목이 서로 많이 달라 비교 대상이 아니었던 짝)")
 
     # ---- 무리 만들기 ----
+    step("두 권씩 비교")
+
     raw_clusters = groups.clusters()
 
     # 출판사가 섞인 무리를 갈라냅니다 (위 split_by_publisher 설명 참고)
@@ -975,7 +1006,7 @@ def main() -> int:
         if vol_hard:
             wider: list[list[int]] = []
             for part in parts:
-                pieces = (split_by_volume(part, by_id, pair_score)
+                pieces = (split_by_volume(part, cand_by_id, pair_score)
                           if len(part) >= 2 else [part])
                 if len(pieces) > 1:
                     vol_split_count += 1
@@ -1025,7 +1056,7 @@ def main() -> int:
     #  대표님 말씀대로 **엄격한 규칙을 다 돌린 뒤에** 한 번만 합니다.
     #  두 권 모두와 기준 점수를 넘어야 하고, 후보가 애매하면 안 붙입니다.
     # -------------------------------------------------------------------------
-    clusters, filled = fill_missing_store(clusters, by_id, mcfg, forbidden)
+    clusters, filled = fill_missing_store(clusters, by_id, mcfg, forbidden, cand_by_id)
     if filled:
         print(f"  🧩 2권만 묶여 있던 무리에 남은 한 권을 채웠습니다 — {filled:,}종")
 
@@ -1166,6 +1197,8 @@ def main() -> int:
         return 0
 
     # ---- 저장 ----
+    step("무리 정리")
+
     print("\n▶ 저장 중...")
     db.save_matches(client, match_rows)
 
@@ -1310,6 +1343,7 @@ def main() -> int:
     print(f"  ✅ 도서 마스터: 새로 {len(new_ids):,}종 · 갱신 {len(to_update):,}종 · "
           f"빈 껍데기 정리 {orphans:,}종")
     print(f"  ✅ 매칭 근거 {len(match_rows):,}건 저장")
+    step("저장")
     print(f"\n완료 ({round(time.monotonic() - started, 1)}초)")
     return 0
 

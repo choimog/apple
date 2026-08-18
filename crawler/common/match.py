@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 from .normalize import extract_volume, fold_fortis
 
@@ -59,9 +60,17 @@ class Candidate:
 # -----------------------------------------------------------------------------
 #  글자 닮은 정도 재기
 # -----------------------------------------------------------------------------
-def _bigrams(text: str) -> set[str]:
-    """'달러구트' → {'달러','러구','구트'}. 두 글자씩 끊습니다."""
-    return {text[i:i + 2] for i in range(len(text) - 1)} or {text}
+@lru_cache(maxsize=30_000)
+def _bigrams(text: str) -> frozenset[str]:
+    """
+    '달러구트' → {'달러','러구','구트'}. 두 글자씩 끊습니다.
+
+    ⚠️ 같은 제목을 수천 번 다시 쪼갭니다 (한 무리를 남은 책 전부와 견주기
+       때문입니다). 그래서 만든 것을 담아 둡니다 — 2026-08-18 에 재 보니
+       이 함수 하나가 비교 시간의 29% 였습니다.
+       담아 두는 칸을 3만 개로 제한해 메모리가 무한정 늘지 않게 합니다.
+    """
+    return frozenset(text[i:i + 2] for i in range(len(text) - 1)) or frozenset({text})
 
 
 def similarity(a: str | None, b: str | None) -> float:
@@ -414,6 +423,40 @@ def compare(a: Candidate, b: Candidate, cfg: dict) -> MatchResult:
         return _reject("세트 권수가 다름", {
             "a": a.set_volumes, "b": b.set_volumes,
         })
+
+    # -------------------------------------------------------------------------
+    #  빠른 길 — 제목이 **도저히** 닮을 수 없는 짝을 먼저 걸러냅니다
+    #
+    #  🚨 【2026-08-18 — 매칭이 30분 제한에 걸려 멈춘 원인】
+    #  이날 정가 검사를 맨 뒤로 옮겼습니다(로그의 62.8% 가 거짓 경보였던
+    #  일). 뜻은 맞았는데, **정가 검사가 남남인 짝을 값싸게 쳐내는
+    #  역할도 하고 있었다**는 것을 놓쳤습니다. 재 보니 짝 하나를 견주는
+    #  비용이 3.7µs → 15.2µs 로 **4배**가 됐습니다. 그래서 30분을 넘겼습니다.
+    #
+    #  대신 여기에 **값싼 문지기**를 둡니다. 계산이 정확히 같습니다.
+    #
+    #      닮은 정도 = (순서비교 + 두글자겹침) / 2      (similarity 참고)
+    #      순서비교는 아무리 커도 1 이므로
+    #      닮은 정도 ≤ (1 + 두글자겹침) / 2
+    #
+    #  그러니 **(1 + 두글자겹침)/2 조차 기준에 못 미치면** 순서비교를
+    #  해 볼 것도 없이 다른 책입니다. 두글자겹침은 집합 연산이라 쌉니다.
+    #  (순서비교 SequenceMatcher 가 비싼 쪽입니다)
+    #
+    #  ⚠️ 한쪽 제목이 다른 쪽의 앞부분인 경우는 이 문지기를 지나갑니다.
+    #     그때는 아래에서 닮은 정도를 0.95 로 올려 주기 때문에, 여기서
+    #     걸러내면 『원소 원정대』 같은 짝이 갈라집니다.
+    # -------------------------------------------------------------------------
+    if a.norm_title and b.norm_title and a.norm_title != b.norm_title:
+        x, y = sorted((a.norm_title, b.norm_title), key=len)
+        maybe_prefix = len(x) >= th.get("prefix_min_len", 4) and y.startswith(x)
+        if not maybe_prefix:
+            ba, bb = _bigrams(a.norm_title), _bigrams(b.norm_title)
+            union = ba | bb
+            jac = len(ba & bb) / len(union) if union else 0.0
+            if (1.0 + jac) / 2.0 < th["title_hard_floor"]:
+                # ※ 실제 닮은 정도가 아니라 '아무리 높아도 이 값' 입니다.
+                return _reject("제목이 너무 다름", {"title_sim_max": round((1.0 + jac) / 2.0, 3)})
 
     # -------------------------------------------------------------------------
     #  정가가 다르면 다른 책입니다 — 2026-08-11 대표님 지시

@@ -143,6 +143,31 @@ check("누가 눌렀는지 본인 이름으로만", "auth.user.id" in ROUTE)
 check("저장된 줄 수를 세어 확인한다", "done !== pairs.length" in ROUTE,
       "안 세면 규칙에 막혀 0줄이 저장돼도 '성공' 이라고 합니다")
 
+print("\n[🚨 2026-08-18] 손으로 붙인 무리를 '고장' 이라고 신고하면 안 됩니다")
+# 2026-08-18 매칭 기록에 이렇게 찍혀 있었습니다.
+#   🚨 4권 이상 묶인 무리가 1종 남았습니다. 알려 주세요.
+#   🚨 같은 서점 상품이 2개 이상 섞인 무리가 1종 남았습니다. 알려 주세요.
+#
+# 그 1종은 대표님이 [강제로 묶기] 로 직접 붙이신 것이었습니다.
+# ('안녕이라 그랬어 (집 에디션)' + '안녕이라 그랬어(집에디션 리커버)')
+# 같은 서점 상품 둘을 붙이셨으니 당연히 그렇게 됩니다.
+#
+# 거짓 경고는 시끄러운 것으로 끝나지 않습니다. 매번 뜨면 진짜 고장이
+# 났을 때도 그러려니 하고 넘어가게 됩니다.
+MATCH = (ROOT / "crawler" / "run_match.py").read_text(encoding="utf-8")
+check("손으로 붙인 무리인지 가리는 장치가 있다",
+      "def held_by_hand(" in MATCH)
+check("🚨 '4권 이상' 경고에서 뺀다",
+      "if len(c) > 3 and not held_by_hand(c)" in MATCH.replace("\n", " ")
+      or "len(c) > 3\n               and not held_by_hand(c)" in MATCH
+      or ("len(c) > 3" in MATCH and "not held_by_hand(c)" in MATCH))
+check("🚨 '같은 서점 2개' 경고에서도 뺀다",
+      MATCH.count("not held_by_hand(c)") >= 2,
+      "한 곳만 고치면 나머지 하나가 계속 시끄럽습니다")
+check("뺐다는 사실을 조용히 넘기지 않고 알려 준다",
+      "손으로 붙이신 무리" in MATCH,
+      "안 적으면 '왜 안 세지?' 하고 또 헤매게 됩니다")
+
 SQL = (ROOT / "db" / "force-join.sql").read_text(encoding="utf-8")
 check("데이터베이스도 manual_merge 만 허용한다",
       "decision      = 'manual_merge'" in SQL)

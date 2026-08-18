@@ -48,7 +48,9 @@ from common import db  # noqa: E402
 #
 # publisher_sides = '이름 여러 개를 같은 출판사끼리 편으로 나누기'.
 # 매칭에서 갈라낼 때(run_match.split_by_publisher)와 **같은 함수**입니다.
-from common.match import publisher_sides, set_publisher_aliases  # noqa: E402
+from common.match import (  # noqa: E402
+    publisher_sides, set_publisher_aliases, set_publisher_categories,
+)
 from common.match import publisher_similarity as similarity  # noqa: E402
 
 SHOW = 20  # 화면에 보여줄 최대 건수
@@ -127,6 +129,14 @@ def main() -> int:
     #    이 검사기가 그 표를 안 읽으면, 제대로 묶인 책을 '출판사가 섞였다'
     #    고 신고하면서 [도서 매칭] 을 통째로 멈춥니다.
     #    (오늘 이미 같은 종류의 사고를 두 번 겪었습니다)
+    # 🚨 매칭과 **똑같은** 분류어 목록을 써야 합니다 (2026-08-18).
+    #    이 검사기가 2026-08-18 에 '0건' 이라고 답했는데, 실제로는
+    #    지학사와 NE능률이 '참고서' 로 이어져 한 출판사가 돼 있었습니다.
+    #    같은 잣대를 쓰면 자기 눈으로는 못 봅니다. 잣대 자체를 고쳤으니
+    #    여기서도 똑같이 등록해야 합니다.
+    set_publisher_categories(
+        cfg.load("matching.yaml").get("publisher_category_words"))
+
     alias = db.fetch_publisher_aliases(client)
     set_publisher_aliases(alias)
     if alias:

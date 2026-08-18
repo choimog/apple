@@ -40,7 +40,7 @@ from common import db  # noqa: E402
 #    그냥 similarity 를 쓰면 매칭이 붙여 놓은 것을 여기서 도로 갈라냅니다.
 from common.match import (  # noqa: E402
     Candidate, compare, compare_with_isbn, publisher_sides,
-    set_publisher_aliases, similarity,
+    set_publisher_aliases, set_publisher_categories, similarity,
 )
 # 화면에 쓸 출판사·저자 이름을 온 자료를 통틀어 하나로 정합니다.
 # (웰컴의 [출판사 TOP 8]·[저자 TOP 8] 이 꼬이던 원인 — names.py 설명 참고)
@@ -628,6 +628,14 @@ def main() -> int:
     #     (붙일지 정할 때 · 무리에서 갈라낼 때 · 화면 이름 정할 때)
     #     잣대를 따로 만들면 오늘 두 번 겪은 사고가 또 납니다.
     # -------------------------------------------------------------------------
+    # 🚨 괄호 안이 '분류' 인 경우를 먼저 등록합니다 (2026-08-18).
+    #    지학사(참고서) 와 NE능률(참고서) 가 '참고서' 로 이어져 완전히
+    #    같은 출판사가 되고 있었습니다. 기본 목록은 코드에 박혀 있고,
+    #    설정에 적은 것은 거기에 더해집니다.
+    n_cat = set_publisher_categories(mcfg.get("publisher_category_words"))
+    print(f"괄호 안에 와도 다른 이름으로 안 보는 분류어 {n_cat}개를 씁니다 "
+          f"(참고서·교재·만화…).")
+
     pub_alias = db.fetch_publisher_aliases(client)
     set_publisher_aliases(pub_alias)
     if pub_alias:
@@ -669,9 +677,15 @@ def main() -> int:
         print(f"      {line}")
     if pub_ignored:
         # 여러 출판사가 함께 쓰는 조각은 다리로 쓰면 안 됩니다 ('books' 같은 것).
-        print(f"  · 흔한 낱말이라 이어 붙이지 않은 조각 {len(pub_ignored)}개: "
-              f"{', '.join(pub_ignored[:8])}"
-              + (" …" if len(pub_ignored) > 8 else ""))
+        #
+        # 🚨 2026-08-18: 여기에 안 찍히던 조각들('참고서·교재·만화')이
+        #    남남인 출판사 수십 곳을 한 덩어리로 잇고 있었습니다.
+        #    이제 **막은 조각은 전부** 찍습니다. 목록을 눈으로 훑어서
+        #    "이건 출판사 이름 같은데?" 싶은 것이 있으면 알려 주세요.
+        print(f"  · 이어 붙이지 않은 조각 {len(pub_ignored)}개 "
+              f"(둘 이상이 함께 쓰지만 그 이름의 출판사는 없음): "
+              f"{', '.join(pub_ignored[:20])}"
+              + (" …" if len(pub_ignored) > 20 else ""))
 
     by_id = {r["id"]: r for r in rows}
     cands = [
@@ -896,8 +910,32 @@ def main() -> int:
     # 갈라낸 뒤의 소속을 다시 계산합니다 (아래 경고에서 씁니다)
     owner = {i: root for root, part in clusters.items() for i in part}
 
+    # -------------------------------------------------------------------------
+    #  🚨 대표님이 손으로 붙이신 무리는 아래 두 경고에서 뺍니다 (2026-08-18)
+    #
+    #  [강제로 묶기] 를 만들면서 생긴 문제입니다. 대표님이 같은 서점의 두
+    #  상품을 손으로 붙이시면 (예: '안녕이라 그랬어 (집 에디션)' 과
+    #  '안녕이라 그랬어(집에디션 리커버)'), 그 무리는
+    #    · 같은 서점 상품이 2개가 되고
+    #    · 3사가 다 있으면 4권이 됩니다
+    #  둘 다 **일부러 그렇게 하신 것**입니다. 그런데 경고문은
+    #  "규칙이 새는 것이니 알려 주세요" 라고 적혀 나갔습니다.
+    #
+    #  거짓 경고는 그냥 시끄러운 것으로 끝나지 않습니다. 매번 뜨면
+    #  진짜 고장이 났을 때도 그러려니 하고 넘어가게 됩니다.
+    # -------------------------------------------------------------------------
+    def held_by_hand(members: list[int]) -> bool:
+        inside = set(members)
+        return any(a in inside and b in inside for a, b in merged_pairs)
+
+    by_hand = [c for c in clusters.values() if len(c) > 1 and held_by_hand(c)]
+    if by_hand:
+        print(f"  🤝 대표님이 손으로 붙이신 무리 {len(by_hand):,}종 "
+              f"— 아래 두 확인에서 뺍니다 (일부러 그렇게 하신 것입니다).")
+
     # 🚨 이제 4권 이상인 무리는 없어야 합니다. 있으면 규칙이 새는 것입니다.
-    too_big = [c for c in clusters.values() if len(c) > 3]
+    too_big = [c for c in clusters.values()
+               if len(c) > 3 and not held_by_hand(c)]
     if too_big:
         print(f"  🚨 4권 이상 묶인 무리가 {len(too_big):,}종 남았습니다 "
               f"(서점이 셋이므로 있을 수 없습니다). 알려 주세요.")
@@ -916,9 +954,12 @@ def main() -> int:
     #   알라딘A ─ 예스24X ─ 알라딘B  →  A 와 B 가 한 무리
     # 실제로는 다른 판형인 경우가 많습니다. 자동으로 갈라내면 오히려
     # 맞는 것까지 깨질 수 있으므로, '검토 필요' 로 표시만 합니다.
+    #
+    # 🚨 대표님이 손으로 붙이신 무리는 뺍니다 (2026-08-18) — 위 설명 참고.
     dup_store = [
         c for c in multi.values()
         if len({by_id[i]["store_id"] for i in c}) < len(c)
+        and not held_by_hand(c)
     ]
     if dup_store:
         print(f"  🚨 같은 서점 상품이 2개 이상 섞인 무리가 {len(dup_store):,}종 "

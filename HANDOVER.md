@@ -641,6 +641,7 @@ web/               사이트 (Next.js)
 
 tests/             규칙이 깨지지 않았는지 확인하는 시험들
 docs/              설명 문서
+  site-guide.md      ★ 사이트 안내서 — 화면에서 뺀 설명이 전부 여기
   roadmap.md         남은 일
   login-setup.md     회원 전용 켜는 법
   archive-setup.md   보관소 설명

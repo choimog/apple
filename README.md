@@ -42,7 +42,7 @@ crawler/         수집·매칭 프로그램 (파이썬)
 db/              Supabase 에 붙여넣고 실행하는 SQL
 web/             사이트 (Next.js)
 tests/           규칙이 깨지지 않았는지 확인하는 시험
-docs/            설명 문서
+docs/            설명 문서 (site-guide.md 부터 보세요)
 .github/workflows/  자동으로 도는 작업들
 ```
 

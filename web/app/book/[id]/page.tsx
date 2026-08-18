@@ -4,6 +4,7 @@ import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
 import SalesPoint from "@/components/SalesPoint";
 import TrendChart from "@/components/TrendChart";
+import ChartZoom from "@/components/ChartZoom";
 import {
   Card,
   CardHead,
@@ -519,11 +520,17 @@ export default async function BookPage({
         )}
         <div className="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           {(["daily", "weekly"] as Period[]).map((p) => (
-            <div key={p}>
+            <div key={p} className="flex flex-col">
               <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold sm:px-5">
                 <PeriodBadge period={p} withHelp />
               </div>
               <TrendChart history={history} period={p} metric="rank" />
+              {/* 그래프마다 하나씩 (2026-08-18 대표님 요청).
+                  mt-auto: 왼쪽·오른쪽 그래프의 자료 양이 달라도
+                  '자세히 보기' 줄은 아래에서 나란히 맞춰집니다. */}
+              <div className="mt-auto">
+                <ChartZoom history={history} period={p} metric="rank" />
+              </div>
             </div>
           ))}
         </div>
@@ -551,7 +558,7 @@ export default async function BookPage({
                 (h) => h.period === "daily" && h.sales !== null
               );
               return (
-                <div key={sid}>
+                <div key={sid} className="flex flex-col">
                   <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold sm:px-5">
                     <span className={`rounded-md px-2 py-0.5 text-2xs font-medium ${s.chip}`}>
                       {s.name}
@@ -563,6 +570,14 @@ export default async function BookPage({
                     period={hasDaily ? "daily" : "weekly"}
                     metric="sales"
                   />
+                  <div className="mt-auto">
+                    <ChartZoom
+                      history={mine}
+                      period={hasDaily ? "daily" : "weekly"}
+                      metric="sales"
+                      storeId={sid}
+                    />
+                  </div>
                 </div>
               );
             })}

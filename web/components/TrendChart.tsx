@@ -76,7 +76,19 @@ function marker(storeId: number, cx: number, cy: number, color: string) {
 }
 
 const W = 480;
-const H = 220;
+const H_BASE = 220;
+/**
+ * '자세히 보기' 로 폈을 때의 높이.
+ *
+ * 【2026-08-18 대표님 요청】
+ *   "그래프의 경우, 지금보다 더 자세하게 볼 수 있는 버튼을
+ *    각 그래프마다 도서 페이지에서 하나씩 추가해줄래?"
+ *
+ * 가로는 그대로 두고 **세로만** 늘립니다. 가로를 늘리면 날짜 간격만
+ * 벌어질 뿐 값의 차이는 더 안 보입니다. 순위 3위와 5위처럼 붙어 있는
+ * 값이 갈라져 보이려면 세로가 늘어야 합니다.
+ */
+const H_TALL = 400;
 const PAD = { top: 16, right: 54, bottom: 26, left: 54 };
 
 type Series = { storeId: number; period: Period; points: Map<string, number> };
@@ -138,13 +150,17 @@ export default function TrendChart({
   period,
   metric,
   days = 30,
+  tall = false,
 }: {
   history: HistoryPoint[];
   period: Period;
   /** 'rank' = 순위(작을수록 위) | 'sales' = 판매지수(클수록 위) */
   metric: "rank" | "sales";
   days?: number;
+  /** '자세히 보기' 로 폈을 때 — 세로를 늘려 붙어 있는 값을 갈라 보여줍니다 */
+  tall?: boolean;
 }) {
+  const H = tall ? H_TALL : H_BASE;
   const pick = (p: HistoryPoint) => (metric === "rank" ? p.rank : p.sales);
   const series = buildSeries(history, period, pick);
 
@@ -210,8 +226,26 @@ export default function TrendChart({
   };
 
   // 눈금 5칸 — 값을 눈으로 읽을 수 있을 만큼 촘촘하게
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => lo + span * f);
+  // (펴서 볼 때는 세로가 넓어진 만큼 9칸으로 늘립니다)
+  const nTicks = tall ? 8 : 4;
+  const ticks = Array.from({ length: nTicks + 1 }, (_, i) => lo + span * (i / nTicks));
   const dateIndex = new Map(dates.map((d, i) => [d, i]));
+
+  /*
+    날짜 눈금. 평소에는 양 끝과 가운데만 적습니다 — 촘촘하면 글자가
+    겹쳐서 오히려 못 읽습니다. 펴서 볼 때는 최대 7개까지 적습니다.
+    (가로 폭은 그대로이므로 그 이상은 여전히 겹칩니다)
+  */
+  const maxLabels = tall ? 7 : 3;
+  const step = Math.max(1, Math.ceil(dates.length / maxLabels));
+  const dateTicks = [
+    ...new Set([
+      ...Array.from({ length: dates.length }, (_, i) => i).filter(
+        (i) => i % step === 0
+      ),
+      dates.length - 1,
+    ]),
+  ].sort((a, b) => a - b);
 
   return (
     <div className="px-2 py-3">
@@ -244,9 +278,9 @@ export default function TrendChart({
           </g>
         ))}
 
-        {/* 날짜 (양 끝과 가운데만 — 촘촘하면 못 읽습니다) */}
-        {[0, Math.floor((dates.length - 1) / 2), dates.length - 1]
-          .filter((i, k, arr) => i >= 0 && arr.indexOf(i) === k)
+        {/* 날짜 (평소엔 양 끝과 가운데만 — 촘촘하면 못 읽습니다) */}
+        {dateTicks
+          .filter((i) => i >= 0)
           .map((i) => (
             <text
               key={i}

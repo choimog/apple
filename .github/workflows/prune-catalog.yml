@@ -1,0 +1,151 @@
+# =============================================================================
+#  도서 목록 정리 — 잠든 상품을 보관 파일로 빼고 DB 에서 지웁니다
+# =============================================================================
+#
+#  【2026-08-18 대표님 지시】
+#    "매일 쌓이는 데이터 중에서 14일 동안 단 한 차례도 사용되지 않거나
+#     업데이트 되지 않는 데이터들은 제거 또는 보관함으로 알아서 보내주면
+#     좋겠어. 대신, 3사 서점 중에 단 한 차례라도 쓰였다면 지울 수 없도록
+#     해주고."
+#
+#  【무엇을 지우나요?】
+#  셋 중 하나라도 해당하면 **안 지웁니다.**
+#    ㉠ 최근 14일 안에 서점 목록에 이름이 있었다 (순위에 들었든 아니든)
+#    ㉡ 순위 기록이 아직 DB 에 남아 있다
+#    ㉢ 대표님이 손으로 내린 결정(같은 책 / 다른 책)이 걸려 있다
+#
+#  🚨 그리고 3사 중 한 서점이라도 살아 있으면 **묶음 전체**를 남깁니다.
+#
+#  【언제 도나요?】
+#  · 매일 [보관소로 옮기기] 가 끝나면 이어서 자동으로 돕니다
+#  · 손으로도 돌릴 수 있습니다 (확인만 하는 길이 기본값입니다)
+#
+#  ⚠️ 순서가 중요합니다. 보관소가 순위를 먼저 빼내야 상품이 '지워도 되는'
+#     상태가 됩니다. 순위가 한 줄이라도 남아 있으면 계산이 걸러 냅니다.
+#
+#  【처음 한 번만 필요한 준비】
+#  Supabase → SQL Editor 에 db/prune-catalog.sql 을 붙여넣고 Run.
+#  (자료는 안 바뀝니다. 계산 방법만 등록합니다)
+#
+#  https://github.com/choimog/apple/actions/workflows/prune-catalog.yml
+# =============================================================================
+
+name: 도서 목록 정리
+
+on:
+  # 보관소가 순위를 빼낸 **뒤에** 돕니다. 순서가 뒤바뀌면 안 됩니다.
+  workflow_run:
+    workflows: ["보관소로 옮기기"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "확인만 하고 안 지우려면 true"
+        required: false
+        default: "true"
+
+concurrency:
+  group: prune-catalog
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: 도서 목록 정리
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # 보관소가 실패했으면 돌지 않습니다. 순위가 안 빠졌는데 상품을 건드리면
+    # 안 되기 때문입니다. (손으로 누른 경우는 그대로 돕니다)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      # 되살릴 수 없는 작업이라, 담기·풀기가 멀쩡한지 먼저 봅니다
+      - name: 안전장치 시험
+        run: |
+          python tests/test_archive_roundtrip.py
+          python tests/test_prune_catalog.py
+
+      # ---------- 확인만 ----------
+      - name: 얼마나 지워질지 먼저 세어 봅니다
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/prune_catalog.py --stage summary
+
+      # ---------- 1단계 ----------
+      - name: 뽑아내기 (DB 는 손대지 않습니다)
+        id: export
+        if: inputs.dry_run != 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python crawler/prune_catalog.py --stage export --outdir out
+          if [ -s out/manifest.json ] && [ "$(cat out/manifest.json)" != "[]" ]; then
+            echo "has_data=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_data=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---------- 2단계 ----------
+      - name: 올리기
+        if: steps.export.outputs.has_data == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-${{ github.run_id }}
+          path: out/
+          # ⚠️ 최대값은 90입니다. 넘으면 이 단계에서 실패합니다.
+          retention-days: 90
+          if-no-files-found: error
+          compression-level: 0
+
+      # ---------- 3단계 ----------
+      #  방금 올린 것을 **실제로** 다시 받아옵니다.
+      #  "올렸다" 는 말만 믿고 지우면, 안 올라갔을 때 영영 사라집니다.
+      - name: 내려받아 확인 준비
+        if: steps.export.outputs.has_data == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-${{ github.run_id }}
+          path: verify/
+
+      # ---------- 4단계 ----------
+      - name: 확인하고 DB 정리
+        if: steps.export.outputs.has_data == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python crawler/prune_catalog.py \
+            --stage commit \
+            --manifest out/manifest.json \
+            --verify-dir verify \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: 내려받는 곳 안내
+        if: steps.export.outputs.has_data == 'true'
+        run: |
+          {
+            echo "## 📦 도서 목록 보관 파일"
+            echo ""
+            echo "이 실행의 맨 아래 **Artifacts** 에서 받을 수 있습니다."
+            echo ""
+            echo "- 파일 이름: \`catalog-${{ github.run_id }}\`"
+            echo ""
+            echo "> 이 파일에는 지워진 상품의 제목·저자·출판사가 들어 있습니다."
+            echo "> 보관소의 옛날 순위 파일은 상품 번호만 들고 있어서,"
+            echo "> 그 번호가 무슨 책이었는지는 **이 파일에만** 남습니다."
+            echo "> 90일 뒤 사라지므로 그 전에 내려받아 두세요."
+          } >> "$GITHUB_STEP_SUMMARY"

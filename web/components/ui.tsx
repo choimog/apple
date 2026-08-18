@@ -436,9 +436,44 @@ export function Empty({
 }
 
 /** 값이 없을 때 — 지어내지 않고 그대로 알립니다 */
-export function NoValue({ label = "없음", why }: { label?: string; why?: string }) {
+/**
+ * 값이 없을 때 쓰는 표기.
+ *
+ * 【2026-08-18 대표님 요청 — 색으로 구분】
+ *   "안 묶임과 순위 밖은 박스의 색깔을 좀 차이를 둘 수 있나?
+ *    현재의 톤앤매너를 헤치지 않는 선에서"
+ *
+ * 뜻이 다르므로 색도 달라야 합니다.
+ *
+ *   neutral  값이 **확실히 없는** 것. 그 서점에서 순위에 못 든 것입니다.
+ *            정상이고 완전한 정보라 흐린 회색 그대로 둡니다.
+ *
+ *   gap      **우리가 못 이은** 것. 자료에 빈틈이 있다는 뜻입니다.
+ *            흐린 앰버로 표시합니다. 이 사이트에서 앰버는 이미
+ *            '정가 갈림' 처럼 **자료가 완전하지 않다**는 뜻으로 쓰고
+ *            있어서, 새 색을 만들지 않고 그 뜻을 그대로 잇습니다.
+ *
+ * ⚠️ 경고처럼 세게 칠하지 않습니다. 대표님 잘못이 아니고, 그 서점에
+ *    책이 아예 없어서 그럴 수도 있습니다.
+ */
+export function NoValue({
+  label = "없음",
+  why,
+  tone = "neutral",
+}: {
+  label?: string;
+  why?: string;
+  tone?: "neutral" | "gap";
+}) {
   return (
-    <span className="text-xs text-ink-faint" title={why}>
+    <span
+      className={`text-xs ${
+        tone === "gap"
+          ? "text-amber-700/90 dark:text-amber-500/90"
+          : "text-ink-faint"
+      }`}
+      title={why}
+    >
       {label}
     </span>
   );
@@ -480,6 +515,7 @@ export function NoRank({
     return (
       <NoValue
         label="안 묶임"
+        tone="gap"
         why={
           `${storeName} 상품이 이 책에 묶여 있지 않습니다. ` +
           `그 서점에 없거나, 있는데 아직 같은 책으로 묶이지 않았습니다. ` +

@@ -89,6 +89,34 @@ check("종합 화면에 두 말의 뜻이 적혀 있다",
   "설명이 없으면 대표님이 또 물어보셔야 합니다");
 check("'덜 팔렸다는 뜻' 이라고 풀어 준다", /덜\s*\n?\s*팔렸다는 뜻|덜 팔렸다는 뜻/.test(best));
 
+console.log("\n[색] 🚨 두 상태가 색으로도 구분되는가 (2026-08-18 대표님 요청)");
+// "안 묶임과 순위 밖은 박스의 색깔을 좀 차이를 둘 수 있나?"
+// 글자만 다르면 훑을 때 놓칩니다. 색이 같으면 구분한 보람이 없습니다.
+const ui2 = readFileSync("components/ui.tsx", "utf8");
+const bookPage = readFileSync("app/book/[id]/page.tsx", "utf8");
+
+check("값 표기에 tone 이 있다", /tone\?: "neutral" \| "gap"/.test(ui2));
+check("🚨 '안 묶임' 은 gone 이 아니라 gap 색을 쓴다",
+  /label="안 묶임"[\s\S]{0,40}tone="gap"/.test(ui2),
+  "이게 빠지면 두 상태가 똑같은 회색이 됩니다");
+check("gap 은 앰버, neutral 은 회색", /text-amber-700\/90/.test(ui2) &&
+  /text-ink-faint/.test(ui2));
+check("'순위 밖' 에는 gap 을 안 붙인다",
+  !/label="순위 밖"[\s\S]{0,60}tone="gap"/.test(ui2),
+  "순위 밖은 정상이고 완전한 정보입니다. 경고색을 쓰면 안 됩니다");
+
+check("🚨 도서 상세의 박스도 세 상태로 나뉜다",
+  /!linked[\s\S]{0,140}border-amber/.test(bookPage),
+  "박스 색이 같으면 한눈에 구분이 안 됩니다");
+check("안 묶임 박스는 점선 + 앰버", /border-dashed border-amber/.test(bookPage));
+check("순위 밖 박스는 점선 + 회색", /border-dashed border-line/.test(bookPage));
+check("어두운 화면에서도 색이 정해져 있다",
+  /dark:border-amber/.test(bookPage) && /dark:bg-amber/.test(bookPage),
+  "어두운 화면에서 밝은 앰버 바탕을 그대로 쓰면 눈이 아픕니다");
+check("경고처럼 세게 칠하지 않는다",
+  /bg-amber-50\/40/.test(bookPage),
+  "대표님 잘못이 아니고, 그 서점에 책이 아예 없어서 그럴 수도 있습니다");
+
 console.log();
 if (bad) {
   console.log(`❌ ${bad}개 실패`);

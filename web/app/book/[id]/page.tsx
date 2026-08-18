@@ -354,8 +354,20 @@ export default async function BookPage({
             return (
               <div
                 key={sid}
+                /*
+                  🚨 세 가지 상태를 색으로 나눕니다 (2026-08-18 대표님 요청).
+                    · 순위 있음   테두리 실선 · 바탕 그대로
+                    · 순위 밖     테두리 점선 · 흐린 회색   (정상. 덜 팔린 것)
+                    · 안 묶임     테두리 점선 · 흐린 앰버   (자료의 빈틈)
+                  앰버는 이 사이트에서 이미 '정가 갈림' 에 쓰는 색입니다.
+                  새 색을 만들지 않고 '자료가 완전하지 않다' 는 뜻을 잇습니다.
+                */
                 className={`rounded-xl border p-3 ${
-                  none ? "border-dashed border-line bg-surface-2/50" : "border-line"
+                  !linked
+                    ? "border-dashed border-amber-300/70 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
+                    : none
+                      ? "border-dashed border-line bg-surface-2/50"
+                      : "border-line"
                 }`}
               >
                 {href ? (
@@ -374,7 +386,7 @@ export default async function BookPage({
                 )}
                 {/* 묶이지 않은 서점은 '왜 비었는지' 를 한 줄로 적습니다 */}
                 {!linked && (
-                  <p className="mt-1.5 text-2xs text-ink-faint">
+                  <p className="mt-1.5 text-2xs text-amber-700/90 dark:text-amber-500/90">
                     이 책에 묶여 있지 않습니다
                   </p>
                 )}

@@ -178,7 +178,21 @@ def project(rows: list[dict], n_days: int, keep: int,
     #   · 리포트      : 안 지우므로 1년치가 그대로 쌓임
     #   · 도서 목록   : 정리 장치가 있으면 그 일수만큼, 없으면 1년치가 쌓임
     if catalog_keep_days:
-        catalog_steady = cat_per_day * int(catalog_keep_days)
+        # 🚨 【설정을 믿지 않습니다 — 2026-08-18】
+        #    처음에는 cat_per_day × catalog_keep_days 로 셌습니다. 그러면
+        #    설정에 '14일' 이라고 적혀 있기만 하면 예상치가 171MB 로 고정
+        #    됩니다. [도서 목록 정리] 가 조용히 멈춰서 실제로는 계속
+        #    쌓이고 있어도 **경고가 영영 안 뜹니다.** 오늘만 세 번째로
+        #    되풀이할 뻔한 잘못입니다(용량 경고·정가 조사·여기).
+        #
+        #    그래서 **지금 실제 크기**에서 출발합니다. 아직 정리가 한 바퀴
+        #    돌지 않았으면(모은 날수 < 보관 일수) 남은 날만큼만 더 늘어난다고
+        #    봅니다. 한 바퀴 돌았으면 지금 크기가 곧 도달점입니다.
+        #
+        #    이렇게 하면 정리가 안 돌 때 catalog 가 커지는 만큼 예상치도
+        #    같이 커져서, steady > limit 경고가 제때 뜹니다.
+        ramp = max(0, int(catalog_keep_days) - days)
+        catalog_steady = catalog + cat_per_day * ramp
     else:
         catalog_steady = catalog + cat_per_day * HORIZON_DAYS
 
@@ -189,10 +203,42 @@ def project(rows: list[dict], n_days: int, keep: int,
         + kept_slow * HORIZON_DAYS
     )
 
-    # '이대로 두면 며칠 남았나' 도 안 지우는 것까지 세야 정직합니다
+    # -------------------------------------------------------------------------
+    #  🚨 '정리한다고 적혀 있는데 실제로는 안 도는' 상태 — 2026-08-18
+    # -------------------------------------------------------------------------
+    #  위에서 설정을 안 믿기로 했지만, 한 걸음 더 갑니다. 실제 크기가
+    #  '정리되고 있다면 나올 크기' 의 몇 배면 그건 정리가 멈춘 것입니다.
+    #  그때 "보관 일수를 줄이세요" 라고 하면 엉뚱한 곳을 가리킵니다.
+    #  줄여도 안 줄어듭니다.
+    #
+    #  2배까지는 봐줍니다 — 첫 수집일 몫이 한동안 남아 있고, 제가 재는
+    #  하루 증가량도 어림이라 딱 맞을 수는 없습니다.
+    # -------------------------------------------------------------------------
+    stale_prune = bool(
+        catalog_keep_days
+        and cat_measured
+        and cat_per_day > 0
+        and catalog > cat_per_day * int(catalog_keep_days) * 2
+    )
+
+    # -------------------------------------------------------------------------
+    #  '이대로 두면 며칠 남았나'
+    # -------------------------------------------------------------------------
+    #  🚨 【'멈출 것' 을 안 멈춘다고 세면 안 됩니다 — 2026-08-18】
+    #  순위 자료도 도서 목록도 정해진 날수에서 멈춥니다. 그런데 하루
+    #  증가량으로 끝까지 나누면, **정리가 잘 돌아 이미 멈춰 있는 상태**
+    #  에서도 "8일 뒤 한도" 같은 말이 나옵니다. 그런 경고가 매일 뜨면
+    #  진짜 고장까지 같이 묻힙니다 (오늘 하루에만 세 번 겪은 일입니다).
+    #
+    #  도달점(steady)이 한도 안이면 **한도에 닿지 않습니다.** 그때는
+    #  날짜를 세지 않고 999(=닿지 않음)로 둡니다.
+    # -------------------------------------------------------------------------
     grow_per_day = per_day + slow_per_day + cat_per_day
     left = max(0.0, limit - total)
-    days_left = int(left / grow_per_day) if grow_per_day > 0 else 999
+    if steady <= limit:
+        days_left = 999
+    else:
+        days_left = int(left / grow_per_day) if grow_per_day > 0 else 999
 
     # 무엇이 문제인지. 차례가 중요합니다 — 구조적인 문제를 먼저 알려야
     # 합니다. '며칠 남았다' 만 보면 보관 일수를 줄여야 한다는 걸 모릅니다.
@@ -212,6 +258,16 @@ def project(rows: list[dict], n_days: int, keep: int,
             f"됩니다 (한도 {limit}MB). 순위에서 빠진 지 오래된 상품을 "
             f"정리해야 합니다."
         )
+    elif stale_prune:
+        # 🚨 설정에는 정리한다고 적혀 있는데 실제 크기가 그 몇 배입니다.
+        #    이때 "보관 일수를 줄이세요" 라고 하면 엉뚱한 곳을 가리킵니다.
+        #    줄여도 안 줄어듭니다. 정리가 안 돌고 있는 것입니다.
+        problem = (
+            f"도서 목록이 {catalog:.0f}MB 입니다. {catalog_keep_days}일치로 "
+            f"정리되고 있다면 {cat_per_day * int(catalog_keep_days):.0f}MB "
+            f"쯤이어야 합니다. [도서 목록 정리] 가 안 돌고 있을 수 있습니다 "
+            f"— GitHub → Actions 에서 그 작업의 최근 실행을 확인해 주세요."
+        )
     elif steady > limit:
         problem = (
             f"이대로 1년이 지나면 {steady:.0f}MB 가 되어 한도({limit}MB)를 "
@@ -226,7 +282,7 @@ def project(rows: list[dict], n_days: int, keep: int,
         "total": total, "daily": daily, "catalog": catalog, "slow": slow,
         "per_day": per_day, "slow_per_day": slow_per_day,
         "catalog_per_day": cat_per_day, "catalog_measured": cat_measured,
-        "catalog_keep": catalog_keep_days,
+        "catalog_keep": catalog_keep_days, "stale_prune": stale_prune,
         "steady": steady, "days_left": days_left,
         "keep": keep, "log_keep": log_keep, "problem": problem,
     }
@@ -311,8 +367,10 @@ def describe(p: dict, top: str, limit: int = FREE_LIMIT_MB) -> str:
         f"  도서 목록   {p['catalog']:.0f}MB ({cat})\n"
         f"  1년 뒤 예상 최대 {p['steady']:.0f}MB "
         f"(순위 {p['keep']}일 · 기록 {p['log_keep']}일 보관 기준)\n"
-        f"  이대로 두면 {p['days_left']}일 뒤 한도\n"
-        f"  큰 표: {top}"
+        + ("  ✅ 이대로 두면 한도에 닿지 않습니다 (정리가 먼저 멈춰 세웁니다)\n"
+           if p["days_left"] >= 999
+           else f"  이대로 두면 {p['days_left']}일 뒤 한도\n")
+        + f"  큰 표: {top}"
     )
 
 
@@ -370,7 +428,13 @@ def main() -> int:
         print(f"  🚨 {p['problem']}")
         print("=" * 66)
         print("\n  【무엇을 하면 되나요?】")
-        if p["catalog_measured"] and not p["catalog_keep"]:
+        if p["stale_prune"]:
+            print("  1) GitHub → Actions → [도서 목록 정리] 를 열어 보세요.")
+            print("     · 최근 실행이 며칠째 없거나 빨간 ❌ 이면 그것이 원인입니다")
+            print("     · '보관소로 옮기기' 가 먼저 성공해야 이 작업이 돕니다")
+            print("     · 아직 db/prune-catalog.sql 을 안 돌리셨으면 그것부터입니다")
+            print("  2) 보관 일수를 줄여도 이건 안 줄어듭니다. 엉뚱한 곳입니다.")
+        elif p["catalog_measured"] and not p["catalog_keep"]:
             # 이 경우엔 보관 일수를 줄여도 소용이 없습니다. 순위가 아니라
             # 도서 목록이 늘어나는 것이라, 엉뚱한 곳을 가리키면 안 됩니다.
             print("  1) 순위에서 빠진 지 오래된 상품을 정리해야 합니다.")

@@ -29,7 +29,7 @@ sys.modules.setdefault("supabase", _fake)
 
 from capacity import (  # noqa: E402
     FREE_LIMIT_MB, HORIZON_DAYS, MIN_KEEP_DAYS, NEVER_PRUNED,
-    SLOW_GROW_TABLES, project,
+    SLOW_GROW_TABLES, describe, project,
 )
 
 failures: list[str] = []
@@ -223,8 +223,70 @@ check("1년 뒤 예상이 크게 준다", fixed["steady"] < now["steady"] / 3,
       (fixed["steady"], now["steady"]))
 check("한도 안에 들어온다", fixed["steady"] < FREE_LIMIT_MB, fixed["steady"])
 check("몇 일치로 정리하는지 알려준다", fixed["catalog_keep"] == 14)
-# 목록 12.2×14 = 171 + 순위 8.57×14 = 120 + 기록 0.16×180 = 29 → 320MB
-check("예상 최대 약 320MB", abs(fixed["steady"] - 320) < 5, fixed["steady"])
+# 목록 136(지금) + 12.2×(14-7 남은 날) = 221
+#  + 순위 8.57×14 = 120 + 기록 0.16×180 = 29  →  370MB
+check("예상 최대 약 370MB", abs(fixed["steady"] - 370) < 5, fixed["steady"])
+
+print("\n[8-1-1] 🚨 설정만 믿고 '괜찮다' 고 하지 않는다")
+# 【2026-08-18 — 오늘 세 번째로 되풀이할 뻔한 잘못】
+# 처음에는 cat_per_day × catalog_keep_days 로 셌습니다. 그러면 설정에
+# '14일' 이라고 적혀 있기만 하면 예상치가 171MB 로 고정됩니다.
+# [도서 목록 정리] 가 조용히 멈춰서 실제로는 계속 쌓이고 있어도
+# 경고가 영영 안 뜹니다.
+#
+# 아래는 '정리가 몇 달째 안 돌아서 도서 목록이 700MB 가 된' 상황입니다.
+# 설정에는 여전히 14일이라고 적혀 있습니다.
+broken = [
+    t("rankings", 120), t("books", 300), t("store_books", 250),
+    t("book_matches", 150), t("crawl_logs", 20),
+]
+bad = project(broken, 60, 14, catalog_per_day=CAT_PER_DAY,
+              catalog_keep_days=14)
+check("🚨 설정이 14일이어도 실제 크기를 보고 알린다",
+      bad["problem"] is not None, bad["problem"])
+check("예상치가 실제 크기보다 작지 않다",
+      bad["steady"] >= bad["catalog"], (bad["steady"], bad["catalog"]))
+# 예전 계산이었다면 12.2×14 = 171MB 로 나와서 "여유 있다" 고 했을 것입니다
+check("🚨 예전 방식(171MB)처럼 낙관하지 않는다",
+      bad["steady"] > 400, bad["steady"])
+check("🚨 '정리가 안 돌고 있다' 고 짚어 준다",
+      bad["stale_prune"] is True and "도서 목록 정리" in (bad["problem"] or ""),
+      bad["problem"])
+check("보관 일수를 줄이라는 엉뚱한 말을 하지 않는다",
+      "보관 일수" not in (bad["problem"] or ""), bad["problem"])
+check("정상일 때는 그런 말을 안 한다", fixed["stale_prune"] is False)
+
+print("\n[8-1-3] 🚨 잘 돌고 있으면 '며칠 뒤 한도' 라고 겁주지 않는다")
+# 정리가 한 바퀴 돌아 멈춰 있는데도 하루 증가량으로 끝까지 나누면
+# "8일 뒤 한도" 가 나옵니다. 매일 뜨는 거짓 경고는 진짜 고장을 묻습니다.
+steady_now = [
+    t("rankings", 120), t("books", 85), t("store_books", 70),
+    t("book_matches", 42), t("crawl_logs", 3),
+]
+calm = project(steady_now, 15, 14, catalog_per_day=CAT_PER_DAY,
+               catalog_keep_days=14)
+check("도달점이 한도 안이다", calm["steady"] < FREE_LIMIT_MB, calm["steady"])
+check("🚨 '한도에 닿지 않는다' 로 본다 (999)",
+      calm["days_left"] >= 999, calm["days_left"])
+check("경고를 띄우지 않는다", calm["problem"] is None, calm["problem"])
+check("화면에도 닿지 않는다고 적는다",
+      "닿지 않습니다" in describe(calm, "rankings 120MB"))
+# 반대로 진짜 넘칠 때는 날짜를 셉니다
+check("넘칠 때는 며칠 남았는지 센다", bad["days_left"] < 999, bad["days_left"])
+
+print("\n[8-1-2] 아직 한 바퀴 안 돌았으면 남은 날만큼만 더 본다")
+# 모은 지 3일이면 정리가 아직 한 번도 안 돌았습니다.
+# 앞으로 11일치가 더 쌓입니다.
+early = project(real_0818, 3, 14, catalog_per_day=CAT_PER_DAY,
+                catalog_keep_days=14)
+late = project(real_0818, 20, 14, catalog_per_day=CAT_PER_DAY,
+               catalog_keep_days=14)
+check("3일째가 20일째보다 예상치가 크다 (아직 더 쌓일 것이 남음)",
+      early["steady"] > late["steady"], (early["steady"], late["steady"]))
+check("한 바퀴 돈 뒤에는 지금 크기가 곧 도달점",
+      abs(late["steady"] - (late["catalog"] + late["per_day"] * 14
+                            + late["slow_per_day"] * 180)) < 0.01,
+      late["steady"])
 
 print("\n[8-2] 첫 수집일을 증가 속도로 세지 않는다 (2026-08-09 의 그 잘못)")
 from capacity import CATALOG_SAMPLE_DAYS, measure_catalog_growth  # noqa: E402

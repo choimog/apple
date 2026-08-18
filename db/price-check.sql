@@ -4,47 +4,37 @@
 --
 --  【2026-08-18 대표님 지시】 "정가 점검 조사해줘."
 --
---  【무엇이 걸렸나요?】
---  매칭이 끝날 때마다 이 표가 찍힙니다.
+--  【1차 조사에서 답이 나왔습니다 — 74% 는 정상입니다】
+--      ③ 넷이 같은 무리 12,211개 중 정가만 달라 갈라진 것 94개 (0.8%)
+--  비교 후보 대부분이 진짜 다른 책이었고, 다른 책이라 정가도 달랐던
+--  것입니다. 어느 서점이 가격을 잘못 읽고 있는 상황이 아닙니다.
 --
---      ✅ 교보↔교보:      0 /  98,471쌍 ( 0.0%)
---      🚨 교보↔예스24: 106,205 / 141,876쌍 (74.9%)
---      🚨 교보↔알라딘: 123,969 / 165,821쌍 (74.8%)
---      ✅ 예스24↔예스24:  0 / 114,015쌍 ( 0.0%)
---      🚨 예스24↔알라딘:147,697 / 199,606쌍 (74.0%)
---      ✅ 알라딘↔알라딘:  0 / 119,519쌍 ( 0.0%)
+--  🚨 【1차 조사의 ①② 는 쓸모가 없었습니다 — 제 설계 잘못입니다】
+--  ① 은 '이미 한 책으로 묶인 묶음 중 정가가 갈린 것' 을 셌습니다.
+--  그런데 매칭 규칙이 **정가가 다르면 아예 안 묶습니다**(match.py 의
+--  price_hard). 그러니 ① 은 **구조상 언제나 0** 입니다. 0.0% 가 나온 것은
+--  건강해서가 아니라 그렇게밖에 나올 수 없어서입니다.
 --
---  저 표만으로는 **정상인지 아닌지 알 수 없습니다.** 두 가지 이유입니다.
+--  매칭 로그의 ✅ 세 줄(같은 서점끼리 0.0%)을 두고 "건강 신호가 아니다"
+--  라고 지적해 놓고, 제가 같은 모양의 숫자를 만들었습니다.
 --
---    ① ✅ 세 줄은 건강 신호가 아닙니다. 같은 서점 상품끼리는 가격을 보기
---       **전에** 이미 '같은 서점' 이라는 이유로 갈라집니다. 그래서 구조상
---       언제나 0.0% 입니다. 멀쩡해 보이지만 아무 뜻이 없습니다.
+--  그래서 ①② 는 **규칙이 제대로 도는지 보는 자리**로 뜻을 바꿨습니다.
+--  0 이 아니면 price_hard 규칙이 새고 있다는 뜻입니다. 그것대로 쓸모가
+--  있지만, '정가를 잘 읽고 있는가' 와는 상관이 없습니다.
 --
---    ② 🚨 세 줄의 74% 는 '비교해 본 짝' 기준입니다. 비교 후보 대부분은
---       원래 **다른 책**이고, 다른 책은 정가가 다른 게 당연합니다.
---       74% 안에 진짜 문제가 얼마나 섞였는지는 저 표로는 못 봅니다.
---
---  【그래서 이 파일은 무엇을 보나요?】
---  '다른 책이라 정가가 다른 것' 을 걷어내고, **정가가 같아야만 하는 짝**만
---  골라 봅니다. 도서정가제상 정가는 출판사가 정한 하나의 값이라,
---  같은 책이면 3사가 같아야 정상입니다.
---
---    ① 이미 한 책으로 묶인 묶음 중 정가가 갈린 것  ← 가장 확실한 신호
---    ② 그중 어느 서점이 '혼자 다른 값' 인가          ← 범인 찾기
---    ③ 제목·저자·출판사·출간월이 전부 같은데 정가만 달라 갈라진 짝
---    ④ 실제 사례를 눈으로
+--  【이 판은 무엇이 다른가요?】
+--  진짜 봐야 할 **그 94개**를 눈으로 보여 줍니다.
+--    ③ 몇 개인지 (1차와 같음)
+--    ④ 그 94개가 실제로 어떤 책인지 — 제목·출판사·서점별 정가
+--    ⑤ 그중 어느 서점이 '혼자 다른 값' 인지
 --
 --  ⚠️ 【아무것도 바꾸지 않습니다】 세기만 합니다.
---     만들지도, 고치지도, 지우지도 않습니다.
 --
 --  실행: Supabase → SQL Editor → New query → 전체 붙여넣고 Run
 --        표 하나가 나옵니다. 그대로 저에게 보내 주세요. (10~40초)
 -- ===========================================================================
 
 WITH
--- ---------------------------------------------------------------------------
---  정가를 아는 상품만
--- ---------------------------------------------------------------------------
 priced AS (
     SELECT sb.id, sb.book_id, sb.store_id, sb.list_price
       FROM store_books sb
@@ -52,15 +42,17 @@ priced AS (
 ),
 
 -- ---------------------------------------------------------------------------
---  ① 이미 한 책으로 묶인 묶음별로, 정가가 몇 가지인가
+--  ①② 규칙이 새지 않는지 — 0 이 나와야 정상입니다
 -- ---------------------------------------------------------------------------
---  같은 책이라고 판정된 것들입니다. 여기서 정가가 갈렸다면
---  **둘 중 하나입니다** — 어느 서점이 잘못 읽었거나, 잘못 묶였거나.
+--  ⚠️ 이건 '정가를 잘 읽고 있는가' 를 재는 것이 아닙니다.
+--     매칭이 '정가가 다르면 안 묶는다' 는 규칙을 지키고 있는지만 봅니다.
+--     사람이 손으로 붙인 묶음(강제로 묶기)은 그 규칙을 건너뛰므로,
+--     여기 걸리면 그건 대표님이 일부러 하신 것일 수 있습니다.
 -- ---------------------------------------------------------------------------
 per_book AS (
     SELECT book_id,
-           count(*)                    AS n_row,
-           count(DISTINCT list_price)  AS n_price
+           count(*)                   AS n_row,
+           count(DISTINCT list_price) AS n_price
       FROM priced
      WHERE book_id IS NOT NULL
      GROUP BY book_id
@@ -69,49 +61,16 @@ multi AS (SELECT * FROM per_book WHERE n_row > 1),
 split AS (SELECT * FROM multi WHERE n_price > 1),
 
 -- ---------------------------------------------------------------------------
---  ② 어느 서점이 '혼자 다른 값' 인가
--- ---------------------------------------------------------------------------
---  🚨 3사가 다 있고 2:1 로 갈린 경우만 봅니다.
---     둘만 있고 1:1 로 갈리면 **누가 틀렸는지 알 수 없습니다.**
---     그걸 억지로 한쪽에 씌우면 엉뚱한 서점을 범인으로 만듭니다.
--- ---------------------------------------------------------------------------
-votes AS (
-    SELECT p.book_id, p.list_price, count(*) AS n
-      FROM priced p
-      JOIN split s ON s.book_id = p.book_id
-     WHERE p.book_id IS NOT NULL
-     GROUP BY p.book_id, p.list_price
-),
--- 한 값이 과반인 묶음 (2:1 처럼)
-major AS (
-    SELECT v.book_id, v.list_price AS major_price
-      FROM votes v
-      JOIN (SELECT book_id, sum(n) AS total FROM votes GROUP BY book_id) t
-        ON t.book_id = v.book_id
-     WHERE v.n * 2 > t.total
-),
-odd_one AS (
-    SELECT p.store_id
-      FROM priced p
-      JOIN major m ON m.book_id = p.book_id
-     WHERE p.list_price <> m.major_price
-),
-tie AS (
-    SELECT s.book_id FROM split s
-     WHERE NOT EXISTS (SELECT 1 FROM major m WHERE m.book_id = s.book_id)
-),
-
--- ---------------------------------------------------------------------------
 --  ③ 제목·저자·출판사·출간월이 전부 같은 무리 — 정가가 갈렸는가
 -- ---------------------------------------------------------------------------
---  🚨 이것이 매칭 로그의 74% 가 진짜 문제인지 알려 주는 숫자입니다.
---     넷이 전부 같으면 사실상 같은 책입니다. 그런데도 갈라졌다면
---     정가 때문입니다.
+--  🚨 여기가 진짜 답입니다. 매칭이 어떻게 판단했는지와 **상관없이**
+--     원본 자료만 보고 셉니다. 넷이 전부 같으면 사실상 같은 책인데,
+--     정가가 갈렸다면 그 정가 중 하나가 틀렸을 가능성이 큽니다.
 -- ---------------------------------------------------------------------------
 key4 AS (
     -- ⚠️ priced 와 store_books 를 이어 붙이면 store_id·list_price 가 양쪽에
-    --    다 있어 "ambiguous" 오류가 납니다. priced 는 store_books 를 거른
-    --    것뿐이므로 여기서는 store_books 하나만 봅니다.
+    --    다 있어 "ambiguous" 오류가 납니다 (2026-08-18 실제로 겪음).
+    --    priced 는 store_books 를 거른 것뿐이므로 하나만 봅니다.
     SELECT sb.norm_title, sb.norm_author, sb.norm_publisher, sb.pub_ym,
            count(DISTINCT sb.store_id)   AS n_store,
            count(DISTINCT sb.list_price) AS n_price
@@ -125,25 +84,108 @@ key4 AS (
 ),
 cross_store AS (SELECT * FROM key4 WHERE n_store > 1),
 
+-- 정가만 달라서 갈라진 무리 (1차 조사에서 94개였던 그것)
+odd_group AS (
+    SELECT norm_title, norm_author, norm_publisher, pub_ym
+      FROM cross_store WHERE n_price > 1
+),
+odd_rows AS (
+    SELECT sb.norm_title, sb.norm_author, sb.norm_publisher, sb.pub_ym,
+           sb.store_id, sb.list_price, sb.raw_title, sb.raw_publisher
+      FROM store_books sb
+      JOIN odd_group g
+        ON g.norm_title     = sb.norm_title
+       AND g.norm_author    = sb.norm_author
+       AND g.norm_publisher = sb.norm_publisher
+       AND g.pub_ym         = sb.pub_ym
+     WHERE sb.list_price IS NOT NULL
+),
+
 -- ---------------------------------------------------------------------------
---  ④ 실제 사례 — 눈으로 봐야 알 수 있는 것이 있습니다
+--  ④ 그 무리들이 실제로 어떤 책인지
 -- ---------------------------------------------------------------------------
-sample AS (
-    SELECT b.title,
-           b.publisher,
+-- ⚠️ string_agg 에 DISTINCT 를 쓰면 정렬 기준을 글자로만 잡을 수 있어서
+--    '교보 · 알라딘 · 예스24' 처럼 가나다순으로 섞입니다. 사이트는
+--    교보 → 예스24 → 알라딘 순으로 보여주므로 순서를 맞춥니다.
+--    그래서 겹치는 줄을 **먼저** 걸러 두고, 그다음에 서점 번호로 줄 세웁니다.
+odd_pairs AS (
+    SELECT DISTINCT norm_title, norm_author, norm_publisher, pub_ym,
+           store_id, list_price
+      FROM odd_rows
+),
+odd_label AS (
+    SELECT norm_title, norm_author, norm_publisher, pub_ym,
            string_agg(
-               CASE p.store_id WHEN 1 THEN '교보' WHEN 2 THEN '예스24'
-                               WHEN 3 THEN '알라딘' ELSE p.store_id::text END
-               || ' ' || to_char(p.list_price, 'FM999,999,999') || '원',
-               ' · ' ORDER BY p.store_id
+               CASE store_id WHEN 1 THEN '교보' WHEN 2 THEN '예스24'
+                             WHEN 3 THEN '알라딘' ELSE store_id::text END
+               || ' ' || to_char(list_price, 'FM999,999,999') || '원',
+               ' · ' ORDER BY store_id, list_price
            ) AS prices,
-           max(p.list_price) - min(p.list_price) AS gap
-      FROM priced p
-      JOIN split s ON s.book_id = p.book_id
-      JOIN books b ON b.id = p.book_id
-     GROUP BY b.title, b.publisher
-     ORDER BY gap DESC
-     LIMIT 15
+           max(list_price) - min(list_price) AS gap
+      FROM odd_pairs
+     GROUP BY 1, 2, 3, 4
+),
+odd_name AS (
+    SELECT norm_title, norm_author, norm_publisher, pub_ym,
+           min(raw_title)     AS title,
+           min(raw_publisher) AS publisher
+      FROM odd_rows
+     GROUP BY 1, 2, 3, 4
+),
+detail AS (
+    SELECT n.title, n.publisher, l.prices, l.gap
+      FROM odd_label l
+      JOIN odd_name n
+        USING (norm_title, norm_author, norm_publisher, pub_ym)
+     ORDER BY l.gap DESC
+     LIMIT 25
+),
+
+-- ---------------------------------------------------------------------------
+--  ⑤ 그 무리들에서 어느 서점이 '혼자 다른 값' 인가
+-- ---------------------------------------------------------------------------
+--  🚨 과반이 있는 무리만 봅니다. 1:1 로 갈리면 누가 틀렸는지 알 수
+--     없는데, 억지로 한쪽에 씌우면 엉뚱한 서점을 범인으로 만듭니다.
+-- ---------------------------------------------------------------------------
+g_votes AS (
+    SELECT norm_title, norm_author, norm_publisher, pub_ym,
+           list_price, count(*) AS n
+      FROM odd_rows
+     GROUP BY 1, 2, 3, 4, 5
+),
+g_total AS (
+    SELECT norm_title, norm_author, norm_publisher, pub_ym, sum(n) AS total
+      FROM g_votes GROUP BY 1, 2, 3, 4
+),
+g_major AS (
+    SELECT v.norm_title, v.norm_author, v.norm_publisher, v.pub_ym,
+           v.list_price AS major_price
+      FROM g_votes v
+      JOIN g_total t
+        ON t.norm_title     = v.norm_title
+       AND t.norm_author    = v.norm_author
+       AND t.norm_publisher = v.norm_publisher
+       AND t.pub_ym         = v.pub_ym
+     WHERE v.n * 2 > t.total
+),
+g_odd AS (
+    SELECT r.store_id
+      FROM odd_rows r
+      JOIN g_major m
+        ON m.norm_title     = r.norm_title
+       AND m.norm_author    = r.norm_author
+       AND m.norm_publisher = r.norm_publisher
+       AND m.pub_ym         = r.pub_ym
+     WHERE r.list_price <> m.major_price
+),
+g_tie AS (
+    SELECT o.norm_title FROM odd_group o
+     WHERE NOT EXISTS (
+        SELECT 1 FROM g_major m
+         WHERE m.norm_title     = o.norm_title
+           AND m.norm_author    = o.norm_author
+           AND m.norm_publisher = o.norm_publisher
+           AND m.pub_ym         = o.pub_ym)
 )
 
 -- ---------------------------------------------------------------------------
@@ -151,70 +193,59 @@ sample AS (
 -- ---------------------------------------------------------------------------
 SELECT "구분", "항목", "값", "참고" FROM (
 
-    -- ── ① 이미 묶인 책 ────────────────────────────────────────────
-    SELECT 11 AS ord, '① 이미 묶인 책' AS "구분",
-           '정가를 아는 상품' AS "항목",
-           to_char((SELECT count(*) FROM priced), 'FM999,999,999') AS "값",
+    -- ── ① 규칙이 새지 않는지 (정가 품질과는 무관) ─────────────────
+    SELECT 11 AS ord, '① 규칙 점검' AS "구분",
+           '2개 서점 이상에서 정가를 아는 묶음' AS "항목",
+           to_char((SELECT count(*) FROM multi), 'FM999,999,999') AS "값",
            '' AS "참고"
     UNION ALL
-    SELECT 12, '① 이미 묶인 책', '2개 서점 이상에서 정가를 아는 묶음',
-           to_char((SELECT count(*) FROM multi), 'FM999,999,999'),
-           '이 묶음들이 판단 근거입니다'
-    UNION ALL
-    SELECT 13, '① 이미 묶인 책', '🚨 그중 정가가 갈린 묶음',
+    SELECT 12, '① 규칙 점검', '그중 정가가 갈린 묶음',
            to_char((SELECT count(*) FROM split), 'FM999,999,999'),
-           '도서정가제상 같은 책이면 3사가 같아야 정상입니다'
-    UNION ALL
-    SELECT 14, '① 이미 묶인 책', '🚨 갈린 비율',
-           CASE WHEN (SELECT count(*) FROM multi) = 0 THEN '—'
-                ELSE to_char(100.0 * (SELECT count(*) FROM split)
-                             / (SELECT count(*) FROM multi), 'FM990.0') || '%'
-           END,
-           '낮을수록 좋습니다. 2026-08-11 교보 가격이 깨졌을 때가 5% 였습니다'
+           '⚠️ 0 이 정상입니다. 매칭이 정가가 다르면 아예 안 묶기 때문에 '
+           || '구조상 0 입니다. 0 이 아니면 규칙이 새거나 손으로 붙이신 것입니다'
 
-    -- ── ② 누가 혼자 다른 값인가 ──────────────────────────────────
-    UNION ALL
-    SELECT 21, '② 누가 튀나', '교보문고',
-           to_char((SELECT count(*) FROM odd_one WHERE store_id = 1),
-                   'FM999,999,999') || '번',
-           '3사 중 2:1 로 갈렸을 때 혼자 다른 값이던 횟수'
-    UNION ALL
-    SELECT 22, '② 누가 튀나', '예스24',
-           to_char((SELECT count(*) FROM odd_one WHERE store_id = 2),
-                   'FM999,999,999') || '번', ''
-    UNION ALL
-    SELECT 23, '② 누가 튀나', '알라딘',
-           to_char((SELECT count(*) FROM odd_one WHERE store_id = 3),
-                   'FM999,999,999') || '번', ''
-    UNION ALL
-    SELECT 24, '② 누가 튀나', '누가 틀렸는지 알 수 없는 묶음',
-           to_char((SELECT count(*) FROM tie), 'FM999,999,999'),
-           '두 서점만 있고 1:1 로 갈린 경우입니다 (판단 보류)'
-
-    -- ── ③ 안 묶인 짝 ────────────────────────────────────────────
+    -- ── ③ 진짜 답 ────────────────────────────────────────────────
     UNION ALL
     SELECT 31, '③ 넷이 같은 무리', '제목·저자·출판사·출간월이 전부 같은 무리',
            to_char((SELECT count(*) FROM cross_store), 'FM999,999,999'),
-           '2개 서점 이상에 걸쳐 있는 것만 (이미 묶인 것도 포함)'
+           '2개 서점 이상에 걸쳐 있는 것만'
     UNION ALL
     SELECT 32, '③ 넷이 같은 무리', '🚨 그중 정가만 달라서 갈라진 무리',
-           to_char((SELECT count(*) FROM cross_store WHERE n_price > 1),
-                   'FM999,999,999'),
+           to_char((SELECT count(*) FROM odd_group), 'FM999,999,999'),
            '넷이 전부 같으면 사실상 같은 책입니다'
     UNION ALL
     SELECT 33, '③ 넷이 같은 무리', '🚨 그 비율',
            CASE WHEN (SELECT count(*) FROM cross_store) = 0 THEN '—'
-                ELSE to_char(100.0 * (SELECT count(*) FROM cross_store WHERE n_price > 1)
-                             / (SELECT count(*) FROM cross_store), 'FM990.0') || '%'
+                ELSE to_char(100.0 * (SELECT count(*) FROM odd_group)
+                             / (SELECT count(*) FROM cross_store), 'FM990.00') || '%'
            END,
-           '🚨 여기가 핵심 — 낮으면(약 5% 이하) 74% 는 그냥 다른 책이라 정상, 높으면(30% 이상) 어느 서점 가격을 잘못 읽는 것입니다'
+           '낮으면(5% 이하) 매칭 로그의 74% 는 그냥 다른 책이라 정상입니다'
 
-    -- ── ④ 실제 사례 ─────────────────────────────────────────────
+    -- ── ⑤ 누가 튀나 ─────────────────────────────────────────────
     UNION ALL
-    SELECT 40 + row_number() OVER (ORDER BY gap DESC), '④ 실제 사례',
-           left(title, 34) || '  /  ' || coalesce(left(publisher, 14), ''),
+    SELECT 51, '⑤ 누가 튀나', '교보문고',
+           to_char((SELECT count(*) FROM g_odd WHERE store_id = 1),
+                   'FM999,999,999') || '번',
+           '과반이 있는 무리에서 혼자 다른 값이던 횟수'
+    UNION ALL
+    SELECT 52, '⑤ 누가 튀나', '예스24',
+           to_char((SELECT count(*) FROM g_odd WHERE store_id = 2),
+                   'FM999,999,999') || '번', ''
+    UNION ALL
+    SELECT 53, '⑤ 누가 튀나', '알라딘',
+           to_char((SELECT count(*) FROM g_odd WHERE store_id = 3),
+                   'FM999,999,999') || '번', ''
+    UNION ALL
+    SELECT 54, '⑤ 누가 튀나', '누가 틀렸는지 알 수 없는 무리',
+           to_char((SELECT count(*) FROM g_tie), 'FM999,999,999'),
+           '두 값이 1:1 로 갈린 경우입니다 (판단 보류)'
+
+    -- ── ④ 실제로 어떤 책인지 ────────────────────────────────────
+    UNION ALL
+    SELECT 60 + row_number() OVER (ORDER BY gap DESC), '④ 실제 사례',
+           left(title, 36) || '  /  ' || coalesce(left(publisher, 14), ''),
            to_char(gap, 'FM999,999,999') || '원 차이',
            prices
-      FROM sample
+      FROM detail
 
 ) x ORDER BY ord;

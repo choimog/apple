@@ -30,6 +30,21 @@
  * 2026-08-18 고치기 전 측정값 (360px):
  *     서점 칸 속 너비 19px  ·  판매지수 `1,284,530` 이 43px 삐져나감
  * 고친 뒤: 320~1280px 어디에서도 넘치는 칸 없음.
+ *
+ * 2026-08-19 등락(▲▼)을 넣으면서 넣기 전/후를 나란히 재 봤습니다.
+ * "그거 만든다고 가독성이랑 구성 다 엉망으로 만들지는 말고" 라고 하셔서
+ * **제목 자리를 안 뺏는 것**을 첫째 조건으로 두었습니다.
+ *
+ *              줄 높이            제목 폭        넘침
+ *   종합 320px  278 → 285 (+7)    254 → 254      없음
+ *   종합 360px  218 → 218 ( 0)    178 → 178      없음
+ *   종합 768px  162 → 169 (+7)    578 → 578      없음
+ *   웰컴 360px   68 →  68 ( 0)    126 → 122 (-4) 없음
+ *
+ * 🚨 여기서 배운 것: 등락을 감싼 칸에 `leading-none` 을 안 붙이면
+ *    그 한 줄이 **24px** 를 먹습니다. 속의 글자가 10px 라도 줄 상자는
+ *    바깥 글자 크기를 따라가기 때문입니다. 붙이니 16px 가 됐고,
+ *    줄 높이 증가가 +15px → +7px 로 줄었습니다.
  */
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
@@ -67,7 +82,9 @@ const CASES = {
  <li class="flex flex-wrap items-start gap-x-3 gap-y-2.5 px-4 py-3.5 sm:px-5">
   <div class="w-11 shrink-0 pt-0.5 text-center">
     <span class="tnum inline-flex items-center justify-center rounded-lg font-bold ring-1 bg-surface-2 text-ink-soft ring-line h-8 min-w-[2.25rem] px-1.5 text-sm">100</span>
-    <div class="mt-1 text-[10px] leading-tight text-ink-faint">평균<br><span class="font-medium text-ink-soft tnum">123.4위</span></div>
+    <!-- 등락 (2026-08-19). 가장 넓게 나오는 값으로 잽니다: NEW -->
+    <div class="mt-0.5 leading-none"><span class="inline-block rounded bg-purple-100 font-medium text-purple-700 px-1 py-px text-[10px] leading-none">NEW</span></div>
+    <div class="mt-0.5 text-[10px] leading-tight text-ink-faint">평균<br><span class="font-medium text-ink-soft tnum">123.4위</span></div>
   </div>
   <div class="cover-fallback shrink-0 rounded border border-line h-[72px] w-12"></div>
   <div class="min-w-0 flex-1 basis-40">
@@ -160,7 +177,11 @@ const CASES = {
   "웰컴 TOP 10 한 줄 (평균이 세 자리일 때)": `
 <div class="rounded-2xl border border-line bg-surface shadow-card"><ol class="divide-y divide-line-soft">
  <li class="flex items-center gap-3 px-4 py-2.5 sm:px-5">
-  <span class="tnum inline-flex items-center justify-center rounded-lg font-bold ring-1 bg-surface-2 text-ink-soft ring-line h-6 min-w-[1.75rem] px-1 text-xs">10</span>
+  <div class="w-8 shrink-0 text-center">
+    <span class="tnum inline-flex items-center justify-center rounded-lg font-bold ring-1 bg-surface-2 text-ink-soft ring-line h-6 min-w-[1.75rem] px-1 text-xs">10</span>
+    <!-- 등락 (2026-08-19). 가장 넓게 나오는 값으로 잽니다: NEW -->
+    <div class="mt-0.5 leading-none"><span class="inline-block rounded bg-purple-100 font-medium text-purple-700 px-1 py-px text-[10px] leading-none">NEW</span></div>
+  </div>
   <div class="cover-fallback shrink-0 rounded border border-line h-12 w-8"></div>
   <div class="min-w-0 flex-1">
     <a class="block truncate text-sm font-semibold">${LONG_TITLE}</a>

@@ -100,9 +100,16 @@ check("🚨 정가로 줄을 걸러내지 않는다 (걸러내면 '안 묶임' �
   !/\.select\("book_id, store_id, list_price"\)[\s\S]{0,150}\.not\("list_price"/.test(q));
 check("대신 코드에서 빈 정가를 건너뛴다",
   /if \(r\.list_price === null\) continue;/.test(q));
-check("종합 순위에 정가를 채운다", /await fillStoreInfo\(rows\)/.test(q));
-check("느린 길에도 채운다", /await fillStoreInfo\(top\)/.test(q));
-check("출판사·작가 목록에도 채운다", (q.match(/await fillStoreInfo\(/g) || []).length >= 3);
+/*
+  ⚠️ `await fillStoreInfo(...)` 라는 글자로 세지 않습니다 (2026-08-19).
+     등락을 넣으면서 빠른 길이 Promise.all 로 바뀌어 `await` 가 앞에서
+     사라졌습니다. 정가는 그대로 채우는데 시험만 빨간불이 났습니다.
+     보는 것은 **부르는지** 이지 어떻게 기다리는지가 아닙니다.
+*/
+const fills = q.match(/fillStoreInfo\((rows|top)\)/g) || [];
+check("종합 순위에 정가를 채운다", /fillStoreInfo\(rows\)/.test(q));
+check("느린 길에도 채운다", /fillStoreInfo\(top\)/.test(q));
+check("출판사·작가 목록에도 채운다", fills.length >= 3, fills);
 check("검색 결과에도 채운다", /storeInfoByBook\(rows\.map/.test(qx));
 
 console.log("\n[3] 🚨 값이 갈리면 지어내지 않는다 (가장 중요)");

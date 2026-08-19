@@ -3,6 +3,7 @@ import BookRow from "@/components/BookRow";
 import DatePicker from "@/components/DatePicker";
 import SetupNotice from "@/components/SetupNotice";
 import CategoryPicker, { PickerBar, PickerSide } from "@/components/CategoryPicker";
+import { changeNote } from "@/lib/rank-change";
 import {
   Card,
   CardHead,
@@ -70,12 +71,19 @@ export default async function BestPage({
 
   let result;
   try {
-    result = await getCombinedBest(date, period, unified, { minStores, limit: 100 });
+    result = await getCombinedBest(date, period, unified, {
+      minStores,
+      limit: 100,
+      // 등락 — 2026-08-19 대표님 요청
+      withChange: true,
+    });
   } catch (e) {
     return <DataError detail={String(e)} />;
   }
-  const { rows, depth, fast } = result;
+  const { rows, depth, fast, change } = result;
   const label = options.find((o) => o.code === unified)?.label ?? unified;
+  // 등락을 무엇과 견줬는지 한 줄로. 못 견줬으면 그 이유가 나옵니다.
+  const note = changeNote(change, dayLabel);
 
   const href = (over: Record<string, string>) => {
     const p = new URLSearchParams({
@@ -160,7 +168,14 @@ export default async function BestPage({
               <PeriodBadge period={period} withHelp />
             </span>
           }
-          desc={`${dayLabel(date)} · ${rows.length}종`}
+          /*
+            등락 기준을 제목 밑 한 줄에 붙입니다 (2026-08-19).
+            "어제" 라고만 쓰면 안 됩니다 — 수집이 하루 걸렀으면
+            비교 대상은 이틀 전입니다. 실제로 견준 날짜를 적습니다.
+          */
+          desc={[`${dayLabel(date)} · ${rows.length}종`, note]
+            .filter(Boolean)
+            .join(" · ")}
         />
 
         {rows.length === 0 ? (
@@ -190,7 +205,13 @@ export default async function BestPage({
             </p>
             <ul className="divide-y divide-line-soft">
               {rows.map((r, i) => (
-                <BookRow key={r.bookId} row={r} position={i + 1} depth={depth} />
+                <BookRow
+                  key={r.bookId}
+                  row={r}
+                  position={i + 1}
+                  depth={depth}
+                  changeUnknown={note ?? undefined}
+                />
               ))}
             </ul>
           </>

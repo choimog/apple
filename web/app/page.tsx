@@ -1,8 +1,11 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
 import DataError from "@/components/DataError";
+import RankChange from "@/components/RankChange";
+import { changeNote } from "@/lib/rank-change";
 import ReportPopup from "@/components/ReportPopup";
 import SetupNotice from "@/components/SetupNotice";
+import { dayLabel } from "@/lib/format";
 import {
   BarList,
   Card,
@@ -62,7 +65,12 @@ export default async function Home({
 
   // 대시보드는 한 화면에 여러 조각을 보여주므로 한꺼번에 불러옵니다
   const [best, pubs, authors, share] = await Promise.all([
-    getCombinedBest(date, period, "all", { minStores: 3, limit: 10 }),
+    // 등락 — 2026-08-19 대표님 요청 (종합 화면과 같은 계산을 씁니다)
+    getCombinedBest(date, period, "all", {
+      minStores: 3,
+      limit: 10,
+      withChange: true,
+    }),
     getNameRanking("publisher", date, period, "all", { limit: 8 }),
     getNameRanking("author", date, period, "all", { limit: 8 }),
     getCategoryShare(date, period, 100),
@@ -80,6 +88,8 @@ export default async function Home({
   }
 
   const needSetup = !best.fast || !pubs.ok || !authors.ok || !share.ok;
+  // 등락을 무엇과 견줬는지 (못 견줬으면 그 이유). 종합 화면과 같은 말입니다.
+  const note = changeNote(best.change, dayLabel);
   const href = (p: Period) => `/?period=${p}&date=${date}`;
   const q = `period=${period}&date=${date}`;
 
@@ -143,7 +153,9 @@ export default async function Home({
               <PeriodBadge period={period} withHelp />
             </span>
           }
-          desc="세 서점 모두에 오른 책을 3사 순위 평균으로 줄 세웠습니다"
+          desc={["세 서점 모두에 오른 책을 3사 순위 평균으로 줄 세웠습니다", note]
+            .filter(Boolean)
+            .join(" · ")}
           right={
             <Link
               href={`/best?${q}`}
@@ -163,7 +175,30 @@ export default async function Home({
           <ol className="divide-y divide-line-soft">
             {best.rows.map((r, i) => (
               <li key={r.bookId} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
-                <RankBadge rank={i + 1} size="sm" />
+                {/*
+                  순위 + 등락 (등락은 2026-08-19 대표님 요청).
+
+                  【왜 이 자리인가요】
+                  등락은 순위에 대한 값이라 순위 바로 아래가 제자리입니다.
+                  옆에 칸을 하나 더 만들면 휴대폰에서 제목 자리가 그만큼
+                  줄어듭니다. 순위 배지 아래는 **원래 비어 있던 자리**라
+                  여기 넣으면 어느 칸도 안 좁아지고, 줄 키도 그대로입니다
+                  (배지 24px + 등락 12px < 표지 48px).
+                */}
+                <div className="w-8 shrink-0 text-center">
+                  <RankBadge rank={i + 1} size="sm" />
+                  {r.change !== undefined && (
+                    /* leading-none 이 없으면 이 줄이 24px 를 먹습니다 (BookRow 설명 참고) */
+                    <div className="mt-0.5 leading-none">
+                      <RankChange
+                        change={r.change}
+                        isNew={!!r.isNew}
+                        size="sm"
+                        unknownTitle={note ?? undefined}
+                      />
+                    </div>
+                  )}
+                </div>
                 <Cover url={r.coverUrl} alt={r.title} className="h-12 w-8" />
                 <div className="min-w-0 flex-1">
                   <Link

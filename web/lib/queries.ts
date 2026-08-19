@@ -18,6 +18,8 @@ import { db } from "./supabase";
 import { periodOf, type Period } from "./period";
 export * from "./period";
 
+import { rankChanges, sortCombined, type ChangeBasis } from "./rank-change";
+
 /** 분야(카테고리). DB 의 categories 표 한 줄. */
 export type Category = {
   id: number;
@@ -598,7 +600,28 @@ export type CombinedRow = {
    * 서점마다 값이 갈리면 지어내지 않고 비웁니다 (pricesByBook 참고).
    */
   listPrice: number | null;
+  /**
+   * 지난 수집일 대비 **종합 순위** 등락 (2026-08-19 대표님 요청).
+   *
+   * 값이 세 가지입니다. 셋은 뜻이 전혀 다릅니다.
+   *   undefined — 이 화면은 등락을 **계산하지 않습니다** (출판사·저자·즐겨찾기).
+   *               화면에 아무것도 안 그립니다.
+   *   null      — 계산은 했지만 **비교할 수 없습니다** (어제 자료가 없거나
+   *               어제는 서점 하나가 빠져서 평균의 뜻이 달라졌거나).
+   *               화면에 '–' 를 그립니다.
+   *   숫자      — 오른 계단 수. 3위 → 1위 면 +2.
+   */
+  change?: number | null;
+  /** 지난 수집일 종합 순위에는 없던 책. change 가 계산됐을 때만 뜻이 있습니다 */
+  isNew?: boolean;
 };
+
+/*
+  등락 계산 규칙은 lib/rank-change.ts 한 곳에만 있습니다.
+  (데이터베이스도 화면도 안 쓰는 순수한 계산이라, 인터넷 없이 시험합니다.
+   같은 계산을 두 군데 두면 반드시 어긋납니다)
+*/
+export * from "./rank-change";
 
 // ⚠️ 판매지수는 서점끼리 평균 내지 않습니다.
 //    예스24 '판매지수' 와 알라딘 '세일즈포인트' 는 계산식이 다른 별개의 값이라
@@ -628,12 +651,23 @@ export async function getCombinedBest(
   date: string,
   period: Period,
   unifiedCode: string,
-  opts: { minStores?: number; depth?: number; limit?: number } = {}
+  opts: {
+    minStores?: number;
+    depth?: number;
+    limit?: number;
+    /**
+     * 지난 수집일 대비 등락도 함께 계산할지 (2026-08-19 대표님 요청).
+     * 켜면 데이터베이스에 조회가 몇 번 더 갑니다. 켠 화면에서만 값이 붙습니다.
+     */
+    withChange?: boolean;
+  } = {}
 ): Promise<{
   rows: CombinedRow[];
   depth: number;
   usedCategories: Category[];
   fast: boolean;
+  /** 등락을 무엇과 비교했는지. withChange 를 안 켰으면 null */
+  change: ChangeBasis | null;
 }> {
   const minStores = opts.minStores ?? 2;
   // 각 서점에서 몇 위까지 볼지. 너무 깊게 보면 화면이 느려집니다.
@@ -647,7 +681,7 @@ export async function getCombinedBest(
       c.kind !== "offline" // 매장별은 온라인 순위와 성격이 달라 섞지 않습니다
   );
   if (!cats.length) {
-    return { rows: [], depth, usedCategories: [], fast: true };
+    return { rows: [], depth, usedCategories: [], fast: true, change: null };
   }
 
   // ---- 빠른 길: 데이터베이스가 계산해서 100줄만 보내줍니다 (db/perf.sql) ----
@@ -661,26 +695,22 @@ export async function getCombinedBest(
     p_limit: limit,
   });
   if (!rpc.error && rpc.data) {
-    const rows = (rpc.data as RpcCombinedRow[]).map((r) => ({
-      bookId: Number(r.book_id),
-      title: r.title,
-      author: r.author,
-      publisher: r.publisher,
-      coverUrl: r.cover_url,
-      ranks: numberMap(r.ranks),
-      sales: numberMap(r.sales),
-      storeCount: r.store_count,
-      avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
-      listPrice: null as number | null,
-      pubYm: null as string | null,
-      linked: [] as number[],
-    }));
-    await fillStoreInfo(rows);
+    // ⚠️ 줄 세우기는 sortCombined 한 곳에서만 합니다.
+    //    데이터베이스가 이미 정렬해 주지만, 평균이 같을 때의 순서까지는
+    //    정해 주지 않습니다 (위 sortCombined 설명 참고).
+    const rows = sortCombined(toCombinedRows(rpc.data as RpcCombinedRow[]));
+    const [, change] = await Promise.all([
+      fillStoreInfo(rows),
+      opts.withChange
+        ? fillChange(rows, cats, { date, period, unifiedCode, minStores, depth })
+        : Promise.resolve(null),
+    ]);
     return {
       rows,
       depth,
       usedCategories: await usedIn(cats, date),
       fast: true,
+      change,
     };
   }
 
@@ -759,14 +789,154 @@ export async function getCombinedBest(
   }
 
   // 이 느린 길에서는 순위가 있는 책만 담으므로 avgRank 가 늘 있습니다.
-  rows.sort(
-    (x, y) =>
-      (x.avgRank ?? Infinity) - (y.avgRank ?? Infinity) ||
-      y.storeCount - x.storeCount
-  );
-  const top = rows.slice(0, limit);
+  const top = sortCombined(rows).slice(0, limit);
   await fillStoreInfo(top);
-  return { rows: top, depth, usedCategories: await usedIn(cats, date), fast: false };
+  /*
+    ⚠️ 느린 길에서는 등락을 계산하지 않습니다.
+       이 길은 순위 6,000줄을 받아와 직접 계산하는 길입니다. 등락을 내려면
+       그걸 **하루치 더** 해야 해서 화면이 두 배로 느려집니다.
+       속도 개선(db/perf.sql)을 켜시라는 안내가 이미 화면에 떠 있습니다.
+       느리게 만들면서 조용히 값만 채우지 않습니다.
+  */
+  return {
+    rows: top,
+    depth,
+    usedCategories: await usedIn(cats, date),
+    fast: false,
+    change: opts.withChange
+      ? { prevDate: null, blocked: "slow", truncated: false }
+      : null,
+  };
+}
+
+/** 데이터베이스가 준 줄을 화면이 쓰는 모양으로 (빠른 길·이전 날짜가 함께 씁니다) */
+function toCombinedRows(src: RpcCombinedRow[]): CombinedRow[] {
+  return src.map((r) => ({
+    bookId: Number(r.book_id),
+    title: r.title,
+    author: r.author,
+    publisher: r.publisher,
+    coverUrl: r.cover_url,
+    ranks: numberMap(r.ranks),
+    sales: numberMap(r.sales),
+    storeCount: r.store_count,
+    avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
+    listPrice: null as number | null,
+    pubYm: null as string | null,
+    linked: [] as number[],
+  }));
+}
+
+/** 이 조건에서 주어진 날짜 '바로 앞' 수집일 */
+async function previousCombinedDate(
+  cats: Category[],
+  date: string
+): Promise<string | null> {
+  const { data } = await db()
+    .from("rankings")
+    .select("snapshot_date")
+    .in(
+      "category_id",
+      cats.map((c) => c.id)
+    )
+    .lt("snapshot_date", date)
+    .order("snapshot_date", { ascending: false })
+    .limit(1);
+  return (data?.[0]?.snapshot_date as string) ?? null;
+}
+
+/** 그날 이 분야들에 자료가 있던 서점 번호들 */
+async function storesOn(cats: Category[], date: string): Promise<Set<number>> {
+  const used = await usedIn(cats, date);
+  return new Set(used.map((c) => c.store_id));
+}
+
+/**
+ * 지난 수집일 대비 **종합 순위 등락**을 채웁니다 (자리에서 바로).
+ *
+ * 【무엇과 무엇을 견주나요 — 2026-08-19 대표님 요청】
+ *   "종합, 웰컴에도 평균을 낸 수치로 계산된 순위에 등락을 표기해줬으면"
+ *
+ * 견주는 것은 **평균값이 아니라 그 평균으로 매긴 등수**입니다.
+ * 평균 3.7 → 3.3 은 읽어도 뜻을 모릅니다. 5위 → 3위(▲2)는 바로 읽힙니다.
+ * 서점별 화면의 등락과 같은 뜻이 되어 헷갈리지도 않습니다.
+ *
+ * 🚨 【지어내지 않는 부분 — 이게 이 함수의 절반입니다】
+ *
+ *   ① 어제 **서점 구성이 다르면 비교하지 않습니다.**
+ *      예스24 가 하루 실패하면 그날 평균은 교보·알라딘 둘만의 평균입니다.
+ *      3사 평균과 2사 평균은 **다른 자**입니다. 그걸 견주면 온 목록이
+ *      한꺼번에 오르내린 것처럼 보입니다. 실제로는 아무 일도 없었는데요.
+ *      (3사 기준으로 보는 웰컴 화면은 그날 목록이 아예 비기까지 합니다.
+ *       그러면 다음 날 100권이 전부 'NEW' 가 됩니다)
+ *
+ *   ② 어제 목록이 **잘렸으면 'NEW' 라고 하지 않습니다.**
+ *      데이터베이스 함수는 한 번에 500줄까지만 줍니다. 501번째였던 책을
+ *      '어제 없던 책' 이라고 하면 거짓말입니다. 그럴 땐 '–' 로 둡니다.
+ */
+async function fillChange(
+  rows: CombinedRow[],
+  cats: Category[],
+  q: {
+    date: string;
+    period: Period;
+    unifiedCode: string;
+    minStores: number;
+    depth: number;
+  }
+): Promise<ChangeBasis> {
+  const none = (blocked: ChangeBasis["blocked"], prevDate: string | null) => {
+    for (const r of rows) {
+      r.change = null;
+      r.isNew = false;
+    }
+    return { prevDate, blocked, truncated: false };
+  };
+
+  const prevDate = await previousCombinedDate(cats, q.date);
+  if (!prevDate) return none("no-prev", null);
+
+  // ① 서점 구성이 같은 날끼리만 견줍니다 (위 설명 참고)
+  const [today, before] = await Promise.all([
+    storesOn(cats, q.date),
+    storesOn(cats, prevDate),
+  ]);
+  if (today.size !== before.size || [...today].some((s) => !before.has(s))) {
+    return none("stores-differ", prevDate);
+  }
+
+  /*
+    지난 날짜의 같은 목록. 상한인 500줄까지 받습니다.
+    ⚠️ 오늘 100줄만 보더라도 지난 목록은 깊게 봐야 합니다. 어제 320위였던
+       책이 오늘 90위로 올라올 수 있으니까요. 얕게 보면 그런 책이 전부
+       'NEW' 로 찍힙니다.
+  */
+  const prev = await db().rpc("combined_best", {
+    p_date: prevDate,
+    p_period: q.period,
+    p_unified: q.unifiedCode,
+    p_min_stores: q.minStores,
+    p_depth: q.depth,
+    p_limit: 500,
+  });
+  if (prev.error || !prev.data) return none("no-prev", prevDate);
+
+  const prevRows = sortCombined(toCombinedRows(prev.data as RpcCombinedRow[]));
+  // ② 500줄을 꽉 채워 왔으면 그 뒤가 더 있다는 뜻입니다
+  const truncated = prevRows.length >= 500;
+
+  // 견주는 규칙 자체는 lib/rank-change.ts 에 있습니다 (인터넷 없이 시험함)
+  const got = rankChanges(
+    rows.map((r) => r.bookId),
+    prevRows.map((r) => r.bookId),
+    truncated
+  );
+  rows.forEach((r, i) => {
+    r.change = got[i].change;
+    r.isNew = got[i].isNew;
+  });
+
+  return { prevDate, blocked: null, truncated };
 }
 
 /** 데이터베이스 함수가 돌려주는 모양 (db/perf.sql 의 combined_best) */
@@ -1258,20 +1428,10 @@ export async function getBooksOf(
     p_limit: opts.limit ?? 100,
   });
   if (error || !data) return { rows: [], ok: false };
-  const rows = (data as RpcCombinedRow[]).map((r) => ({
-    bookId: Number(r.book_id),
-    title: r.title,
-    author: r.author,
-    publisher: r.publisher,
-    coverUrl: r.cover_url,
-    ranks: numberMap(r.ranks),
-    sales: numberMap(r.sales),
-    storeCount: r.store_count,
-    avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
-    listPrice: null as number | null,
-    pubYm: null as string | null,
-    linked: [] as number[],
-  }));
+  // ⚠️ 여기는 등락을 채우지 않습니다. 이 목록은 '종합 순위' 가 아니라
+  //    한 출판사(저자)의 책 목록이라, 등수가 애초에 다른 뜻입니다.
+  //    change 가 undefined 로 남아 화면에 아무것도 안 그려집니다.
+  const rows = toCombinedRows(data as RpcCombinedRow[]);
   await fillStoreInfo(rows);
   return { rows, ok: true };
 }

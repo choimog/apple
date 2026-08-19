@@ -157,6 +157,14 @@ jobs:
         # 화면마다 다른 값이 나오면 어느 쪽도 못 믿게 됩니다.
         run: node scripts/test-price-one-rule.mjs
 
+      - name: 종합·웰컴 등락 시험
+        # 🚨 2026-08-19 대표님 요청으로 넣은 값입니다. 등락은 **틀려도
+        #    화면이 멀쩡한** 종류입니다 — ▲2 가 맞는지 확인하려면 어제
+        #    화면을 찍어 두셨어야 하니까요. 특히 이 둘은 없는 것보다
+        #    나쁩니다: 평균이 같아 순서가 흔들려 생기는 가짜 ▲1▼1,
+        #    지난 목록이 잘렸을 뿐인데 붙는 가짜 NEW.
+        run: node scripts/test-rank-change.mjs
+
       - name: 조회문이 실제 데이터베이스에서 되는지 확인
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Cover from "@/components/Cover";
+import RankChange from "@/components/RankChange";
 import SalesPoint from "@/components/SalesPoint";
 import { NoRank, Price, RankBadge } from "@/components/ui";
 import { store, STORE_ORDER, type StoreId } from "@/lib/stores";
@@ -36,6 +37,7 @@ export default function BookRow({
   position,
   depth,
   action,
+  changeUnknown,
 }: {
   row: CombinedRow;
   /** 이 목록에서의 자리(1부터) */
@@ -44,17 +46,48 @@ export default function BookRow({
   depth: number;
   /** 줄 오른쪽에 붙일 것 (즐겨찾기 화면의 [빼기] 버튼) */
   action?: import("react").ReactNode;
+  /** 등락이 '–' 일 때 마우스를 올리면 나올 설명 */
+  changeUnknown?: string;
 }) {
   return (
     <li className="flex flex-wrap items-start gap-x-3 gap-y-2.5 px-4 py-3.5 sm:px-5">
       <div className="w-11 shrink-0 pt-0.5 text-center">
         <RankBadge rank={position} />
         {/*
+          등락 — 2026-08-19 대표님 요청.
+
+          【왜 여기인가요】
+          등락은 **순위에 대한 값**이라 순위 바로 아래가 제자리입니다.
+          그리고 이 칸은 이미 폭이 정해져 있어서(w-11) 여기에 한 줄을
+          더해도 **다른 칸이 좁아지지 않습니다.** 옆에 끼워 넣었다면
+          휴대폰에서 제목이 그만큼 줄었을 것입니다.
+          줄 높이도 그대로입니다 — 왼쪽 칸(약 73px)이 표지(72px)보다
+          아직 낮아서, 줄 키를 정하는 것은 여전히 표지입니다.
+
+          ⚠️ change 가 **undefined 면 아무것도 안 그립니다.**
+             출판사·저자·즐겨찾기 화면은 등락을 계산하지 않는데,
+             거기에 '–' 를 100줄 그려 놓으면 '고장난 화면' 으로 보입니다.
+             (계산했는데 비교를 못 한 null 과는 뜻이 다릅니다)
+        */}
+        {row.change !== undefined && (
+          /* ⚠️ leading-none 이 없으면 이 한 줄이 24px 를 먹습니다 (실측).
+             속의 글자가 10px 라도, 줄 상자는 바깥 글자 크기를 따라갑니다.
+             그만큼 왼쪽 칸이 표지보다 높아져서 목록 전체가 두꺼워집니다. */
+          <div className="mt-0.5 leading-none">
+            <RankChange
+              change={row.change}
+              isNew={!!row.isNew}
+              size="sm"
+              unknownTitle={changeUnknown}
+            />
+          </div>
+        )}
+        {/*
           🚨 어느 서점 목록에도 없으면 평균이 **없습니다.**
           0 으로 채우면 '0.0위' 라고 적히는데, 1위보다 높은 순위입니다.
           (즐겨찾기 화면은 순위가 없는 책도 목록에 남겨 둡니다)
         */}
-        <div className="mt-1 text-[10px] leading-tight text-ink-faint">
+        <div className="mt-0.5 text-[10px] leading-tight text-ink-faint">
           {row.avgRank === null ? (
             <span title="이 날짜에는 세 서점 어디에서도 순위에 없었습니다">
               순위

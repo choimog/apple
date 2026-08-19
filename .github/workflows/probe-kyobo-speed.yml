@@ -26,6 +26,6 @@ jobs:
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt
       - name: 브라우저(크로미움) 설치
-        run: python -m playwright install --with-deps chromium
+        uses: ./.github/actions/browser
       - name: 실측
         run: python crawler/probe_kyobo_speed.py

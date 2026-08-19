@@ -56,7 +56,7 @@ jobs:
 
       - name: 브라우저(크로미움) 설치
         if: ${{ inputs.store == '' || contains(inputs.store, 'kyobo') }}
-        run: python -m playwright install --with-deps chromium
+        uses: ./.github/actions/browser
 
       - name: 점검 실행
         run: python crawler/check_sources.py "${{ inputs.store }}"

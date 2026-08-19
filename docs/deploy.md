@@ -117,8 +117,8 @@ https://apple-xxxx.vercel.app
 배포 직후 나오는 주소는 이렇게 생겼습니다:
 
 ```
-apple-hcbgiqsjg-choimog1.vercel.app
-      └────────┘
+apple-xxxxxxxxx-<계정>.vercel.app
+      └───────┘
    배포할 때마다 바뀌는 임시 주소
 ```
 
@@ -161,8 +161,13 @@ apple-hcbgiqsjg-choimog1.vercel.app
 끝나면 이런 **고정 주소**가 생깁니다:
 
 ```
-apple-choimog1.vercel.app     ← 안 바뀝니다. 이걸 공유하세요.
+apple-<계정>.vercel.app     ← 안 바뀝니다. 이걸 공유하세요.
 ```
+
+> 🔒 **실제 주소는 여기 적지 않습니다** (2026-08-19).
+> 저장소에 사이트 주소를 적어 두면, 저장소를 찾은 사람이 사이트를
+> 알게 되고 사이트를 찾은 사람이 저장소를 알게 됩니다.
+> 실제 주소는 **Vercel → 프로젝트 → Domains** 에서 확인하세요.
 
 > 확인 방법: 로그아웃한 브라우저(시크릿 창)로 열어서 보이면 성공입니다.
 

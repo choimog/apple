@@ -109,8 +109,8 @@ export default function Nav({
     (글자 머리표는 대표님이 2026-08-08 에 없애라고 하셔서 안 씁니다.
      name 은 화면에 안 그리고 구분·읽어주기 용도로만 씁니다)
 
-    휴대폰에서는 아래 줄에, 넓은 화면에서는 제목 옆에 — 같은 것을 두 번
-    그리지 않도록 이 함수 하나로 만듭니다.
+    메뉴는 화면 크기와 상관없이 **제목 아랫줄**에 있습니다
+    (2026-08-19 — 제목 옆에 두면 PC 에서 51px 이 모자라 스크롤바가 생김).
   */
   const menu = (extra: string) => (
     <nav aria-label="주요 메뉴" className={`scroll-x flex items-center gap-2.5 ${extra}`}>
@@ -162,15 +162,15 @@ export default function Nav({
         <div className="flex h-12 items-center justify-between gap-3 sm:h-14 sm:gap-4">
           <Link
             href="/"
-            className={`shrink-0 text-[15px] font-bold tracking-[-0.01em] ${
+            /* ⚠️ 320px 짜리 아주 좁은 화면에서는 제목·다크모드·로그아웃이
+               11px 넘쳤습니다. 제목만 말줄임표로 줄어들게 둡니다
+               (360px 이상에서는 다 들어가므로 보이는 것이 안 바뀝니다) */
+            className={`min-w-0 truncate text-[15px] font-bold tracking-[-0.01em] ${
               path === "/" ? "text-ink" : "text-ink-soft hover:text-ink"
             }`}
           >
             <span aria-hidden>📚</span> 베스트셀러 트래커
           </Link>
-
-          {/* 넓은 화면에서만 제목 옆에 (휴대폰에서는 아랫줄에 그립니다) */}
-          {menu("hidden min-w-0 flex-1 sm:flex")}
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <ThemeToggle />
@@ -191,8 +191,26 @@ export default function Nav({
           </div>
         </div>
 
-        {/* 휴대폰 전용 — 메뉴가 화면 폭을 전부 씁니다 */}
-        {menu("-mx-1 border-t border-line-soft px-1 py-1.5 sm:hidden")}
+        {/*
+          🚨 【2026-08-19 대표님 지적 — PC 에서 가로 스크롤바】
+            "PC화면에서 상단 메뉴바에 메뉴가 늘어나면서 가로스크롤바가
+             생겼어. 이게 되게 심미적으로 보기가 안 좋은데,
+             대체할 수 있는 방법이 없을까?"
+
+          재 봤습니다. 메뉴에 필요한 폭은 876px 인데, 제목·다크모드·
+          로그아웃과 한 줄을 나눠 쓰면 **아무리 넓은 화면에서도 825px**
+          밖에 안 돌아갑니다 (본문 폭이 1152px 로 묶여 있어서 화면을
+          키워도 안 늘어납니다). 51px 이 늘 모자라서 **모든 PC 화면에
+          항상** 스크롤바가 있었습니다.
+
+          그래서 메뉴에 **줄 하나를 통째로** 줍니다. 1,120px 이 생겨
+          지금 메뉴(876px)가 다 들어가고 244px 이 남습니다 — 메뉴를
+          더 늘려도 당분간 괜찮습니다.
+
+          휴대폰은 예전 그대로입니다(원래 이 줄을 쓰고 있었습니다).
+          좁아서 다 안 들어가면 그때만 옆으로 넘깁니다.
+        */}
+        {menu("-mx-1 border-t border-line-soft px-1 py-1")}
       </div>
     </header>
   );

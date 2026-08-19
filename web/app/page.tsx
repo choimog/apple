@@ -182,7 +182,16 @@ export default async function Home({
                 <div className="hidden shrink-0 sm:block">
                   <StoreRankStrip ranks={r.ranks} />
                 </div>
-                <span className="w-12 shrink-0 text-right text-xs text-ink-faint tnum">
+                {/*
+                  🚨 【2026-08-19 대표님 지적】
+                    "PC 웰컴 화면에서 평균의 자리수가 3자리로 넘어가면
+                     줄이 넘어가서 통일성이 떨어져보여."
+
+                  `평균 123.4` 는 60px 인데 칸이 48px(w-12) 이었습니다.
+                  세 자리부터 두 줄로 접혀서 그 줄만 키가 커졌습니다.
+                  칸을 넓히고, 어떤 값이 와도 **접히지 않게** 못 박습니다.
+                */}
+                <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right text-xs text-ink-faint tnum">
                   평균 {r.avgRank === null ? "—" : r.avgRank.toFixed(1)}
                 </span>
               </li>

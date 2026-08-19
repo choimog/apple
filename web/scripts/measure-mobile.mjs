@@ -77,7 +77,7 @@ const CASES = {
       <span class="tnum">16,800원</span><span class="text-ink-faint">·</span><span>3개 서점</span></p>
   </div>
   <div class="shrink-0 pt-0.5"><button class="rounded-lg border border-line px-2 py-1 text-xs text-ink-faint">빼기</button></div>
-  <div class="grid w-full shrink-0 grid-cols-3 gap-1.5 sm:w-[19rem] lg:w-[21rem]">
+  <div class="grid w-full grid-cols-3 gap-1.5 sm:pl-[7.25rem]">
     <div class="min-w-0 rounded-lg border px-1.5 py-1.5 sm:px-2 border-line bg-surface">
       <div class="flex flex-wrap items-baseline justify-between gap-x-1 gap-y-0.5">
         <span class="rounded px-1.5 py-px text-2xs font-medium bg-kyobo/10 text-kyobo ring-1 ring-kyobo/25">교보</span>
@@ -129,6 +129,49 @@ const CASES = {
  </div>
 </div>`,
 
+  "위쪽 메뉴 (PC 에서 스크롤바가 생기던 자리)": `
+<header class="border-b border-line bg-canvas">
+ <div class="mx-auto max-w-6xl px-4">
+  <div class="flex h-12 items-center justify-between gap-3 sm:h-14 sm:gap-4">
+   <a class="min-w-0 truncate text-[15px] font-bold tracking-[-0.01em] text-ink-soft">📚 베스트셀러 트래커</a>
+   <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+     <button class="rounded-lg px-2 py-1.5 text-sm text-ink-soft">🌙</button>
+     <button class="rounded-lg px-2 py-1.5 text-sm text-ink-soft sm:px-2.5">로그아웃</button></div>
+  </div>
+  <nav class="scroll-x flex items-center gap-2.5 -mx-1 border-t border-line-soft px-1 py-1">
+   ${[
+     ["종합", "서점별", "즐겨찾기"],
+     ["출판사", "저자", "분야"],
+     ["리포트", "검색", "공유 링크", "수집 상태"],
+     ["매칭 검토", "저장 용량"],
+   ]
+     .map(
+       (g) =>
+         `<div class="flex shrink-0 items-center gap-1 rounded-xl border border-line-soft bg-surface-2/60 px-1 py-1">${g
+           .map((t) => `<a class="whitespace-nowrap rounded-lg px-2.5 py-1 text-sm text-ink-soft">${t}</a>`)
+           .join("")}</div>`
+     )
+     .join("")}
+  </nav>
+ </div>
+</header>`,
+
+  "웰컴 TOP 10 한 줄 (평균이 세 자리일 때)": `
+<div class="rounded-2xl border border-line bg-surface shadow-card"><ol class="divide-y divide-line-soft">
+ <li class="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+  <span class="tnum inline-flex items-center justify-center rounded-lg font-bold ring-1 bg-surface-2 text-ink-soft ring-line h-6 min-w-[1.75rem] px-1 text-xs">10</span>
+  <div class="cover-fallback shrink-0 rounded border border-line h-12 w-8"></div>
+  <div class="min-w-0 flex-1">
+    <a class="block truncate text-sm font-semibold">${LONG_TITLE}</a>
+    <p class="truncate text-xs text-ink-soft">세이노 · 한국교육방송공사(EBSi) · 16,800원</p></div>
+  <div class="hidden shrink-0 sm:block"><span class="flex gap-1">
+    <span class="inline-flex items-center gap-1 rounded-md font-medium px-1.5 py-0.5 text-2xs bg-kyobo/10 text-kyobo ring-1 ring-kyobo/25">교보<span class="tnum font-bold">137</span></span>
+    <span class="inline-flex items-center gap-1 rounded-md font-medium px-1.5 py-0.5 text-2xs bg-yes24/10 text-yes24 ring-1 ring-yes24/25">예스<span class="tnum font-bold">8</span></span>
+    <span class="inline-flex items-center gap-1 rounded-md font-medium px-1.5 py-0.5 text-2xs bg-surface-2 text-ink-faint ring-1 ring-line">알라딘<span class="tnum font-bold">–</span></span>
+  </span></div>
+  <span class="w-[4.5rem] shrink-0 whitespace-nowrap text-right text-xs text-ink-faint tnum">평균 123.4</span>
+ </li></ol></div>`,
+
   "서점별 한 줄 (/store)": `
 <div class="rounded-2xl border border-line bg-surface shadow-card"><ul class="divide-y divide-line-soft">
  <li class="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">
@@ -170,12 +213,27 @@ for (const [name, body] of Object.entries(CASES)) {
       const bad = [];
       for (const el of document.querySelectorAll("*")) {
         const over = el.scrollWidth - el.clientWidth;
-        if (over > 1 && el.clientWidth > 0) {
-          bad.push({
-            over,
-            w: el.clientWidth,
-            text: (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 22),
-          });
+        if (over <= 1 || el.clientWidth === 0) continue;
+        // ⚠️ '넘친다' 와 '보기 흉하다' 는 다릅니다.
+        //    옆으로 넘기게 만들어 둔 곳(휴대폰 메뉴)과 말줄임표로
+        //    자르는 곳(긴 제목)은 넘치는 것이 **정상**입니다.
+        //    실제로 상자 밖으로 삐져나와 보이는 것만 잡습니다.
+        const ox = getComputedStyle(el).overflowX;
+        if (ox !== "visible") continue;
+        bad.push({
+          over,
+          w: el.clientWidth,
+          text: (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 22),
+        });
+      }
+      // 🚨 넘치는 것만 보면 안 됩니다. 한 줄짜리로 만든 칸이 두 줄로
+      //    접히는 것도 "통일성이 떨어져 보인다" 는 고장입니다
+      //    (2026-08-19 웰컴의 '평균 123.4').
+      for (const el of document.querySelectorAll(".whitespace-nowrap, .truncate")) {
+        const line = parseFloat(getComputedStyle(el).lineHeight) || 16;
+        if (el.getBoundingClientRect().height > line * 1.6) {
+          bad.push({ over: 0, w: Math.round(el.clientWidth), folded: true,
+                     text: (el.textContent || "").trim().slice(0, 22) });
         }
       }
       return {
@@ -191,7 +249,11 @@ for (const [name, body] of Object.entries(CASES)) {
       failed++;
       console.log(`  ❌ ${String(width).padStart(4)}px  가로 스크롤 ${out.pageOver}px`);
       for (const b of out.bad) {
-        console.log(`       ${String(b.over).padStart(3)}px 넘침 (칸 ${b.w}px)  "${b.text}"`);
+        console.log(
+          b.folded
+            ? `       두 줄로 접힘 (칸 ${b.w}px)  "${b.text}"`
+            : `       ${String(b.over).padStart(3)}px 넘침 (칸 ${b.w}px)  "${b.text}"`
+        );
       }
     }
   }

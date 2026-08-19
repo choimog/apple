@@ -46,11 +46,20 @@ console.log("\n[1] 🚨 3사 칸이 좁은 자리에 끼어 있지 않은가 (�
 // 제목 옆에 끼워 넣으면 360px 에서 칸 속이 19px 밖에 안 남습니다.
 check("줄이 접힐 수 있다 (flex-wrap)", /<li className="flex flex-wrap/.test(row),
   "안 접히면 칸이 계속 옆으로 밀려 좁아집니다");
-check("휴대폰에서 3사 칸이 한 줄을 다 쓴다",
-  /grid w-full shrink-0 grid-cols-3/.test(row),
+check("3사 칸이 한 줄을 다 쓴다 (휴대폰·PC 둘 다)",
+  /grid w-full grid-cols-3/.test(row),
   "w-full 이 빠지면 제목 옆으로 끼어 들어가 다시 깨집니다");
-check("넓은 화면에서는 폭을 고정해 오른쪽에 둔다",
-  /sm:w-\[\d+rem\]/.test(row));
+// 【2026-08-19 대표님 지적】
+//   "PC 웰컴 화면과 종합 부분에서 도서와 실적표가 너무 떨어져있어서,
+//    한눈에 보기에 가독성이 떨어져보여."
+// 폭을 19rem 으로 고정해 오른쪽 끝에 붙였더니, 제목이 남는 자리를 다
+// 먹어서 실적표가 저 멀리 밀려나 있었습니다. 아래로 내리고 제목 시작점에
+// 맞춰 들여씁니다 (순위 2.75 + 여백 0.75 + 표지 3 + 여백 0.75 = 7.25rem).
+check("PC 에서 제목 시작점에 맞춰 들여쓴다",
+  /sm:pl-\[7\.25rem\]/.test(row));
+check("PC 에서 오른쪽 끝으로 밀어내지 않는다",
+  !/sm:w-\[\d+rem\]/.test(row),
+  "폭을 고정하면 제목과 실적표 사이가 벌어집니다");
 check("제목 칸이 너무 좁아지지 않게 최소 폭이 있다",
   /min-w-0 flex-1 basis-40/.test(row),
   "basis 가 없으면 제목이 두세 글자씩 끊겨 내려갑니다");
@@ -113,7 +122,23 @@ for (const [name, src] of [
     "같은 코드를 두 벌 두면 반드시 어긋납니다");
 }
 
-console.log("\n[6] 자로 재는 도구가 남아 있는가");
+console.log("\n[6] 🚨 PC 위쪽 메뉴에 가로 스크롤바가 생기지 않는가");
+// 【2026-08-19 대표님 지적】
+//   "PC화면에서 상단 메뉴바에 메뉴가 늘어나면서 가로스크롤바가 생겼어.
+//    이게 되게 심미적으로 보기가 안 좋은데"
+//
+// 실측: 메뉴에 필요한 폭 876px, 제목·다크모드·로그아웃과 한 줄을 나눠
+// 쓰면 남는 자리 825px. 본문 폭이 1152px 로 묶여 있어 화면을 키워도
+// 안 늘어납니다 → 모든 PC 화면에 항상 51px 짜리 스크롤바.
+const navSrc = readFileSync("components/Nav.tsx", "utf8");
+check("메뉴가 제목과 한 줄을 나눠 쓰지 않는다",
+  !/hidden[^"]*sm:flex/.test(navSrc));
+check("웰컴의 '평균' 칸이 세 자리에서 접히지 않는다",
+  /w-\[4\.5rem\] shrink-0 whitespace-nowrap/.test(
+    readFileSync("app/page.tsx", "utf8")),
+  "w-12(48px) 로는 `평균 123.4`(60px) 가 두 줄로 접힙니다");
+
+console.log("\n[7] 자로 재는 도구가 남아 있는가");
 const measure = readFileSync("scripts/measure-mobile.mjs", "utf8");
 check("측정 도구가 있다", measure.includes("scrollWidth"));
 check("여러 폭을 본다", /320, 360, 390, 430, 768, 1024, 1280/.test(measure));

@@ -115,13 +115,20 @@ export default function BookRow({
       {action && <div className="shrink-0 pt-0.5">{action}</div>}
 
       {/*
-        3사 순위 + 판매지수.
+        3사 순위 + 판매지수 — **언제나 한 줄을 통째로** 씁니다.
 
-        🚨 휴대폰에서는 **한 줄을 통째로** 씁니다(w-full). 제목 옆에 끼워
-           넣으면 칸이 19px 밖에 안 남아 숫자가 삐져나갑니다.
-           넓은 화면에서는 폭을 고정해 예전처럼 오른쪽에 둡니다.
+        🚨 휴대폰: 제목 옆에 끼워 넣으면 칸이 19px 밖에 안 남아 숫자가
+           삐져나갑니다 (2026-08-18).
+
+        🚨 PC: 폭을 19rem 으로 고정해 오른쪽 끝에 붙여 봤더니 대표님
+           지적이 나왔습니다 — "웰컴 화면과 종합 부분에서 도서와 실적표가
+           너무 떨어져있어서 한눈에 보기에 가독성이 떨어져보여."
+           맞습니다. 제목이 남는 자리를 다 먹어서 실적표가 저 멀리
+           오른쪽 끝으로 밀려나 있었습니다. 그래서 아래로 내리고,
+           넓은 화면에서는 제목 시작점에 맞춰 들여씁니다.
+           (순위 2.75rem + 여백 0.75 + 표지 3rem + 여백 0.75 = 7.25rem)
       */}
-      <div className="grid w-full shrink-0 grid-cols-3 gap-1.5 sm:w-[19rem] lg:w-[21rem]">
+      <div className="grid w-full grid-cols-3 gap-1.5 sm:pl-[7.25rem]">
         {STORE_ORDER.map((sid: StoreId) => {
           const rank = row.ranks[sid];
           const has = rank !== undefined;

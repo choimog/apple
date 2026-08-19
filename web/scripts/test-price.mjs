@@ -49,6 +49,30 @@ for (const [label, file, re] of screens) {
   check(`${label} — ${file}`, re.test(src));
 }
 
+console.log("\n[1-1] 출간월도 같은 자리에 붙어 있나 (2026-08-19 대표님 요청)");
+// "종합이랑 즐겨찾기 등 도서 노출 시 출간월도 함께 나오게 해줘."
+// 정가와 똑같이, 한 군데를 빠뜨려도 화면은 멀쩡합니다.
+const ymScreens = [
+  ["웰컴(홈)", "app/page.tsx", /r\.pubYm && ` · \$\{r\.pubYm\}`/],
+  ["종합·즐겨찾기·출판사·작가 (공통 줄)", "components/BookRow.tsx", /\{row\.pubYm && \(/],
+  ["서점별", "app/store/page.tsx", /store_book\.pub_ym/],
+  ["도서 검색", "app/search/page.tsx", /\{b\.pubYm && \(/],
+  ["도서 상세", "app/book/[id]/page.tsx", /main\.pub_ym/],
+];
+for (const [label, file, re] of ymScreens) {
+  check(`${label} — ${file}`, re.test(readFileSync(file, "utf8")));
+}
+
+// 🚨 여기가 핵심입니다. 서점마다 배본일을 다르게 적습니다(인쇄일/출고일/
+//    판매일). 목록에서 따로 고르면 도서 상세와 **다른 달**이 찍힙니다.
+//    도서 마스터가 정해 둔 대표값(books.pub_ym)을 그대로 읽어야 합니다.
+check("목록은 도서 마스터의 대표 출간월을 읽는다",
+  /from\("books"\)\s*\n?\s*\.select\("id, pub_ym"\)/.test(q),
+  "store_books 에서 다시 고르면 화면마다 다른 달이 나옵니다");
+check("고르는 규칙을 화면에 다시 만들지 않았다",
+  !/pub_ym[^\n]*STORE_PRIORITY|알라딘.*예스24.*교보/.test(
+    readFileSync("components/BookRow.tsx", "utf8")));
+
 // 출판사·작가 화면이 정말 같은 줄(BookRow)을 쓰는지도 확인합니다.
 // 여기가 어긋나면 위 시험이 통과해도 그 두 화면엔 정가가 안 뜹니다.
 const nameDetail = readFileSync("components/NameDetailPage.tsx", "utf8");

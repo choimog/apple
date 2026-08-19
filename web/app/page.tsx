@@ -175,6 +175,8 @@ export default async function Home({
                   <p className="truncate text-xs text-ink-soft">
                     {r.author ?? "저자 정보 없음"}
                     {r.publisher && ` · ${r.publisher}`}
+                    {/* 출간월 — 2026-08-19 대표님 요청 */}
+                    {r.pubYm && ` · ${r.pubYm}`}
                     {/* 정가 — 2026-08-11 대표님 요청 */}
                     {r.listPrice != null && ` · ${r.listPrice.toLocaleString()}원`}
                   </p>

@@ -195,6 +195,8 @@ export async function favoriteRows(
     // 🚨 순위가 없으면 null 입니다. 0 으로 바꾸면 화면에 '0.0위' 가 찍힙니다.
     avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
     listPrice: null as number | null,
+    // 출간월은 아래 fillStoreInfo 가 도서 마스터에서 읽어 채웁니다
+    pubYm: null as string | null,
     linked: [] as number[],
   }));
 

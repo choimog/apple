@@ -252,6 +252,8 @@ export type BookStoreInfo = {
   splits: Set<number>;
   /** 책번호 → 이 책에 묶여 있는 서점 번호들 */
   linked: Map<number, Set<number>>;
+  /** 책번호 → 출간월 'YYYY-MM' (2026-08-19 대표님 요청) */
+  pubYm: Map<number, string>;
 };
 
 /**
@@ -267,8 +269,29 @@ export async function storeInfoByBook(
   const prices = new Map<number, number>();
   const splits = new Set<number>();
   const linked = new Map<number, Set<number>>();
+  const pubYm = new Map<number, string>();
   const ids = [...new Set(bookIds.filter((n) => Number.isFinite(n)))];
-  if (!ids.length) return { prices, splits, linked };
+  if (!ids.length) return { prices, splits, linked, pubYm };
+
+  /*
+    출간월 — 2026-08-19 대표님 요청으로 목록에도 함께 보여줍니다.
+
+    🚨 **도서 마스터의 대표값을 그대로 읽습니다.** 서점 자료(store_books)
+       에서 다시 고르면 안 됩니다. 서점마다 배본일을 다르게 적어서
+       (인쇄일 / 출고일 / 판매일) 값이 갈리는데, 고르는 규칙이 두 벌이
+       되면 목록과 도서 상세에 **다른 달**이 찍힙니다.
+       대표값을 정하는 규칙은 crawler/run_match.py 의 pick_representative
+       한 곳에만 있습니다 (알라딘 → 예스24 → 교보).
+  */
+  for (let i = 0; i < ids.length; i += 300) {
+    const { data } = await db()
+      .from("books")
+      .select("id, pub_ym")
+      .in("id", ids.slice(i, i + 300));
+    for (const r of (data ?? []) as { id: number; pub_ym: string | null }[]) {
+      if (r.pub_ym) pubYm.set(r.id, r.pub_ym);
+    }
+  }
 
   // ⚠️ .in() 목록이 길면 주소가 너무 길어져 요청 자체가 실패합니다.
   //    (2026-08-10 에 겪은 것과 같은 문제라 300개씩 나눕니다)
@@ -304,7 +327,7 @@ export async function storeInfoByBook(
     //     구분이 안 되면 대표님이 또 물어보셔야 합니다)
     if (m.size > 1) splits.add(bookId);
   }
-  return { prices, splits, linked };
+  return { prices, splits, linked, pubYm };
 }
 
 /**
@@ -355,15 +378,17 @@ export async function fillStoreInfo(
     listPrice: number | null;
     priceSplit?: boolean;
     linked?: number[];
+    pubYm?: string | null;
   }[]
 ) {
   if (!rows.length) return;
-  const { prices, splits, linked } = await storeInfoByBook(
+  const { prices, splits, linked, pubYm } = await storeInfoByBook(
     rows.map((r) => r.bookId)
   );
   for (const r of rows) {
     r.listPrice = prices.get(r.bookId) ?? null;
     r.priceSplit = splits.has(r.bookId);
+    r.pubYm = pubYm.get(r.bookId) ?? null;
     // ⚠️ 못 읽었으면 **빈 배열이 아니라** 그대로 둡니다.
     //    빈 배열은 "어느 서점에도 안 묶임" 이라는 뜻이 되어 버립니다.
     //    모르는 것을 아는 척하면 안 됩니다.
@@ -542,6 +567,15 @@ export type CombinedRow = {
    * 하고 넘어가게 됩니다. 둘은 뜻이 다릅니다.
    */
   priceSplit?: boolean;
+  /**
+   * 출간월 'YYYY-MM'. 모르면 null 입니다 (2026-08-19 대표님 요청).
+   *
+   * ⚠️ 서점마다 배본일을 다르게 적어서(인쇄일/출고일/판매일) 값이 갈립니다.
+   *    그래서 **도서 마스터가 정해 둔 대표값**(books.pub_ym)을 그대로
+   *    씁니다 — 알라딘 → 예스24 → 교보 순으로 고른 값입니다.
+   *    여기서 다시 고르면 표지·도서 상세와 다른 달이 찍힙니다.
+   */
+  pubYm: string | null;
   /** 서점별 판매지수. 교보는 제공하지 않아 항상 없습니다 */
   sales: Record<number, number>;
   /** 등장한 서점 수 */
@@ -638,6 +672,7 @@ export async function getCombinedBest(
       storeCount: r.store_count,
       avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
       listPrice: null as number | null,
+      pubYm: null as string | null,
       linked: [] as number[],
     }));
     await fillStoreInfo(rows);
@@ -677,7 +712,7 @@ export async function getCombinedBest(
   // 정가는 맨 마지막에 한 번에 채우므로(fillPrices) 모으는 동안에는 없습니다
   type Acc = Omit<
     CombinedRow,
-    "storeCount" | "avgRank" | "avgSales" | "listPrice"
+    "storeCount" | "avgRank" | "avgSales" | "listPrice" | "pubYm"
   >;
   const acc = new Map<number, Acc>();
 
@@ -716,6 +751,7 @@ export async function getCombinedBest(
     rows.push({
       ...a,
       storeCount: rankList.length,
+      pubYm: null,
       avgRank: rankList.reduce((x, y) => x + y, 0) / rankList.length,
       listPrice: null,
       linked: [],
@@ -1233,6 +1269,7 @@ export async function getBooksOf(
     storeCount: r.store_count,
     avgRank: r.avg_rank === null ? null : Number(r.avg_rank),
     listPrice: null as number | null,
+    pubYm: null as string | null,
     linked: [] as number[],
   }));
   await fillStoreInfo(rows);

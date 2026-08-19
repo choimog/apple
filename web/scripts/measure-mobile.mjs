@@ -74,6 +74,7 @@ const CASES = {
     <a href="#" class="text-[15px] font-semibold leading-snug">${LONG_TITLE}</a>
     <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-soft">
       <a href="#">세이노</a><span class="text-ink-faint">·</span><a href="#">한국교육방송공사(EBSi)</a>
+      <span class="text-ink-faint">·</span><span class="tnum">2026-08</span>
       <span class="tnum">16,800원</span><span class="text-ink-faint">·</span><span>3개 서점</span></p>
   </div>
   <div class="shrink-0 pt-0.5"><button class="rounded-lg border border-line px-2 py-1 text-xs text-ink-faint">빼기</button></div>
@@ -163,7 +164,7 @@ const CASES = {
   <div class="cover-fallback shrink-0 rounded border border-line h-12 w-8"></div>
   <div class="min-w-0 flex-1">
     <a class="block truncate text-sm font-semibold">${LONG_TITLE}</a>
-    <p class="truncate text-xs text-ink-soft">세이노 · 한국교육방송공사(EBSi) · 16,800원</p></div>
+    <p class="truncate text-xs text-ink-soft">세이노 · 한국교육방송공사(EBSi) · 2026-08 · 16,800원</p></div>
   <div class="hidden shrink-0 sm:block"><span class="flex gap-1">
     <span class="inline-flex items-center gap-1 rounded-md font-medium px-1.5 py-0.5 text-2xs bg-kyobo/10 text-kyobo ring-1 ring-kyobo/25">교보<span class="tnum font-bold">137</span></span>
     <span class="inline-flex items-center gap-1 rounded-md font-medium px-1.5 py-0.5 text-2xs bg-yes24/10 text-yes24 ring-1 ring-yes24/25">예스<span class="tnum font-bold">8</span></span>

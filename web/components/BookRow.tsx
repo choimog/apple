@@ -106,6 +106,17 @@ export default function BookRow({
               </Link>
             </>
           )}
+          {/*
+            출간월 — 2026-08-19 대표님 요청.
+            검색·도서 상세와 **같은 자리**(출판사 다음)에 둡니다.
+            모르면 아무것도 안 적습니다. 없는 달을 지어내지 않습니다.
+          */}
+          {row.pubYm && (
+            <>
+              <span className="text-ink-faint">·</span>
+              <span className="tnum">{row.pubYm}</span>
+            </>
+          )}
           <Price value={row.listPrice} split={row.priceSplit} />
           <span className="text-ink-faint">·</span>
           <span>{row.storeCount}개 서점</span>

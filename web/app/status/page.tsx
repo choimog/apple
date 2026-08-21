@@ -1,7 +1,7 @@
 import Link from "next/link";
 import DataError from "@/components/DataError";
 import { Card, CardHead, Empty, StatTile } from "@/components/ui";
-import { configError } from "@/lib/supabase";
+import { configError, currentRole } from "@/lib/supabase";
 import { getArchivedRange, getSnapshotDates } from "@/lib/queries";
 import { getCrawlDetail, getCrawlSummary } from "@/lib/queries-extra";
 import { store, STORE_ORDER } from "@/lib/stores";
@@ -10,6 +10,22 @@ import { dayLabel, duration, kstTime, num } from "@/lib/format";
 export const metadata = { title: "수집 상태" };
 
 /**
+ * 수집 상태 — 관리자 전용 (2026-08-19 대표님 요청).
+ *
+ *   "수집 상태 영역도 관리자만 볼 수 있도록 바꿔줄 수 있어?"
+ *
+ * 🚨 【이 화면을 막는 것만으로는 '잠근 척' 입니다】
+ * 이 화면이 읽는 자료(crawl_logs · archives)는 공개용 열쇠로 데이터베이스에
+ * **직접** 물어볼 수 있습니다. 그 열쇠는 브라우저 안에 그대로 들어 있어서
+ * 감출 수 있는 값이 아닙니다.
+ * 그래서 문을 두 개 잠급니다.
+ *
+ *   문 1  이 화면          ← 여기 (사람이 읽을 안내를 위해)
+ *   문 2  데이터베이스      db/auth.sql 의 "관리자만 읽기"
+ *
+ * 문 2 를 아직 실행 안 하셨으면, 이 화면은 막혀도 자료는 열려 있습니다.
+ * (매칭 검토·저장 용량 화면도 같은 방식입니다)
+ *
  * 【2026-08-09 회원 전용으로 바꾸면서 화면 저장(캐시)을 뺐습니다】
  * 예전에는 화면을 잠깐 저장해 두고 여러 사람에게 그대로 보여줬습니다.
  * 이제는 접속마다 그 사람이 회원인지 확인해야 하므로 저장할 수 없습니다.
@@ -31,6 +47,21 @@ export default async function StatusPage({
       </div>
     );
   }
+  if ((await currentRole()) !== "admin") {
+    return (
+      <Card className="p-6">
+        <p className="text-sm font-semibold">수집 상태</p>
+        <p className="mt-2 text-sm text-ink-soft">
+          이 화면은 관리자만 볼 수 있습니다. 순위를 보시는 데에는 지장이
+          없습니다.
+        </p>
+        <p className="mt-1 text-sm text-ink-faint">
+          자료가 며칠째 안 들어오고 있으면 화면 위쪽에 띠로 알려 드립니다.
+        </p>
+      </Card>
+    );
+  }
+
   const params = await searchParams;
 
   let dates, archived, summary;

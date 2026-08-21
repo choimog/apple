@@ -98,9 +98,13 @@ psqlq "$DATA/fake-supabase.sql" | grep -v NOTICE | grep -i error && {
   echo "❌ 흉내 내기 실패"; exit 1; }
 
 cp "$ROOT/db/schema.sql" "$ROOT/db/rls.sql" "$ROOT/db/auth.sql" \
-   "$ROOT/db/share.sql" "$ROOT/db/share-open.sql" "$DATA/"
+   "$ROOT/db/share.sql" "$ROOT/db/share-open.sql" \
+   "$ROOT/db/archive_schema.sql" "$ROOT/db/perf.sql" "$DATA/"
 chmod 644 "$DATA"/*.sql
 psqlq "$DATA/schema.sql" >/dev/null
+# archives 는 별도 파일에 있습니다. 이게 없으면 auth.sql 이 그 표를
+# '없으니 건너뜀' 으로 넘어가서, 잠갔는지 시험할 수가 없습니다.
+psqlq "$DATA/archive_schema.sql" >/dev/null
 psqlq "$DATA/rls.sql"    >/dev/null
 
 # ---- 사람 둘: 관리자 / 보기 전용 ----
@@ -126,6 +130,15 @@ INSERT INTO rankings(snapshot_date, category_id, rank, store_book_id, sales_poin
 VALUES ('2026-08-09', 10, 1, 1, 100),
        ('2026-08-09', 10, 2, 2, 90),
        ('2026-08-09', 20, 1, 2, 80);
+
+-- 수집 기록·보관 기록 (2026-08-19 부터 관리자만 볼 수 있어야 합니다)
+INSERT INTO crawl_logs(store_id, category_id, snapshot_date, status,
+                       items_collected, error_message)
+VALUES (1, 10, '2026-08-09', 'success', 100, NULL),
+       (1, 20, '2026-08-09', 'failed',    0, 'ParseError: 화면이 바뀜');
+INSERT INTO archives(snapshot_date, table_name, object_key, row_count,
+                     byte_size, sha256, deleted_from_db)
+VALUES ('2026-07-01', 'rankings', 'r/2026-07-01.jsonl.gz', 1000, 12345, 'abc', true);
 SQL
 chmod 644 "$DATA/people.sql"
 psqlq "$DATA/people.sql" >/dev/null
@@ -134,6 +147,9 @@ psqlq "$DATA/people.sql" >/dev/null
 sed -i "s/hssh8159@gmail.com/boss@example.com/" "$DATA/auth.sql"
 psqlq "$DATA/auth.sql" > "$DATA/authout.txt"
 psqlq "$DATA/share.sql" > "$DATA/shareout.txt"
+# 화면이 쓰는 계산 함수들. crawl_summary() 가 회원에게 정말 아무것도
+# 안 돌려주는지 보려면 이게 있어야 합니다.
+psqlq "$DATA/perf.sql" > "$DATA/perfout.txt"
 
 FAILED=0
 check() {   # check "이름" "기대" "실제"
@@ -211,7 +227,54 @@ check "남의 계정 정보를 못 본다" "0" \
   "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM profiles WHERE id<>'$FRIEND';")"
 
 echo ""
+echo "[3-1] 🚨 수집 상태는 관리자만 (2026-08-19 대표님 요청)"
+#
+#   "수집 상태 영역도 관리자만 볼 수 있도록 바꿔줄 수 있어?"
+#
+# 화면만 막으면 **잠근 척**입니다. 공개용 열쇠는 브라우저 안에 그대로
+# 들어 있어서, 사이트를 안 거치고 데이터베이스에 직접 물어볼 수 있습니다.
+# 그래서 '회원인 척하고 직접 물어보기' 로 시험합니다.
+check "회원은 수집 기록(crawl_logs)을 못 읽는다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM crawl_logs;")"
+check "회원은 실패 이유도 못 본다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM crawl_logs WHERE error_message IS NOT NULL;")"
+check "회원은 보관 기록(archives)을 못 읽는다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM archives;")"
+check "로그인 안 한 사람도 못 읽는다" "0" \
+  "$(ask "SET ROLE anon; SELECT count(*) FROM crawl_logs;")"
+
+# 화면은 표를 직접 읽지 않고 crawl_summary() 를 부릅니다.
+# 그 함수가 SECURITY INVOKER 라서 '부른 사람의 권한' 으로 읽습니다 —
+# 정말 그런지 확인합니다. 여기가 새면 표를 잠근 의미가 없습니다.
+check "🚨 회원이 crawl_summary() 를 불러도 빈 결과" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM crawl_summary(14);")"
+
+echo ""
+echo "[3-2] 🚨 예전 규칙이 남아 있으면 잠근 척이 됩니다"
+#
+# 보안 규칙은 여러 개면 **하나라도 통과하면 보입니다.**
+# 이 표들은 예전에 "회원만 읽기 USING (true)" 를 달고 있었습니다.
+# 새 규칙만 만들고 그걸 안 지우면 회원은 그대로 다 봅니다.
+# auth.sql 이 실제로 지우는지, 옛 상태를 만들어 놓고 확인합니다.
+run "psql -h $SOCK -p $PORT -U postgres -q -c \
+  \"CREATE POLICY \\\"회원만 읽기\\\" ON crawl_logs FOR SELECT TO authenticated USING (true);\"" >/dev/null 2>&1
+check "옛 규칙을 되살리면 회원에게 보인다 (시험이 진짜 도는지 확인)" "2" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM crawl_logs;")"
+psqlq "$DATA/auth.sql" > "$DATA/authout2.txt"
+check "🚨 auth.sql 을 다시 실행하면 옛 규칙이 지워진다" "0" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$FRIEND'; SELECT count(*) FROM crawl_logs;")"
+check "다시 실행해도 확인표에 ❌ 가 없다" "0" "$(grep -c '❌' "$DATA/authout2.txt")"
+
+echo ""
 echo "[4] 관리자 (대표님)"
+check "관리자는 수집 기록을 읽을 수 있다" "2" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$BOSS'; SELECT count(*) FROM crawl_logs;")"
+check "관리자는 보관 기록을 읽을 수 있다" "1" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$BOSS'; SELECT count(*) FROM archives;")"
+check "관리자는 crawl_summary() 로 요약을 본다" "1" \
+  "$(ask "SET ROLE authenticated; SET request.jwt.claim.sub='$BOSS'; SELECT count(*) FROM crawl_summary(14);")"
+check "관리자도 수집 기록을 고치지는 못한다" "blocked" \
+  "$(try "$BOSS" "UPDATE crawl_logs SET status='success' WHERE status='failed';")"
 check "판단을 고칠 수 있다" "ok" \
   "$(try "$BOSS" "UPDATE book_matches SET decision='manual_merge', decided_by='$BOSS' WHERE id=1;")"
 check "실제로 저장됐다" "manual_merge" "$(ask "SELECT decision FROM book_matches WHERE id=1;")"

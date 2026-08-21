@@ -1263,18 +1263,25 @@ export async function getBookDetail(bookId: number): Promise<{
   return { stores, history, placements, latestDate, categoryChoices };
 }
 
-/** 최근 수집이 잘 됐는지 (화면 상단에 정직하게 표시하기 위함) */
-export async function getRecentCrawlStatus(limit = 12) {
-  const { data } = await db()
-    .from("crawl_logs")
-    .select("snapshot_date,store_id,status,items_collected,error_message")
-    .order("id", { ascending: false })
-    .limit(limit);
-  return data ?? [];
-}
+/*
+  【없앴습니다 — 2026-08-19】
+  여기 getRecentCrawlStatus() 라는 함수가 있었습니다. crawl_logs 를 읽는
+  함수인데 **어느 화면도 부르지 않고 있었습니다.**
+
+  그냥 두면 안 되는 이유가 생겼습니다. 이날부터 crawl_logs 는 관리자만
+  읽을 수 있습니다(db/auth.sql). 나중에 누군가 이 함수를 회원용 화면에
+  가져다 쓰면 **오류 없이 빈 목록**이 돌아옵니다. 화면은 멀쩡한데
+  아무것도 안 나오는, 이 프로젝트에서 가장 위험한 종류의 고장입니다.
+
+  수집 기록이 필요하면 lib/queries-extra.ts 의 getCrawlSummary() /
+  getCrawlDetail() 을 쓰시고, 그 화면은 반드시 관리자만 열게 하세요.
+*/
 
 /**
  * 보관소로 옮겨진 날짜 범위.
+ *
+ * ⚠️ archives 표는 2026-08-19 부터 **관리자만** 읽을 수 있습니다.
+ *    회원이 부르면 오류 없이 null 이 나옵니다 — 관리자 화면에서만 쓰세요.
  *
  * 【왜 필요한가요?】
  * 오래된 순위 기록은 Supabase 용량 때문에 Cloudflare R2 로 옮깁니다.

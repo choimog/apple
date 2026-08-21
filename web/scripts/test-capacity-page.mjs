@@ -87,8 +87,17 @@ check("읽기만 열어 준다", /GRANT SELECT ON capacity_log TO authenticated/
 
 console.log("\n[5] 관리자 메뉴에 있는가");
 check("메뉴에 [저장 용량] 이 있다", /href: "\/capacity", label: "저장 용량"/.test(nav));
-check("관리 묶음에 들어 있다",
-  /ADMIN_GROUP[\s\S]{0,220}\/capacity/.test(nav),
+/*
+  ⚠️ 예전에는 'ADMIN_GROUP 에서 220글자 안에 /capacity 가 있는가' 로
+     봤습니다. 그런데 그 묶음에 설명 한 줄만 붙어도 글자 수가 밀려서
+     **멀쩡한데 빨간불**이 났습니다 (2026-08-19, 수집 상태를 이리로
+     옮기면서 실제로 겪음). 글자 수 대신 **그 묶음 안에 있는가** 를 봅니다.
+*/
+const adminBlock = nav.slice(
+  nav.indexOf("const ADMIN_GROUP"),
+  nav.indexOf("\n};", nav.indexOf("const ADMIN_GROUP"))
+);
+check("관리 묶음에 들어 있다", adminBlock.includes('"/capacity"'),
   "일반 묶음에 넣으면 방문자 메뉴에 뜹니다");
 
 console.log("\n[6] 아직 준비 안 됐을 때 안내하는가");

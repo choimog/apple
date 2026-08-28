@@ -165,7 +165,55 @@ check("물어본 것이 robots.txt 다", client.calls[0].endswith("/robots.txt")
 
 
 # ---------------------------------------------------------------------------
-print("\n[5] 🚨 우회하는 길을 만들어 두지 않았다")
+print("\n[5] 🚨 연달아 막히면 그 서점은 그만 두드린다")
+"""
+robots.txt 는 열어 주는데 **목록 페이지만** 막는 경우가 있습니다.
+그러면 위 [1] 의 장치로는 못 막습니다 — robots 는 통과했으니까요.
+그때 61개 분야를 끝까지 두드리면 8/28 과 똑같은 일이 벌어집니다.
+"""
+from run_daily import BlockStreak  # noqa: E402
+
+
+def attempted(outcomes: list[bool], limit: int = 3) -> int:
+    """실제 루프와 **같은 부품**으로, 요청을 실제로 보낸 분야 수를 셉니다."""
+    s = BlockStreak(limit=limit)
+    n = 0
+    for ok in outcomes:
+        if s.stopped:
+            continue          # 요청을 안 보냅니다
+        n += 1
+        s.ok() if ok else s.blocked()
+    return n
+
+
+check(
+    "전부 막히면 3개까지만 두드린다 (61개 → 3개)",
+    attempted([False] * 61) == 3,
+    attempted([False] * 61),
+)
+check(
+    "🚨 한 번 실패는 나머지를 포기하지 않는다",
+    attempted([True, False, True, False, True]) == 5,
+    attempted([True, False, True, False, True]),
+)
+check(
+    "두 번 연달아까지는 계속한다 (일시적일 수 있음)",
+    attempted([False, False, True, False, False, True]) == 6,
+    attempted([False, False, True, False, False, True]),
+)
+check(
+    "중간에 되면 셈이 0 으로 돌아간다",
+    attempted([False, False, True, False, False, False, False, False]) == 6,
+    attempted([False, False, True, False, False, False, False, False]),
+)
+check("전부 되면 전부 두드린다", attempted([True] * 10) == 10)
+
+s = BlockStreak(limit=3)
+check("한도에 '막 닿는' 순간에만 알린다", [s.blocked() for _ in range(5)][:4]
+      == [False, False, True, False])
+
+
+print("\n[6] 🚨 우회하는 길을 만들어 두지 않았다")
 """
 대표님 지시: "robots.txt 를 먼저 확인하고, 허용 범위 안에서만 수집…
 금지된 경로가 있으면 임의로 우회하지 말고 나에게 보고해줘."

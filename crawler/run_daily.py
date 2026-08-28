@@ -71,6 +71,42 @@ BROWSER_STORES = {"kyobo"}
 ROBOTS_REFUSED = (401, 403)
 
 
+class BlockStreak:
+    """
+    한 서점에서 **연달아** 막힌 횟수를 셉니다.
+
+    🚨 【2026-08-28 알라딘 차단 때 만들었습니다】
+      그날 61개 분야를 전부 두드렸습니다. 하나하나 재시도까지 하면서요.
+      요청 300번이 전부 거절당했습니다.
+
+      첫 세 개가 연달아 막히면 넷째가 열릴 이유가 없습니다. 이미 거절한
+      상대에게 계속 보내는 것은 예의가 아니고, **잠깐 막은 것을 오래
+      막는 것으로 만듭니다.**
+
+    ⚠️ '연달아' 인 것이 중요합니다. 한 분야가 잠깐 실패하는 것은 늘 있는
+       일이고, 그때 나머지를 포기하면 멀쩡한 자료를 통째로 버리게 됩니다.
+       그래서 하나라도 성공하면 셈이 0 으로 돌아갑니다.
+    """
+
+    def __init__(self, limit: int = 3) -> None:
+        self.limit = limit
+        self.streak = 0
+
+    def blocked(self) -> bool:
+        """막혔다고 기록합니다. 이번에 한도에 '막 닿았으면' True."""
+        self.streak += 1
+        return self.streak == self.limit
+
+    def ok(self) -> None:
+        """하나라도 됐으면 처음부터 다시 셉니다."""
+        self.streak = 0
+
+    @property
+    def stopped(self) -> bool:
+        """이 서점은 그만 두드려야 하는가."""
+        return self.streak >= self.limit
+
+
 def robots_allows(
     origin_url: str, target_url: str, ua: str, store_code: str
 ) -> tuple[bool, str]:
@@ -692,7 +728,28 @@ def main() -> int:
             )
 
         with fetcher as http:
+            # 연달아 막히면 그 서점은 그만 두드립니다 (규칙은 BlockStreak 참고)
+            streak = BlockStreak(limit=3)
+
             for task in store_tasks:
+                # 이미 멈추기로 했으면 요청을 아예 안 보냅니다.
+                # 그래도 **조용히 건너뛰지는 않습니다** — 기록에 남깁니다.
+                if streak.stopped:
+                    results.append((task.label(), "blocked", 0))
+                    if not dry_run:
+                        db.write_log(client, {
+                            "run_id": run_id, "store_id": task.store_id,
+                            "category_id": cat_id_by_task.get(id(task)),
+                            "snapshot_date": snapshot_date.isoformat(),
+                            "finished_at": now_iso(),
+                            "status": "failed", "items_collected": 0,
+                            "error_message":
+                                f"앞의 {streak.limit}개 분야가 연달아 막혀 "
+                                "이 서점 수집을 멈췄습니다. 임의로 우회하지 않습니다.",
+                            "http_stats": http.stats.to_json(),
+                        })
+                    continue
+
                 try:
                     status, n = process_task(
                         client, http, task, parser, selectors,
@@ -700,8 +757,14 @@ def main() -> int:
                         bool(defaults.get("save_book_meta", True)),
                     )
                     results.append((task.label(), status, n))
+                    streak.ok()
                 except BlockedError as exc:
                     print(f"  🚨 차단 의심: {exc}")
+                    if streak.blocked():
+                        print(f"\n🚫 {store_code}: {streak.limit}개 분야가 연달아 "
+                              "막혔습니다. 이 서점은 여기서 멈춥니다.")
+                        print("   (남은 분야도 막혔을 것이 뻔합니다. "
+                              "계속 두드리면 더 오래 막힙니다)")
                     results.append((task.label(), "blocked", 0))
                     if not dry_run:
                         db.write_log(client, {

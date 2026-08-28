@@ -66,31 +66,79 @@ PARSERS = {
 BROWSER_STORES = {"kyobo"}
 
 
-def robots_allows(origin_url: str, target_url: str, ua: str, store_code: str) -> bool:
+# robots.txt 를 달라고 했는데 이 코드가 오면 '규칙이 없다' 가 아니라
+# **'너는 안 된다'** 는 뜻입니다. 아래 robots_allows 설명을 보세요.
+ROBOTS_REFUSED = (401, 403)
+
+
+def robots_allows(
+    origin_url: str, target_url: str, ua: str, store_code: str
+) -> tuple[bool, str]:
     """
     수집 전에 robots.txt 를 다시 확인합니다. (규칙이 언제든 바뀔 수 있으므로)
     금지면 False 를 돌려주고, 임의로 우회하지 않습니다.
     확인 자체가 실패하면 수집은 계속합니다(확인 실패 = 금지 아님).
+
+    돌려주는 값: (수집해도 되는가, 사람이 읽을 이유)
+
+    🚨 【2026-08-19 알라딘 차단 때 드러난 구멍 — 2026-08-28 고침】
+      그날 알라딘은 **robots.txt 까지 HTTP 403** 으로 거절했습니다.
+      그런데 예전 코드는 이렇게 읽었습니다.
+
+          ✅ aladin: robots.txt 없음(HTTP 403) → 제한 없음
+
+      그러고는 61개 분야를 **전부 두드렸습니다.** 하나하나 재시도까지
+      하면서요. 이미 문 앞에서 거절당한 뒤에 말입니다.
+
+      403 은 '규칙 파일이 없다' 가 아닙니다. **'당신은 이 서버에 접근할
+      수 없다'** 입니다. 둘은 뜻이 정반대입니다.
+        · 404 → 규칙을 안 만들어 둔 것 → 제한 없음 (계속해도 됨)
+        · 403 → 우리를 막고 있는 것    → 즉시 멈추고 보고
+
+      그래서 나쁜 점이 둘이었습니다.
+        ① 예의  이미 거절한 상대에게 수백 번을 더 보냈습니다.
+                이러면 잠깐 막은 것이 오래 막는 것으로 바뀝니다.
+        ② 정직  화면에는 '61개 분야 실패' 로 뜹니다. 진짜 원인은
+                하나('문 앞에서 막힘')인데 61개 문제처럼 보입니다.
+
+      ⚠️ 여기서 **우회하지 않습니다.** 이름표를 브라우저인 척 바꾸거나,
+         다른 통로(프록시)로 도는 방법이 기술적으로는 있습니다.
+         대표님이 "임의로 우회하지 말고 나에게 보고해줘" 라고 하셨고,
+         실무적으로도 나쁜 선택입니다 — 걸리면 더 세게, 더 오래 막힙니다.
+         우리가 할 일은 **멈추고 알리는 것**까지입니다.
     """
     try:
         with PoliteClient(user_agent=ua, delay_min=1.0, delay_max=1.5) as c:
-            r = c.get(f"{origin_url}/robots.txt", allow_status=(403, 404),
+            r = c.get(f"{origin_url}/robots.txt",
+                      allow_status=(401, 403, 404),
                       check_block_markers=False, min_body_len=1)
+
+        if r.status_code in ROBOTS_REFUSED:
+            why = (
+                f"robots.txt 조차 HTTP {r.status_code} 로 거절당했습니다. "
+                "특정 경로가 아니라 서점이 우리 접속 자체를 막고 있는 것으로 "
+                "보입니다."
+            )
+            print(f"\n🚫 {store_code}: {why}")
+            print("   이 서점 수집을 건너뜁니다. 임의로 우회하지 않습니다.")
+            print("   (며칠 지나도 같으면 서점에 문의해야 합니다 — HANDOVER 증상 1-2)")
+            return False, why
+
         if r.status_code != 200:
             print(f"\n✅ {store_code}: robots.txt 없음(HTTP {r.status_code}) → 제한 없음")
-            return True
+            return True, ""
 
         rules = parse_robots(r.text)
         allowed, why = rules.is_allowed(target_url, ua)
         if not allowed:
             print(f"\n🚫 {store_code}: robots.txt 가 수집을 금지합니다 — {why}")
             print("   수집을 중단합니다. 임의로 우회하지 않습니다.")
-            return False
+            return False, f"robots.txt 가 이 경로 수집을 허용하지 않습니다 ({why})."
         print(f"\n✅ {store_code} robots.txt 확인: {why}")
-        return True
+        return True, ""
     except Exception as exc:  # noqa: BLE001
         print(f"\n⚠️ {store_code} robots.txt 확인 실패(수집은 계속): {exc}")
-        return True
+        return True, ""
 
 
 def kst_today():
@@ -600,7 +648,10 @@ def main() -> int:
                 print(f"  ⚠️ 분야 정리 실패(수집에는 영향 없음): {exc}")
 
         # ---- robots.txt 재확인 (수집 방식과 무관하게 항상 보통 요청으로) ----
-        if not robots_allows(origin_url, store_tasks[0].url_for(1), ua, store_code):
+        ok_robots, why_not = robots_allows(
+            origin_url, store_tasks[0].url_for(1), ua, store_code
+        )
+        if not ok_robots:
             for t in store_tasks:
                 results.append((t.label(), "blocked_by_robots", 0))
                 if not dry_run:
@@ -610,9 +661,10 @@ def main() -> int:
                         "snapshot_date": snapshot_date.isoformat(),
                         "finished_at": now_iso(),
                         "status": "failed", "items_collected": 0,
+                        # ⚠️ 막힌 이유를 그대로 남깁니다. '금지된 경로' 와
+                        #    '접속 자체가 막힘' 은 하실 일이 다릅니다.
                         "error_message":
-                            "robots.txt 가 이 경로 수집을 허용하지 않습니다. "
-                            "임의로 우회하지 않고 건너뛰었습니다.",
+                            f"{why_not} 임의로 우회하지 않고 건너뛰었습니다.",
                     })
             continue
 

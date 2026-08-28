@@ -71,8 +71,9 @@ class FakeResponse:
 class FakeClient:
     """PoliteClient 인 척하되, 정해진 응답만 돌려줍니다."""
 
-    def __init__(self, response: FakeResponse) -> None:
-        self._response = response
+    def __init__(self, responses: list[FakeResponse]) -> None:
+        # 마지막 응답은 계속 되풀이합니다 (되물어도 같은 답)
+        self._responses = responses
         self.calls: list[str] = []
 
     def __enter__(self):
@@ -83,19 +84,27 @@ class FakeClient:
 
     def get(self, url, **kwargs):
         self.calls.append(url)
-        return self._response
+        i = min(len(self.calls) - 1, len(self._responses) - 1)
+        return self._responses[i]
 
 
-def ask(status: int, body: str = "") -> tuple[bool, str, FakeClient]:
-    """robots.txt 가 이렇게 응답할 때 수집을 계속할지 물어봅니다."""
+def ask(status: int, body: str = "", *, then: list[tuple[int, str]] = ()) -> tuple:
+    """
+    robots.txt 가 이렇게 응답할 때 수집을 계속할지 물어봅니다.
+
+    then: 되물었을 때의 응답들. 안 주면 계속 같은 답을 합니다.
+    """
     made: dict[str, FakeClient] = {}
+    responses = [FakeResponse(status, body)] + [FakeResponse(s, b) for s, b in then]
 
     def fake_polite_client(**kwargs):
-        made["c"] = FakeClient(FakeResponse(status, body))
+        made["c"] = FakeClient(responses)
         return made["c"]
 
-    original = run_daily.PoliteClient
+    original_client = run_daily.PoliteClient
+    original_sleep = run_daily.time.sleep
     run_daily.PoliteClient = fake_polite_client
+    run_daily.time.sleep = lambda _s: None   # 시험이 15초를 기다릴 이유가 없습니다
     try:
         allowed, why = run_daily.robots_allows(
             "https://example.test",
@@ -104,7 +113,8 @@ def ask(status: int, body: str = "") -> tuple[bool, str, FakeClient]:
             "example",
         )
     finally:
-        run_daily.PoliteClient = original
+        run_daily.PoliteClient = original_client
+        run_daily.time.sleep = original_sleep
     return allowed, why, made["c"]
 
 
@@ -152,16 +162,49 @@ check("남에게 건 금지를 우리 것으로 읽지 않는다", allowed is Tr
 
 
 # ---------------------------------------------------------------------------
+print("\n[3-1] 🚨 몇 초짜리 깜빡임에 하루치를 날리지 않는다")
+"""
+2026-08-28 알라딘은 **몇 시간 만에 저절로 풀렸습니다.** 일시적이었습니다.
+
+그러면 이런 위험이 생깁니다 — robots.txt 를 가져오는 그 순간에 하필
+걸리면, 그날 그 서점 자료를 통째로 못 받습니다. 예전 코드였다면
+멀쩡히 받았을 자료를요. **고치려다 새 고장을 만드는 셈입니다.**
+
+그래서 한 번으로 단정하지 않고 되물어봅니다.
+"""
+allowed, _, client = ask(403, then=[(200, ALLOW_ALL := "User-agent: *\nAllow: /\n")])
+check("첫 번에 403 이어도 두 번째에 열리면 수집한다", allowed is True, allowed)
+check("되물어봤다 (2번)", len(client.calls) == 2, client.calls)
+
+allowed, _, client = ask(403, then=[(403, ""), (200, ALLOW_ALL)])
+check("세 번째에 열려도 수집한다", allowed is True, allowed)
+
+allowed, _, client = ask(403)   # 계속 403
+check("세 번 다 거절이면 그때 멈춘다", allowed is False, allowed)
+check("세 번까지만 되묻는다", len(client.calls) == 3, client.calls)
+
+# ⚠️ 평소에는 되묻기가 아예 없어야 합니다. 서점에 보내는 요청이 늘면 안 됩니다.
+_, _, client = ask(200, ALLOW_ALL)
+check("🚨 정상일 때는 되묻지 않는다 (요청이 안 늘어난다)", len(client.calls) == 1, client.calls)
+_, _, client = ask(404)
+check("404 일 때도 되묻지 않는다", len(client.calls) == 1, client.calls)
+
+
+# ---------------------------------------------------------------------------
 print("\n[4] 🚨 막힌 서점에 요청을 더 보내지 않는다")
 # 이게 이 시험의 핵심입니다. 예전에는 여기서 61개 분야를 더 두드렸습니다.
 
 _, _, client = ask(403)
 check(
-    "robots.txt 한 번만 물어보고 끝낸다",
-    len(client.calls) == 1,
+    "막혔다고 결론 내기까지 robots.txt 만 물어본다",
+    all(u.endswith("/robots.txt") for u in client.calls),
     client.calls,
 )
-check("물어본 것이 robots.txt 다", client.calls[0].endswith("/robots.txt"), client.calls)
+check(
+    "목록 페이지는 한 번도 안 두드린다",
+    not any("best" in u for u in client.calls),
+    client.calls,
+)
 
 
 # ---------------------------------------------------------------------------

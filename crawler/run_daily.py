@@ -70,6 +70,12 @@ BROWSER_STORES = {"kyobo"}
 # **'너는 안 된다'** 는 뜻입니다. 아래 robots_allows 설명을 보세요.
 ROBOTS_REFUSED = (401, 403)
 
+# 거절당했을 때 **몇 번까지 되물어보는지.**
+# 한 번으로 단정하면, 몇 초짜리 깜빡임에 그날 그 서점 자료를 통째로
+# 날립니다 (2026-08-28 알라딘이 실제로 몇 시간 만에 저절로 풀렸습니다).
+ROBOTS_REFUSED_TRIES = 3
+ROBOTS_REFUSED_WAIT_SEC = 5
+
 
 class BlockStreak:
     """
@@ -149,11 +155,38 @@ def robots_allows(
                       allow_status=(401, 403, 404),
                       check_block_markers=False, min_body_len=1)
 
+            """
+            🚨 【잠깐 막힌 것과 진짜 막힌 것을 구분합니다 — 2026-08-28 저녁】
+
+            아침에 이 장치를 넣을 때는 403 한 번이면 바로 그 서점을
+            건너뛰게 했습니다. 그런데 그날 저녁, 알라딘이 **저절로 풀렸습니다.**
+            몇 시간짜리 일시적인 거절이었던 것입니다.
+
+            그러면 이런 일이 생깁니다. robots.txt 를 가져오는 그 1초에
+            하필 걸리면, **그날 그 서점 자료를 통째로 못 받습니다.**
+            예전 코드였다면 멀쩡히 받았을 자료를요.
+            고치려다 새 고장을 만드는 셈입니다.
+
+            그래서 **한 번으로 단정하지 않습니다.** 몇 초 쉬고 다시
+            물어봅니다. 세 번 다 거절이면 그건 깜빡임이 아니라 벽입니다.
+            (거절이 아닐 때는 이 되묻기를 아예 안 합니다 — 평소에는
+             요청이 한 번도 안 늘어납니다)
+            """
+            tries = 1
+            while r.status_code in ROBOTS_REFUSED and tries < ROBOTS_REFUSED_TRIES:
+                time.sleep(ROBOTS_REFUSED_WAIT_SEC * tries)   # 5초 → 10초
+                tries += 1
+                print(f"   ↻ {store_code}: robots.txt 가 HTTP {r.status_code} 입니다. "
+                      f"잠깐 막힌 것일 수 있어 다시 물어봅니다 ({tries}/{ROBOTS_REFUSED_TRIES})")
+                r = c.get(f"{origin_url}/robots.txt",
+                          allow_status=(401, 403, 404),
+                          check_block_markers=False, min_body_len=1)
+
         if r.status_code in ROBOTS_REFUSED:
             why = (
-                f"robots.txt 조차 HTTP {r.status_code} 로 거절당했습니다. "
-                "특정 경로가 아니라 서점이 우리 접속 자체를 막고 있는 것으로 "
-                "보입니다."
+                f"robots.txt 조차 HTTP {r.status_code} 로 거절당했습니다"
+                f" ({ROBOTS_REFUSED_TRIES}번 다). 특정 경로가 아니라 서점이 "
+                "우리 접속 자체를 막고 있는 것으로 보입니다."
             )
             print(f"\n🚫 {store_code}: {why}")
             print("   이 서점 수집을 건너뜁니다. 임의로 우회하지 않습니다.")

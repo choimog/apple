@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
 import io
@@ -278,6 +279,127 @@ def pick_dates(client_db, keep_days: int, max_dates: int) -> list[date]:
     return todo[:max_dates]
 
 
+# =============================================================================
+#  사람이 읽을 수 있는 엑셀 파일도 같이 넣습니다 (2026-08-28 대표님 요청)
+# =============================================================================
+#  【왜 필요한가요?】
+#    "받은 파일을 활용할 수 있는 방법은 전혀 없는 건가?"
+#
+#  보관 파일(.jsonl.gz)에 들어가는 것은 이 다섯 가지뿐입니다.
+#      날짜 · 분야번호 · 순위 · 상품번호 · 판매지수
+#  제목도 저자도 없습니다. 메모장으로 열면 숫자만 보입니다.
+#
+#  🚨 그리고 더 큰 문제가 있습니다. **시간이 지나면 영영 못 읽습니다.**
+#     제목은 store_books 표에 있는데, 그 날짜의 순위가 보관소로 빠지고 나면
+#     [도서 목록 정리]가 그 상품 줄을 지웁니다(잠들었으므로).
+#     그러면 파일 속 '상품번호 52831' 이 무엇이었는지 알 방법이 사라집니다.
+#     데이터베이스를 뒤져도 없습니다.
+#
+#  그래서 **보관하는 그 순간에** 제목을 함께 적어 둡니다. 이때가 마지막
+#  기회입니다.
+#
+#  ⚠️ 원본(.jsonl.gz)은 한 글자도 안 바꿉니다. 그건 '되돌리기용 원본'이라
+#     칸이 하나라도 늘면 되돌리기가 깨집니다. 엑셀 파일은 **따로** 넣습니다.
+# =============================================================================
+
+CSV_BOM = "﻿"   # 이게 없으면 엑셀에서 한글이 깨집니다 (web/lib/csv.ts 와 같은 규칙)
+
+READABLE_HEADER = [
+    "날짜", "서점", "분야", "기간", "순위", "제목", "저자",
+    "출판사", "출간월", "정가", "판매지수", "ISBN",
+]
+
+PERIOD_LABEL = {"online": "일간", "weekly": "주간", "offline": "매장"}
+
+
+def _lookup(client_db, table: str, cols: str, ids: list[int]) -> dict[int, dict]:
+    """번호 목록으로 표를 읽어 {번호: 줄} 로 돌려줍니다 (300개씩 나눠서)."""
+    out: dict[int, dict] = {}
+    uniq = sorted({i for i in ids if i is not None})
+    for i in range(0, len(uniq), 300):
+        res = (
+            client_db.table(table).select(cols)
+            .in_("id", uniq[i:i + 300]).execute()
+        )
+        for r in res.data or []:
+            out[r["id"]] = r
+    return out
+
+
+def readable_csv(client_db, day: date, rows: list[dict]) -> str:
+    """
+    그날 순위표를 사람이 읽을 수 있는 표로 만듭니다.
+
+    ⚠️ 값이 없으면 **빈 칸으로 둡니다.** 지어내지 않습니다.
+       (교보는 판매지수를 아예 제공하지 않습니다 — 0 이 아니라 빈 칸입니다)
+    """
+    cats = _lookup(client_db, "categories",
+                   "id,name,kind,branch_name,store_id",
+                   [r.get("category_id") for r in rows])
+    books = _lookup(client_db, "store_books",
+                    "id,raw_title,raw_author,raw_publisher,pub_ym,list_price,isbn13",
+                    [r.get("store_book_id") for r in rows])
+
+    stores: dict[int, str] = {}
+    for s in (client_db.table("stores").select("id,name").execute().data or []):
+        stores[s["id"]] = s["name"]
+
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\r\n")
+    w.writerow(READABLE_HEADER)
+
+    # 서점 → 분야 → 순위 차례로. 엑셀에서 그대로 읽히도록.
+    def sort_key(r: dict):
+        c = cats.get(r.get("category_id")) or {}
+        return (c.get("store_id") or 0, c.get("name") or "", r.get("rank") or 0)
+
+    for r in sorted(rows, key=sort_key):
+        c = cats.get(r.get("category_id")) or {}
+        b = books.get(r.get("store_book_id")) or {}
+        name = c.get("name") or ""
+        if c.get("branch_name"):
+            name = f"{name} ({c['branch_name']})"
+        w.writerow([
+            r.get("snapshot_date", day.isoformat()),
+            stores.get(c.get("store_id"), ""),
+            name,
+            PERIOD_LABEL.get(c.get("kind") or "", c.get("kind") or ""),
+            r.get("rank", ""),
+            b.get("raw_title", ""),
+            b.get("raw_author") or "",
+            b.get("raw_publisher") or "",
+            b.get("pub_ym") or "",
+            b.get("list_price") if b.get("list_price") is not None else "",
+            r.get("sales_point") if r.get("sales_point") is not None else "",
+            b.get("isbn13") or "",
+        ])
+    return CSV_BOM + buf.getvalue()
+
+
+README_TEXT = """\
+이 폴더는 무엇인가요
+=====================================================================
+베스트셀러 트래커가 자동으로 만든 '순위 보관 파일' 입니다.
+사이트에는 최근 14일치만 남기고, 그보다 오래된 날짜는 이렇게 파일로
+빼 둡니다.
+
+들어 있는 것
+---------------------------------------------------------------------
+  excel/   ← 👀 **여기부터 보세요**
+           날짜별 엑셀 파일(.csv)입니다. 그냥 두 번 누르면 열립니다.
+           제목·저자·출판사·순위·판매지수가 사람이 읽는 대로 들어 있습니다.
+
+  rankings/  되돌리기용 원본(.jsonl.gz)입니다.
+             숫자만 들어 있어 사람이 읽기는 어렵습니다.
+             나중에 이 날짜를 사이트로 다시 올릴 때 씁니다. 지우지 마세요.
+
+  manifest.json  파일 목록·크기·지문. 파일이 상하지 않았는지 확인용입니다.
+
+⚠️ 이 파일들은 GitHub 에서 90일이 지나면 사라집니다.
+   받아 두신 뒤에는 PC 나 구글 드라이브에 옮겨 두세요.
+"""
+
+
 def do_export(client_db, todo: list[date], outdir: Path, key_tpl: str) -> int:
     """
     1단계 — 파일로 뽑아내기만 합니다. DB 는 하나도 안 바뀝니다.
@@ -313,6 +435,25 @@ def do_export(client_db, todo: list[date], outdir: Path, key_tpl: str) -> int:
             })
             print(f"  ✅ {table}: {len(rows):,}줄 → {len(data) / 1024:.0f}KB")
 
+            # ---- 사람이 읽을 엑셀 파일도 같이 (2026-08-28) ----
+            #  🚨 지금 만들어야 합니다. 이 순위가 빠져나가면 [도서 목록 정리]
+            #     가 그 상품 줄을 지워서, 나중에는 제목을 알 방법이 없습니다.
+            #
+            #  ⚠️ 실패해도 보관 자체는 계속합니다. 엑셀은 '있으면 좋은 것'
+            #     이고, 되돌리기용 원본이 진짜입니다. 여기서 넘어지면
+            #     그날 보관이 통째로 멈추는데 그게 훨씬 나쁩니다.
+            if table == "rankings":
+                try:
+                    csv_path = outdir / "excel" / f"{table}_{day.isoformat()}.csv"
+                    csv_path.parent.mkdir(parents=True, exist_ok=True)
+                    text = readable_csv(client_db, day, rows)
+                    csv_path.write_text(text, encoding="utf-8")
+                    print(f"     └ 엑셀용: {csv_path.name} "
+                          f"({len(text.encode()) / 1024 / 1024:.1f}MB)")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"     ⚠️ 엑셀용 파일 만들기 실패(보관은 계속): {exc}")
+
+    (outdir / "README.txt").write_text(README_TEXT, encoding="utf-8")
     (outdir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2)
     )

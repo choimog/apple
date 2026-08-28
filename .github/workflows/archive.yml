@@ -63,6 +63,10 @@ jobs:
           python tests/test_archive_roundtrip.py
           python tests/test_archive_commit.py
           python tests/test_archive_preflight.py
+          # 🚨 2026-08-28 대표님 요청으로 넣은 '엑셀로 열리는 파일'.
+          #    제목은 보관하는 이 순간에만 남길 수 있습니다 — 이 날짜가
+          #    빠져나가면 [도서 목록 정리] 가 그 상품 줄을 지웁니다.
+          python tests/test_archive_readable.py
 
       # ---------- 1단계 ----------
       - name: 뽑아내기 (DB 는 손대지 않습니다)

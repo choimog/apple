@@ -26,6 +26,7 @@ on:
     paths:
       - "db/**"
       - "tests/test_auth_sql.sh"
+      - "tests/test_prune_speed.sh"
       - "tests/test_share_open.sh"
       - "tests/test_favorites_sql.sh"
       - ".github/workflows/db-check.yml"
@@ -42,6 +43,13 @@ jobs:
 
       - name: 빈 데이터베이스로 시험
         run: bash tests/test_auth_sql.sh
+
+      # 🚨 2026-08-27 [도서 목록 정리] 가 시간 초과(57014)로 죽었습니다.
+      #    계산을 다시 썼는데, 이건 **지우는 계산**이라 빨라진 것보다
+      #    "고르는 결과가 예전과 완전히 같은가" 가 먼저입니다.
+      #    20만 줄을 넣고 옛 방식과 새 방식을 나란히 돌려 대조합니다.
+      - name: 도서 목록 정리 계산이 같고 빠른지
+        run: bash tests/test_prune_speed.sh
 
       # 🚨 【2026-08-12 점검에서 되살림】
       #    db/share.sql 과 db/share-open.sql 은 같은 이름의 함수 셋을 각각

@@ -283,6 +283,32 @@ check("🚨 보관소가 매일 돈다 (주 1회면 정리도 주 1회가 됩니
 check("지우기 전에 이 시험을 돌린다",
       "test_prune_catalog.py" in wf)
 
+print("\n[13] 🚨 세어 보다 죽어도 정리는 계속되는가 (2026-08-27 실제 사고)")
+"""
+그날 '얼마나 지워질지 세어 보기' 가 시간 초과(57014)로 죽으면서,
+**그 뒤의 실제 정리가 시작조차 못 했습니다.** 악순환이 시작됐습니다.
+    정리 안 됨 → 목록 커짐 → 더 느려짐 → 또 시간 초과
+
+세어 보기는 화면에 숫자를 찍는 것뿐이라 넘어져도 됩니다.
+진짜 안전장치는 그 뒤(뽑아내기 → 올리기 → 내려받아 확인 → 그때야 지움)입니다.
+"""
+# 각 단계가 어디서 시작하는지 잘라서 봅니다
+def step_block(name: str) -> str:
+    i = wf.index(f"- name: {name}")
+    j = wf.find("\n      - name:", i + 1)
+    return wf[i:j if j > 0 else len(wf)]
+
+count_block = step_block("얼마나 지워질지 먼저 세어 봅니다")
+check("세어 보기가 넘어져도 계속 간다",
+      "continue-on-error: true" in count_block,
+      "여기서 멈추면 정리가 영영 안 돕니다")
+
+# 🚨 반대로, 진짜 안전장치에는 절대 붙으면 안 됩니다.
+for name in ("뽑아내기 (DB 는 손대지 않습니다)", "확인하고 DB 정리", "안전장치 시험"):
+    check(f"🚨 '{name}' 은 넘어가지 않는다",
+          "continue-on-error" not in step_block(name),
+          "여기서 넘어가면 확인 안 된 것을 지웁니다")
+
 print()
 if failures:
     print(f"❌ {len(failures)}개 실패")

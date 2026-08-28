@@ -73,30 +73,73 @@ LANGUAGE sql
 STABLE
 SECURITY INVOKER
 SET search_path = public
+--
+--  🚨 【2026-08-28 — 이 계산이 시간 초과로 죽었습니다. 다시 썼습니다】
+--
+--    postgrest APIError {'code': '57014',
+--                        'message': 'canceling statement due to statement timeout'}
+--
+--    악순환이었습니다.
+--      정리가 안 됨 → 도서 목록이 커짐 → 이 계산이 느려짐 → 또 시간 초과
+--    8/25 까지는 됐고 8/27 에 죽었습니다. 스스로는 못 빠져나옵니다.
+--
+--    【무엇이 느렸나】
+--    예전 방식은 store_books 한 줄마다 다른 표를 찾아보게 했습니다
+--    (상관 서브쿼리). 게다가 `NOT EXISTS (… FROM alive …)` 는 임시
+--    결과(CTE)를 뒤지는데 **임시 결과에는 색인이 없습니다.**
+--    줄이 20만이면 20만 × 20만 번을 헤아리는 셈이 됩니다.
+--
+--    【어떻게 고쳤나】
+--    "한 줄씩 물어보기" 를 "덩어리끼리 맞대기"(JOIN) 로 바꿨습니다.
+--    데이터베이스가 해시로 한 번에 맞댈 수 있어 훨씬 빠릅니다.
+--
+--    ⚠️ **고르는 기준은 한 글자도 안 바꿨습니다.** 지우는 계산이라
+--       결과가 달라지면 안 됩니다. tests/test_prune_speed.sh 가 옛 방식과
+--       새 방식을 실제 PostgreSQL 에서 나란히 돌려 **결과가 완전히 같은지**
+--       확인하고, 걸린 시간도 함께 잽니다.
 AS $$
-    WITH alive AS MATERIALIZED (
-        SELECT sb.id, sb.book_id
+    WITH
+    -- ㉠ 최근에 서점 목록에서 보인 상품
+    recent AS (
+        SELECT sb.id
           FROM store_books sb
          WHERE sb.last_seen_at >= now() - make_interval(days => greatest(p_days, 1))
-            OR EXISTS (SELECT 1 FROM rankings r
-                        WHERE r.store_book_id = sb.id)
-            OR EXISTS (SELECT 1 FROM book_matches m
-                        WHERE m.decision IN ('manual_merge', 'manual_split')
-                          AND (m.store_book_a = sb.id OR m.store_book_b = sb.id))
+    ),
+    -- ㉡ 순위 기록이 아직 남아 있는 상품
+    --    (지우면 순위까지 딸려 갑니다 — 가장 중요한 안전장치)
+    ranked AS (
+        SELECT DISTINCT r.store_book_id AS id FROM rankings r
+    ),
+    -- ㉢ 대표님이 손으로 내리신 결정이 걸린 상품
+    decided AS (
+        SELECT m.store_book_a AS id FROM book_matches m
+         WHERE m.decision IN ('manual_merge', 'manual_split')
+        UNION
+        SELECT m.store_book_b FROM book_matches m
+         WHERE m.decision IN ('manual_merge', 'manual_split')
+    ),
+    alive AS (
+        SELECT id FROM recent
+        UNION SELECT id FROM ranked
+        UNION SELECT id FROM decided
     ),
     -- 살아 있는 줄이 하나라도 속한 묶음
-    alive_books AS MATERIALIZED (
-        SELECT DISTINCT a.book_id FROM alive a WHERE a.book_id IS NOT NULL
+    alive_books AS (
+        SELECT DISTINCT sb.book_id
+          FROM store_books sb
+          JOIN alive a ON a.id = sb.id
+         WHERE sb.book_id IS NOT NULL
     )
     SELECT sb.id, sb.book_id
       FROM store_books sb
-     -- 자기 자신이 살아 있지 않고
-     WHERE NOT EXISTS (SELECT 1 FROM alive a WHERE a.id = sb.id)
+      LEFT JOIN alive       a  ON a.id = sb.id
+      LEFT JOIN alive_books ab ON ab.book_id = sb.book_id
+     -- 자기 자신이 살아 있지 않고 (a 쪽이 안 붙었고)
+     WHERE a.id IS NULL
      -- 같은 묶음의 다른 서점도 살아 있지 않을 때만
-     --  ⚠️ book_id 가 NULL(아직 안 묶인 상품)이면 이 조건은 항상 참입니다.
+     --  ⚠️ book_id 가 NULL(아직 안 묶인 상품)이면 ab 는 절대 안 붙습니다.
      --     묶이지 않은 상품은 혼자이므로 저 혼자 판단하면 됩니다.
-       AND NOT EXISTS (SELECT 1 FROM alive_books ab
-                        WHERE ab.book_id = sb.book_id)
+       AND ab.book_id IS NULL
      ORDER BY sb.id
      LIMIT greatest(p_limit, 1);
 $$;
@@ -168,14 +211,23 @@ $$;
 -- ---------------------------------------------------------------------------
 --  ④ 색인 — last_seen_at 으로 고르는 일이 매일 돌기 때문에
 -- ---------------------------------------------------------------------------
---  ⚠️ 색인도 자리를 먹습니다(수십 MB). 그런데 이게 없으면 매일 상품 표를
---     통째로 훑습니다. 지금은 7만 줄이라 괜찮지만, 이 정리 장치의 목적이
---     '표가 커지지 않게 하는 것' 이므로 표는 계속 이 크기에 머뭅니다.
---     그래서 **일부러 안 만듭니다.** 7만 줄 훑기는 1초도 안 걸립니다.
---     (나중에 느려지면 그때 아래 한 줄을 살리면 됩니다)
+--  🚨 【2026-08-28 — 이 색인을 이제 만듭니다】
 --
---  CREATE INDEX IF NOT EXISTS idx_store_books_last_seen
---      ON store_books(last_seen_at);
+--  예전에 여기 이렇게 적어 두었습니다.
+--
+--    "지금은 7만 줄이라 괜찮지만, 이 정리 장치의 목적이 '표가 커지지
+--     않게 하는 것' 이므로 표는 계속 이 크기에 머뭅니다. 그래서 일부러
+--     안 만듭니다. (나중에 느려지면 그때 아래 한 줄을 살리면 됩니다)"
+--
+--  전제가 **"정리가 돈다"** 였는데 정리가 멈췄고, 표가 커졌습니다.
+--  그 '나중에' 가 왔습니다.
+--
+--  ⚠️ 색인도 자리를 먹습니다. 20만 줄 기준 **5MB 안팎**입니다
+--     (처음 걱정했던 '수십 MB' 보다 작습니다 — 시각 하나만 담는
+--      색인이라서요). 이걸로 정리가 되살아나 수십 MB 를 되찾습니다.
+-- ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_store_books_last_seen
+    ON store_books(last_seen_at);
 -- ---------------------------------------------------------------------------
 
 

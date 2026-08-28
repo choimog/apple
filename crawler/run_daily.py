@@ -66,148 +66,31 @@ PARSERS = {
 BROWSER_STORES = {"kyobo"}
 
 
-# robots.txt 를 달라고 했는데 이 코드가 오면 '규칙이 없다' 가 아니라
-# **'너는 안 된다'** 는 뜻입니다. 아래 robots_allows 설명을 보세요.
-ROBOTS_REFUSED = (401, 403)
-
-# 거절당했을 때 **몇 번까지 되물어보는지.**
-# 한 번으로 단정하면, 몇 초짜리 깜빡임에 그날 그 서점 자료를 통째로
-# 날립니다 (2026-08-28 알라딘이 실제로 몇 시간 만에 저절로 풀렸습니다).
-ROBOTS_REFUSED_TRIES = 3
-ROBOTS_REFUSED_WAIT_SEC = 5
-
-
-class BlockStreak:
-    """
-    한 서점에서 **연달아** 막힌 횟수를 셉니다.
-
-    🚨 【2026-08-28 알라딘 차단 때 만들었습니다】
-      그날 61개 분야를 전부 두드렸습니다. 하나하나 재시도까지 하면서요.
-      요청 300번이 전부 거절당했습니다.
-
-      첫 세 개가 연달아 막히면 넷째가 열릴 이유가 없습니다. 이미 거절한
-      상대에게 계속 보내는 것은 예의가 아니고, **잠깐 막은 것을 오래
-      막는 것으로 만듭니다.**
-
-    ⚠️ '연달아' 인 것이 중요합니다. 한 분야가 잠깐 실패하는 것은 늘 있는
-       일이고, 그때 나머지를 포기하면 멀쩡한 자료를 통째로 버리게 됩니다.
-       그래서 하나라도 성공하면 셈이 0 으로 돌아갑니다.
-    """
-
-    def __init__(self, limit: int = 3) -> None:
-        self.limit = limit
-        self.streak = 0
-
-    def blocked(self) -> bool:
-        """막혔다고 기록합니다. 이번에 한도에 '막 닿았으면' True."""
-        self.streak += 1
-        return self.streak == self.limit
-
-    def ok(self) -> None:
-        """하나라도 됐으면 처음부터 다시 셉니다."""
-        self.streak = 0
-
-    @property
-    def stopped(self) -> bool:
-        """이 서점은 그만 두드려야 하는가."""
-        return self.streak >= self.limit
-
-
-def robots_allows(
-    origin_url: str, target_url: str, ua: str, store_code: str
-) -> tuple[bool, str]:
+def robots_allows(origin_url: str, target_url: str, ua: str, store_code: str) -> bool:
     """
     수집 전에 robots.txt 를 다시 확인합니다. (규칙이 언제든 바뀔 수 있으므로)
     금지면 False 를 돌려주고, 임의로 우회하지 않습니다.
     확인 자체가 실패하면 수집은 계속합니다(확인 실패 = 금지 아님).
-
-    돌려주는 값: (수집해도 되는가, 사람이 읽을 이유)
-
-    🚨 【2026-08-19 알라딘 차단 때 드러난 구멍 — 2026-08-28 고침】
-      그날 알라딘은 **robots.txt 까지 HTTP 403** 으로 거절했습니다.
-      그런데 예전 코드는 이렇게 읽었습니다.
-
-          ✅ aladin: robots.txt 없음(HTTP 403) → 제한 없음
-
-      그러고는 61개 분야를 **전부 두드렸습니다.** 하나하나 재시도까지
-      하면서요. 이미 문 앞에서 거절당한 뒤에 말입니다.
-
-      403 은 '규칙 파일이 없다' 가 아닙니다. **'당신은 이 서버에 접근할
-      수 없다'** 입니다. 둘은 뜻이 정반대입니다.
-        · 404 → 규칙을 안 만들어 둔 것 → 제한 없음 (계속해도 됨)
-        · 403 → 우리를 막고 있는 것    → 즉시 멈추고 보고
-
-      그래서 나쁜 점이 둘이었습니다.
-        ① 예의  이미 거절한 상대에게 수백 번을 더 보냈습니다.
-                이러면 잠깐 막은 것이 오래 막는 것으로 바뀝니다.
-        ② 정직  화면에는 '61개 분야 실패' 로 뜹니다. 진짜 원인은
-                하나('문 앞에서 막힘')인데 61개 문제처럼 보입니다.
-
-      ⚠️ 여기서 **우회하지 않습니다.** 이름표를 브라우저인 척 바꾸거나,
-         다른 통로(프록시)로 도는 방법이 기술적으로는 있습니다.
-         대표님이 "임의로 우회하지 말고 나에게 보고해줘" 라고 하셨고,
-         실무적으로도 나쁜 선택입니다 — 걸리면 더 세게, 더 오래 막힙니다.
-         우리가 할 일은 **멈추고 알리는 것**까지입니다.
     """
     try:
         with PoliteClient(user_agent=ua, delay_min=1.0, delay_max=1.5) as c:
-            r = c.get(f"{origin_url}/robots.txt",
-                      allow_status=(401, 403, 404),
+            r = c.get(f"{origin_url}/robots.txt", allow_status=(403, 404),
                       check_block_markers=False, min_body_len=1)
-
-            """
-            🚨 【잠깐 막힌 것과 진짜 막힌 것을 구분합니다 — 2026-08-28 저녁】
-
-            아침에 이 장치를 넣을 때는 403 한 번이면 바로 그 서점을
-            건너뛰게 했습니다. 그런데 그날 저녁, 알라딘이 **저절로 풀렸습니다.**
-            몇 시간짜리 일시적인 거절이었던 것입니다.
-
-            그러면 이런 일이 생깁니다. robots.txt 를 가져오는 그 1초에
-            하필 걸리면, **그날 그 서점 자료를 통째로 못 받습니다.**
-            예전 코드였다면 멀쩡히 받았을 자료를요.
-            고치려다 새 고장을 만드는 셈입니다.
-
-            그래서 **한 번으로 단정하지 않습니다.** 몇 초 쉬고 다시
-            물어봅니다. 세 번 다 거절이면 그건 깜빡임이 아니라 벽입니다.
-            (거절이 아닐 때는 이 되묻기를 아예 안 합니다 — 평소에는
-             요청이 한 번도 안 늘어납니다)
-            """
-            tries = 1
-            while r.status_code in ROBOTS_REFUSED and tries < ROBOTS_REFUSED_TRIES:
-                time.sleep(ROBOTS_REFUSED_WAIT_SEC * tries)   # 5초 → 10초
-                tries += 1
-                print(f"   ↻ {store_code}: robots.txt 가 HTTP {r.status_code} 입니다. "
-                      f"잠깐 막힌 것일 수 있어 다시 물어봅니다 ({tries}/{ROBOTS_REFUSED_TRIES})")
-                r = c.get(f"{origin_url}/robots.txt",
-                          allow_status=(401, 403, 404),
-                          check_block_markers=False, min_body_len=1)
-
-        if r.status_code in ROBOTS_REFUSED:
-            why = (
-                f"robots.txt 조차 HTTP {r.status_code} 로 거절당했습니다"
-                f" ({ROBOTS_REFUSED_TRIES}번 다). 특정 경로가 아니라 서점이 "
-                "우리 접속 자체를 막고 있는 것으로 보입니다."
-            )
-            print(f"\n🚫 {store_code}: {why}")
-            print("   이 서점 수집을 건너뜁니다. 임의로 우회하지 않습니다.")
-            print("   (며칠 지나도 같으면 서점에 문의해야 합니다 — HANDOVER 증상 1-2)")
-            return False, why
-
         if r.status_code != 200:
             print(f"\n✅ {store_code}: robots.txt 없음(HTTP {r.status_code}) → 제한 없음")
-            return True, ""
+            return True
 
         rules = parse_robots(r.text)
         allowed, why = rules.is_allowed(target_url, ua)
         if not allowed:
             print(f"\n🚫 {store_code}: robots.txt 가 수집을 금지합니다 — {why}")
             print("   수집을 중단합니다. 임의로 우회하지 않습니다.")
-            return False, f"robots.txt 가 이 경로 수집을 허용하지 않습니다 ({why})."
+            return False
         print(f"\n✅ {store_code} robots.txt 확인: {why}")
-        return True, ""
+        return True
     except Exception as exc:  # noqa: BLE001
         print(f"\n⚠️ {store_code} robots.txt 확인 실패(수집은 계속): {exc}")
-        return True, ""
+        return True
 
 
 def kst_today():
@@ -717,10 +600,7 @@ def main() -> int:
                 print(f"  ⚠️ 분야 정리 실패(수집에는 영향 없음): {exc}")
 
         # ---- robots.txt 재확인 (수집 방식과 무관하게 항상 보통 요청으로) ----
-        ok_robots, why_not = robots_allows(
-            origin_url, store_tasks[0].url_for(1), ua, store_code
-        )
-        if not ok_robots:
+        if not robots_allows(origin_url, store_tasks[0].url_for(1), ua, store_code):
             for t in store_tasks:
                 results.append((t.label(), "blocked_by_robots", 0))
                 if not dry_run:
@@ -730,10 +610,9 @@ def main() -> int:
                         "snapshot_date": snapshot_date.isoformat(),
                         "finished_at": now_iso(),
                         "status": "failed", "items_collected": 0,
-                        # ⚠️ 막힌 이유를 그대로 남깁니다. '금지된 경로' 와
-                        #    '접속 자체가 막힘' 은 하실 일이 다릅니다.
                         "error_message":
-                            f"{why_not} 임의로 우회하지 않고 건너뛰었습니다.",
+                            "robots.txt 가 이 경로 수집을 허용하지 않습니다. "
+                            "임의로 우회하지 않고 건너뛰었습니다.",
                     })
             continue
 
@@ -761,28 +640,7 @@ def main() -> int:
             )
 
         with fetcher as http:
-            # 연달아 막히면 그 서점은 그만 두드립니다 (규칙은 BlockStreak 참고)
-            streak = BlockStreak(limit=3)
-
             for task in store_tasks:
-                # 이미 멈추기로 했으면 요청을 아예 안 보냅니다.
-                # 그래도 **조용히 건너뛰지는 않습니다** — 기록에 남깁니다.
-                if streak.stopped:
-                    results.append((task.label(), "blocked", 0))
-                    if not dry_run:
-                        db.write_log(client, {
-                            "run_id": run_id, "store_id": task.store_id,
-                            "category_id": cat_id_by_task.get(id(task)),
-                            "snapshot_date": snapshot_date.isoformat(),
-                            "finished_at": now_iso(),
-                            "status": "failed", "items_collected": 0,
-                            "error_message":
-                                f"앞의 {streak.limit}개 분야가 연달아 막혀 "
-                                "이 서점 수집을 멈췄습니다. 임의로 우회하지 않습니다.",
-                            "http_stats": http.stats.to_json(),
-                        })
-                    continue
-
                 try:
                     status, n = process_task(
                         client, http, task, parser, selectors,
@@ -790,14 +648,8 @@ def main() -> int:
                         bool(defaults.get("save_book_meta", True)),
                     )
                     results.append((task.label(), status, n))
-                    streak.ok()
                 except BlockedError as exc:
                     print(f"  🚨 차단 의심: {exc}")
-                    if streak.blocked():
-                        print(f"\n🚫 {store_code}: {streak.limit}개 분야가 연달아 "
-                              "막혔습니다. 이 서점은 여기서 멈춥니다.")
-                        print("   (남은 분야도 막혔을 것이 뻔합니다. "
-                              "계속 두드리면 더 오래 막힙니다)")
                     results.append((task.label(), "blocked", 0))
                     if not dry_run:
                         db.write_log(client, {

@@ -12,8 +12,11 @@ name: 백업에서 되돌리기
 on:
   workflow_dispatch:
     inputs:
+      backup_run:
+        description: "어느 백업에서? [백업] 실행의 Artifacts 이름 (예: backup-33459492769)"
+        required: true
       backup_key:
-        description: "되돌릴 백업 파일 (비우면 가장 최근 것)"
+        description: "그 안에서 고를 파일 (비우면 가장 최근 것)"
         required: false
         default: ""
       confirm:
@@ -30,6 +33,10 @@ jobs:
     name: 백업에서 되돌리기
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # 다른 실행에 올려 둔 백업 파일을 읽어야 합니다. 읽기만 줍니다.
+    permissions:
+      contents: read
+      actions: read
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +48,42 @@ jobs:
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
+      # 🚨 【2026-09-01】 백업이 GitHub 파일로 바뀌어서, 되돌리기도 거기서
+      #    가져옵니다. 한쪽만 고치면 백업은 쌓이는데 되돌릴 수가 없습니다.
+      #
+      #    ⚠️ 다른 실행(run)의 파일을 가져오므로 토큰이 필요합니다.
+      #       읽기 권한만 줍니다.
+      # 파일 이름이 backup-<실행번호> 라서 거기서 실행번호를 꺼냅니다.
+      # (대표님이 번호를 따로 찾아 적으시지 않도록)
+      - name: 어느 실행의 파일인지 알아내기
+        id: which
+        run: |
+          NAME="${{ inputs.backup_run }}"
+          RUN_ID="${NAME##*-}"
+          case "$RUN_ID" in
+            ''|*[!0-9]*)
+              echo "::error::백업 파일 이름이 이상합니다: '$NAME'"
+              echo "  Actions → [백업] → 실행 하나를 열고 맨 아래 Artifacts 에"
+              echo "  적힌 이름을 그대로 넣어 주세요 (예: backup-33459492769)"
+              exit 1 ;;
+          esac
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "→ 실행번호 $RUN_ID 에서 가져옵니다"
+
+      - name: 백업 파일 내려받기
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.backup_run }}
+          path: restore/
+          # 다른 실행의 파일을 가져오려면 이 둘이 필요합니다
+          run-id: ${{ steps.which.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 무엇을 받았는지 보여주기
+        run: |
+          echo "받은 파일:"
+          find restore -type f | sed 's/^/  /'
+
       - name: 되돌리기 실행
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -51,4 +94,5 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           BACKUP_KEY: ${{ inputs.backup_key }}
           CONFIRM: ${{ inputs.confirm }}
+          FROM_DIR: restore
         run: python crawler/backup_restore.py

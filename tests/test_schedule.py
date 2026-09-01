@@ -99,16 +99,26 @@ def kst(cron: str) -> str:
     return f"{(int(h) + 9) % 24:02d}:{int(m):02d}"
 
 
+# 🚨 【2026-09-01 — 정각을 피했습니다】
+#   GitHub 예약은 전 세계가 공용 대기열을 쓰는데 **정각(0분)이 가장
+#   붐빕니다.** 실제로 예정 08:00 인 작업이 10:02·10:38·13:03·15:31 에
+#   돌았고, 8/26·8/31 은 아예 안 왔습니다.
+#   그래서 어중간한 분으로 비켜 놓았습니다.
 WANT = {
-    "daily-crawl.yml": "06:00",
-    "match.yml": "09:00",
-    "export-sheets.yml": "10:00",
-    "report.yml": "10:30",
+    "daily-crawl.yml": ["06:17", "09:11"],   # 평소 + 따라잡기
+    "match.yml": ["09:23"],
+    "export-sheets.yml": ["10:37"],
+    "report.yml": ["10:47"],
 }
 for f, want in WANT.items():
     sched = triggers(load(f)).get("schedule") or []
     got = [kst(s["cron"]) for s in sched]
-    check(f"{names[f]} 예약 = 한국시간 {want}", got == [want], got)
+    check(f"{names[f]} 예약 = 한국시간 {', '.join(want)}", got == want, got)
+
+# 사슬 순서가 시각으로도 말이 되어야 합니다 (수집 → 매칭 → 시트 → 리포트)
+order = ["daily-crawl.yml", "match.yml", "export-sheets.yml", "report.yml"]
+firsts = [WANT[f][0] for f in order]
+check("예약 시각이 사슬 순서대로다", firsts == sorted(firsts), firsts)
 
 
 print("\n[5] 같은 작업이 겹쳐 돌지 않게 막아 뒀는지")

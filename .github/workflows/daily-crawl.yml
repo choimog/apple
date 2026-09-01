@@ -3,13 +3,23 @@
 # =============================================================================
 #
 #  【언제 실행되나요?】
-#  매일 한국시간 오전 6시.
-#  cron 은 세계표준시(UTC) 기준이라 "21:00 UTC" 로 적습니다.
-#    한국시간 = UTC + 9시간 (서머타임 없음)
-#    06:00 KST = 21:00 UTC (전날)
+#  매일 한국시간 오전 6시 17분 + 못 받았으면 9시 11분에 한 번 더.
+#  cron 은 세계표준시(UTC) 기준입니다 (한국시간 = UTC + 9, 서머타임 없음).
 #
-#  ⚠️ GitHub 무료 스케줄러는 사용량이 몰리면 5~30분 늦게 시작될 수 있습니다.
-#     "6시 정각"이 아니라 "6시~6시 30분 사이"로 이해해 주세요.
+#  🚨 【2026-09-01 — 왜 정각이 아니라 17분인가요】
+#    GitHub 예약은 정시에 안 옵니다. 실제로 이렇게 돌았습니다.
+#        예정 08:00 → 실제 10:02 · 10:07 · 10:38 · 13:03 · 15:31
+#    그리고 **아예 안 온 날도 있습니다** (8/26 · 8/31 통째로 빠짐).
+#
+#    예약은 전 세계가 공용 대기열을 씁니다. **정각(0분)이 가장 붐빕니다.**
+#    그래서 어중간한 분으로 비켜 놓았습니다. 확실한 해결은 아니고
+#    걸릴 확률을 낮추는 것입니다.
+#
+#  🚨 【그래서 '따라잡기' 를 하나 더 걸어 뒀습니다 — 09:11】
+#    이게 진짜 안전장치입니다. 늦거나 아예 안 온 날을 스스로 메웁니다.
+#    이미 받은 서점은 건너뛰므로 서점에 요청을 두 번 보내지 않습니다.
+#    3사 다 받았으면 **아무 작업도 시작하지 않습니다.**
+#    (판단은 crawler/plan_stores.py 한 곳에서 합니다)
 #
 #  【3사를 동시에 돌립니다 — 2026-08-07 대표님 지시】
 #  교보 → 예스24 → 알라딘 순서로 줄 세우면 셋을 더한 시간이 걸립니다.
@@ -39,8 +49,13 @@ name: 매일 수집 (daily crawl)
 
 on:
   schedule:
-    # 매일 21:00 UTC = 다음날 06:00 한국시간
-    - cron: "0 21 * * *"
+    # 21:17 UTC = 다음날 06:17 한국시간 — 평소 수집
+    - cron: "17 21 * * *"
+    # 00:11 UTC = 같은 날 09:11 한국시간 — 따라잡기
+    #   ⚠️ 이 줄을 지우면 '아예 안 온 날' 을 아무도 못 메웁니다.
+    #      두 예약의 cron 글자는 plan 단계가 구분에 씁니다. 고치시려면
+    #      아래 CATCHUP 조건도 같이 고쳐야 합니다 (시험이 확인합니다).
+    - cron: "11 0 * * *"
 
   workflow_dispatch:
     inputs:
@@ -70,17 +85,36 @@ jobs:
     outputs:
       stores: ${{ steps.pick.outputs.stores }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 판단 규칙 시험
+        # 여기서 틀리면 '이미 받았다' 고 착각해 그날 수집을 통째로
+        # 건너뜁니다. 아무 표시도 안 나는 종류라 먼저 확인합니다.
+        run: python tests/test_catchup.py
+
       - id: pick
-        run: |
-          if [ -z "${{ inputs.store }}" ]; then
-            echo 'stores=["kyobo","yes24","aladin"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'stores=["${{ inputs.store }}"]' >> "$GITHUB_OUTPUT"
-          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_STORE: ${{ inputs.store }}
+          # 09:11 예약으로 온 것만 '따라잡기' 입니다.
+          # 손으로 누른 것과 평소 예약은 예전처럼 전부 돕니다.
+          CATCHUP: ${{ github.event.schedule == '11 0 * * *' }}
+        run: python crawler/plan_stores.py
 
   crawl:
     name: 수집 (${{ matrix.store }})
     needs: plan
+    # 따라잡기인데 3사 다 받았으면 여기부터 아예 안 돕니다.
+    # (서점에 요청도, 헛도는 작업도 없습니다)
+    if: needs.plan.outputs.stores != '[]'
     runs-on: ubuntu-latest
 
     strategy:
@@ -163,8 +197,11 @@ jobs:
   # ---------------------------------------------------------------------------
   capacity:
     name: 용량 확인
-    needs: crawl
-    if: always()          # 수집이 일부 실패해도 용량은 봐야 합니다
+    needs: [plan, crawl]
+    # 수집이 일부 실패해도 용량은 봐야 합니다.
+    # 다만 할 일이 없어 수집을 아예 안 한 날은 재지 않습니다
+    # (하루에 두 줄이 남아 '날짜별' 표가 이상해집니다).
+    if: always() && needs.plan.outputs.stores != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

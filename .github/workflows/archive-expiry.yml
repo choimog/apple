@@ -26,7 +26,7 @@ on:
   schedule:
     # 매주 목요일 UTC 23:00 = 금요일 한국시간 08:00
     # (보관 작업은 화요일 아침이라, 이틀 뒤에 확인합니다)
-    - cron: "0 23 * * 4"
+    - cron: "43 23 * * 4"
   workflow_dispatch:
     inputs:
       mark_saved:

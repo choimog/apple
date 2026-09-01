@@ -149,9 +149,14 @@ def do_export(client, days: int, max_rows: int, outdir: Path,
     print(f"\n▶ 잠든 상품을 고릅니다 (기준 {days}일 · 최대 {max_rows:,}줄)")
 
     try:
-        rows = client.rpc("dormant_store_books", {
-            "p_days": days, "p_limit": max_rows,
-        }).execute().data or []
+        # 🚨 **나눠서 끝까지 받습니다.** 한 번에 부르면 Supabase 가 1,000줄만
+        #    돌려줘서, 8,975개가 대상인 날에도 1,000개만 지웠습니다
+        #    (2026-09-01). 하루에 들어오는 양보다 적어서 매일 순증했습니다.
+        rows = db.rpc_all(
+            client, "dormant_store_books",
+            {"p_days": days, "p_limit": max_rows},
+            max_rows=max_rows,
+        )
     except Exception as exc:  # noqa: BLE001
         if rpc_missing(exc):
             need_sql_notice()
@@ -293,7 +298,9 @@ def do_commit(client, manifest_path: Path, verify_dir: Path,
 
     # 남은 껍데기가 있으면 한 번 더 훑습니다 (계산이 놓친 것 대비)
     try:
-        left = client.rpc("orphan_books", {"p_limit": DEFAULT_MAX_ROWS}).execute().data or []
+        # 여기도 같은 이유로 나눠서 받습니다 (한 번에 부르면 1,000개까지만)
+        left = db.rpc_all(client, "orphan_books", {"p_limit": DEFAULT_MAX_ROWS},
+                          max_rows=DEFAULT_MAX_ROWS)
         if left:
             ids = [int(r["id"]) for r in left]
             print(f"  🗑️ 남은 껍데기 묶음 {len(ids):,}개를 더 지웁니다…")

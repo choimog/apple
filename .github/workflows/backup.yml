@@ -1,8 +1,18 @@
 # =============================================================================
-#  백업 — 데이터베이스 전체를 보관소(R2)에 복사
+#  백업 — 데이터베이스 전체를 GitHub 파일로 복사
 # =============================================================================
 #  무료 요금제에는 자동 백업이 없어서, 이 작업이 그 자리를 대신합니다.
 #  아무것도 지우지 않습니다. 읽어서 복사만 합니다. 비용 0원.
+#
+#  🚨 【2026-09-01 — 그동안 한 번도 안 됐습니다】
+#    이 작업은 R2 만 찾고 있었는데 설정은 storage: github 였습니다.
+#    그래서 매주 "보관소 접속 정보가 없습니다" 로 끝났습니다.
+#    이제 [보관소로 옮기기] 와 같은 방식(GitHub 파일)으로 담습니다.
+#
+#  【내려받아 두셔야 하나요? — 아니요】
+#    보관 파일과 다릅니다. 보관 파일은 DB 에서 지운 것이라 유일본이지만,
+#    백업은 원본이 DB 에 살아 있는 사본입니다. 사고가 났을 때 그때
+#    받아서 되돌리면 됩니다. GitHub 에 90일치(약 12개)가 늘 있습니다.
 #
 #  실행: https://github.com/choimog/apple/actions/workflows/backup.yml
 # =============================================================================
@@ -13,7 +23,7 @@ on:
   schedule:
     # 매주 월요일 UTC 20:00 = 화요일 한국시간 05:00
     # 수집(06:00)·정리(월 08:00) 와 겹치지 않는 시각으로 잡았습니다.
-    - cron: "0 20 * * 1"
+    - cron: "27 20 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -41,7 +51,13 @@ jobs:
       - name: 필요한 도구 설치
         run: pip install --no-cache-dir -r crawler/requirements.txt
 
-      - name: 백업 실행
+      # 되돌릴 수 없는 일이 아니지만, 백업이 깨져 있으면 사고 때 알게 됩니다
+      - name: 안전장치 시험
+        run: python tests/test_backup_github.py
+
+      # ---------- 1단계 ----------
+      - name: 담기 (DB 는 읽기만 합니다)
+        id: dump
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -50,4 +66,54 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python crawler/backup.py
+        run: |
+          python crawler/backup.py --stage dump --outdir out
+          if [ -s out/manifest.json ]; then
+            echo "has_data=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_data=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---------- 2단계 ----------
+      - name: 올리기
+        if: steps.dump.outputs.has_data == 'true' && inputs.dry_run != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: out/
+          # ⚠️ 최대값은 90입니다. 넘으면 이 단계에서 실패합니다.
+          retention-days: 90
+          if-no-files-found: error
+          # 이미 gzip 으로 압축돼 있어 다시 압축해 봐야 시간만 듭니다
+          compression-level: 0
+
+      # ---------- 3단계 ----------
+      #  방금 올린 것을 **실제로** 다시 받아옵니다.
+      #  "올렸다" 는 말만 믿으면, 안 올라간 주에도 초록불이 뜹니다.
+      - name: 내려받아 확인 준비
+        if: steps.dump.outputs.has_data == 'true' && inputs.dry_run != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: verify/
+
+      - name: 확인
+        if: steps.dump.outputs.has_data == 'true' && inputs.dry_run != 'true'
+        run: |
+          python crawler/backup.py --stage verify \
+            --manifest out/manifest.json --verify-dir verify
+
+      - name: 어디서 받는지 안내
+        if: steps.dump.outputs.has_data == 'true' && inputs.dry_run != 'true'
+        run: |
+          {
+            echo "## 💾 이번 주 백업"
+            echo ""
+            echo "- 파일 이름: \`backup-${{ github.run_id }}\`"
+            echo ""
+            echo "> **내려받지 않으셔도 됩니다.** 원본은 데이터베이스에"
+            echo "> 그대로 있습니다. 사고가 났을 때 여기서 받아 되돌립니다."
+            echo ">"
+            echo "> 되돌리기: Actions → [백업에서 되돌리기] → 위 파일 이름을"
+            echo "> \`backup_run\` 칸에 넣고 실행"
+          } >> "$GITHUB_STEP_SUMMARY"

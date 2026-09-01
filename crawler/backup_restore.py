@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
 from archive import make_client  # noqa: E402
 from backup import TABLES  # noqa: E402
@@ -47,40 +48,75 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default="", help="되돌릴 백업 파일 (비우면 가장 최근 것)")
     ap.add_argument("--confirm", action="store_true", help="실제로 넣습니다")
+    ap.add_argument("--from-dir", default="",
+                    help="내려받은 백업 파일이 있는 폴더 (GitHub 방식)")
     args = ap.parse_args()
 
     key = args.key or os.environ.get("BACKUP_KEY", "").strip()
     confirm = args.confirm or os.environ.get("CONFIRM", "").lower() == "true"
+    from_dir = args.from_dir or os.environ.get("FROM_DIR", "").strip()
+
+    acfg = cfg.load("archive.yaml")
+    storage = str(acfg.get("storage", "r2")).strip().lower()
 
     print("=" * 66)
     print("  백업에서 되돌리기")
+    print(f"  가져올 곳: {'내려받은 파일' if (storage == 'github' or from_dir) else 'R2 보관소'}")
     print(f"  모드: {'실제로 넣음' if confirm else '확인만 (넣지 않음)'}")
     print("=" * 66)
 
-    s3, bucket = make_client()
-    if not s3:
-        print("\n보관소 접속 정보가 없습니다. 아무것도 하지 않았습니다.")
-        return 1
+    # ---- 백업 파일 가져오기 ----
+    #
+    #  🚨 【2026-09-01 — 여기도 R2 전용이었습니다】
+    #    백업(backup.py)을 GitHub 파일 방식으로 바꿨으니, 되돌리기도 같은
+    #    곳에서 가져와야 짝이 맞습니다. 한쪽만 고치면 백업은 쌓이는데
+    #    정작 되돌릴 수가 없습니다.
+    if storage == "github" or from_dir:
+        base = Path(from_dir or "restore")
+        found = sorted(base.rglob("*.jsonl.gz"))
+        if not found:
+            print(f"\n❌ {base} 안에 백업 파일(.jsonl.gz)이 없습니다.")
+            print("   GitHub → Actions → [백업] 의 실행 하나를 골라,")
+            print("   맨 아래 Artifacts 의 이름을 backup_run 칸에 넣어 주세요.")
+            return 1
+        if key:
+            picked = [f for f in found if f.name == key or str(f).endswith(key)]
+            if not picked:
+                print(f"\n❌ 내려받은 파일 중에 {key} 가 없습니다.")
+                print(f"   있는 것: {', '.join(f.name for f in found)}")
+                return 1
+            path = picked[0]
+        else:
+            path = found[-1]     # 이름이 시각이라 가장 뒤가 가장 최근입니다
 
-    # ---- 어떤 백업을 쓸지 ----
-    listed = s3.list_objects_v2(Bucket=bucket, Prefix="backups/")
-    keys = sorted((o["Key"] for o in listed.get("Contents", [])), reverse=True)
-    if not keys:
-        print("\n보관소에 백업이 하나도 없습니다.")
-        print("  GitHub → Actions → [백업] 을 먼저 한 번 실행하세요.")
-        return 1
+        print(f"\n▶ 내려받은 백업 {len(found)}개")
+        for f in found:
+            print(f"    {'← 사용' if f == path else '     '} {f.name}")
+        key = path.name
+        data = path.read_bytes()
+    else:
+        s3, bucket = make_client()
+        if not s3:
+            print("\n보관소 접속 정보가 없습니다. 아무것도 하지 않았습니다.")
+            return 1
 
-    print(f"\n▶ 보관소에 있는 백업 {len(keys)}개 (최근 것부터)")
-    for k in keys[:10]:
-        print(f"    {'← 사용' if k == (key or keys[0]) else '     '} {k}")
+        listed = s3.list_objects_v2(Bucket=bucket, Prefix="backups/")
+        keys = sorted((o["Key"] for o in listed.get("Contents", [])), reverse=True)
+        if not keys:
+            print("\n보관소에 백업이 하나도 없습니다.")
+            print("  GitHub → Actions → [백업] 을 먼저 한 번 실행하세요.")
+            return 1
 
-    key = key or keys[0]
-    if key not in keys:
-        print(f"\n❌ 그런 백업이 없습니다: {key}")
-        return 1
+        print(f"\n▶ 보관소에 있는 백업 {len(keys)}개 (최근 것부터)")
+        for k in keys[:10]:
+            print(f"    {'← 사용' if k == (key or keys[0]) else '     '} {k}")
 
-    # ---- 내려받아 풀기 ----
-    data = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        key = key or keys[0]
+        if key not in keys:
+            print(f"\n❌ 그런 백업이 없습니다: {key}")
+            return 1
+        data = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+
     print(f"\n  파일 {round(len(data) / 1_000_000, 2)}MB · "
           f"지문 {hashlib.sha256(data).hexdigest()[:16]}…")
 

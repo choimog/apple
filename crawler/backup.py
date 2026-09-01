@@ -1,14 +1,33 @@
 """
 =============================================================================
- 백업 — 데이터베이스 전체를 보관소(R2)에 통째로 저장합니다
+ 백업 — 데이터베이스 전체를 통째로 저장합니다
 =============================================================================
 
  【왜 필요한가요? — 2026-08-08 대표님 결정】
  Supabase 무료 요금제로 가기로 하셨습니다. 무료에는 **자동 백업이 없습니다.**
  유료(Pro)가 주는 것 중 용량은 보관소로 해결되지만, 백업은 안 됩니다.
 
- 그래서 매주 데이터베이스 전체를 압축해 보관소에 넣습니다.
- R2 무료 10GB 안에서 도므로 **비용은 0원**입니다.
+ 그래서 매주 데이터베이스 전체를 압축해 보관해 둡니다. 비용은 0원입니다.
+
+ 【어디에 두나요 — config/archive.yaml 의 storage 를 따릅니다】
+
+   github  GitHub Actions 파일로 (카드 불필요 · 90일 보관)  ← 지금 이것
+   r2      Cloudflare R2 로 (카드 필요 · 영구 보관)
+
+ 🚨 【2026-09-01 — 이 파일은 그동안 R2 전용이었습니다】
+   설정은 storage: github 인데 이 파일만 R2 를 찾고 있었습니다. 그래서
+   **백업이 한 번도 된 적이 없습니다.** 매주 월요일마다 이렇게 끝났습니다.
+
+       보관소 접속 정보가 없습니다. 아무것도 하지 않았습니다.
+
+   더 나빴던 것은 인수인계 문서에 "자동 백업 · 매주" 라고 적혀 있었다는
+   점입니다. 대표님은 백업이 있는 줄 아셨습니다. 제 잘못입니다.
+
+ 【내려받아 두셔야 하나요? — 아니요】
+ 보관 파일(archive)과 다릅니다. 보관 파일은 DB 에서 이미 지운 것이라
+ 그 파일이 유일본이지만, 백업은 **원본이 DB 에 살아 있는 사본**입니다.
+ 사고가 났을 때 그때 GitHub 에서 받아 되돌리면 됩니다.
+ (PC 에 하나쯤 두시면 더 안전한 정도입니다)
 
  【보관소로 옮기기(archive.py) 와 무엇이 다른가요?】
 
@@ -32,6 +51,17 @@
  【몇 개를 남기나요?】
  최근 8개(약 2개월치)만 남기고 오래된 것은 지웁니다.
 
+ 【GitHub 방식은 왜 두 단계인가요?】
+ 올리기(upload-artifact)와 읽기(download-artifact)가 각각 별도 단계라
+ 한 프로그램 안에서 "제대로 올라갔는지" 확인할 수가 없습니다.
+ 그래서 archive.py 와 똑같이 나눴습니다.
+
+   1단계 dump    파일로 담기만 함
+   2단계 (GitHub) 올리기 → 다시 내려받기
+   3단계 verify  내려받은 파일의 지문이 맞는지 확인
+
+ "올렸다" 는 말만 믿지 않습니다.
+
  【실행】
  매주 월요일 자동. 손으로 돌리려면
  GitHub → Actions → [백업] → Run workflow
@@ -52,6 +82,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from common import config as cfg  # noqa: E402
 from common import db  # noqa: E402
 from archive import make_client  # noqa: E402
 
@@ -92,26 +123,79 @@ def fetch_all(client, table: str, order_col: str) -> list[dict]:
         start += step
 
 
+def do_verify(manifest_path: Path, verify_dir: Path) -> int:
+    """
+    3단계 — **실제로 내려받은** 파일이 담은 것과 같은지 확인합니다.
+
+    "올렸다" 는 말만 믿지 않습니다. archive.py 와 같은 방식입니다.
+    """
+    try:
+        man = json.loads(manifest_path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n❌ 목록 파일을 읽지 못했습니다: {exc}")
+        return 1
+
+    if not man:
+        print("\n❌ 목록이 비어 있습니다. 담긴 것이 없습니다.")
+        return 1
+
+    path = verify_dir / man["key"]
+    if not path.exists():
+        print(f"\n❌ 내려받은 파일에 {man['key']} 가 없습니다.")
+        print("   올리기가 제대로 안 됐습니다. 백업이 없는 주입니다.")
+        return 1
+
+    got = hashlib.sha256(path.read_bytes()).hexdigest()
+    if got != man["sha256"]:
+        print("\n❌ 내려받은 파일이 담은 것과 다릅니다.")
+        print(f"   담을 때 {man['sha256'][:16]}… · 받아 보니 {got[:16]}…")
+        return 1
+
+    size = path.stat().st_size
+    if size != man["byte_size"]:
+        print(f"\n❌ 크기가 다릅니다 ({size:,} ≠ {man['byte_size']:,}).")
+        return 1
+
+    print(f"\n  ✅ 확인 완료 — {man['key']} · "
+          f"{man['byte_size'] / 1_000_000:.2f}MB · 지문 일치")
+    print("     되돌리려면: GitHub → Actions → [백업에서 되돌리기]")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="담기만 하고 올리지 않음")
+    ap.add_argument("--stage", choices=("dump", "verify"), default="dump",
+                    help="GitHub 방식에서만 씁니다 (담기 / 확인)")
+    ap.add_argument("--outdir", default="out", help="담은 파일을 둘 곳")
+    ap.add_argument("--manifest", default="out/manifest.json")
+    ap.add_argument("--verify-dir", default="verify")
     args = ap.parse_args()
     dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() == "true"
+
+    acfg = cfg.load("archive.yaml")
+    storage = str(acfg.get("storage", "r2")).strip().lower()
+
+    if args.stage == "verify":
+        return do_verify(Path(args.manifest), Path(args.verify_dir))
 
     # 파일 이름에 쓸 시각. 실행 환경의 시계를 그대로 씁니다.
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
 
     print("=" * 66)
     print(f"  백업 — {stamp}")
+    print(f"  두는 곳: {'GitHub 파일' if storage == 'github' else 'R2 보관소'}")
     print(f"  모드: {'확인만 (올리지 않음)' if dry_run else '실제로 올림'}")
     print("=" * 66)
 
-    s3, bucket = make_client()
-    if not s3 and not dry_run:
-        print("\n보관소 접속 정보가 없습니다. 아무것도 하지 않았습니다.")
-        print("  docs/archive-setup.md 의 5단계(GitHub Secrets 등록)를 먼저 하세요.")
-        print("  ⚠️ 백업이 없는 상태입니다. 사고가 나면 되돌릴 수 없습니다.")
-        return 1
+    s3 = bucket = None
+    if storage != "github":
+        s3, bucket = make_client()
+        if not s3 and not dry_run:
+            print("\n보관소 접속 정보가 없습니다. 아무것도 하지 않았습니다.")
+            print("  docs/archive-setup.md 의 5단계(GitHub Secrets 등록)를 먼저 하세요.")
+            print("  ⚠️ 백업이 없는 상태입니다. 사고가 나면 되돌릴 수 없습니다.")
+            return 1
 
     client = db.connect()
 
@@ -153,6 +237,27 @@ def main() -> int:
         return 0
 
     key = f"backups/{stamp}.jsonl.gz"
+
+    # ---- GitHub 방식: 파일로 두기만 합니다. 올리는 것은 workflow 가 합니다 ----
+    if storage == "github":
+        outdir = Path(args.outdir)
+        path = outdir / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        (outdir / "manifest.json").write_text(
+            json.dumps({
+                "key": key, "stamp": stamp, "sha256": digest,
+                "byte_size": len(data), "rows": counts,
+            }, ensure_ascii=False, indent=2)
+        )
+        print(f"  ✅ 담았습니다: {key} ({mb}MB)")
+        print("     아직 확인 전입니다 — 올린 뒤 다시 내려받아 대조합니다.")
+        #  ⚠️ 오래된 백업 정리는 하지 않습니다. GitHub 이 90일 뒤 알아서
+        #     지웁니다. 우리가 지울 수 있는 것도 아니고, 지우려 들면
+        #     '지우다 실패해서 백업이 실패로 뜨는' 쪽이 더 나쁩니다.
+        return 0
+
+    # ---- R2 방식 ----
     s3.put_object(Bucket=bucket, Key=key, Body=data,
                   ContentType="application/gzip")
 

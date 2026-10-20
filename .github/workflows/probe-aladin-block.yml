@@ -1,0 +1,42 @@
+# =============================================================================
+#  알라딘 차단 탐침 — 수동 실행 전용
+# =============================================================================
+#  10월 16일부터 알라딘 61개 분야가 전부 HTTP 403 입니다.
+#  "무엇이 막고 있는가" 를 가르기 위한 작업입니다.
+#
+#    ① 이름표 때문    → 이름표만 바꾸면 됨
+#    ② 브라우저가 아니라서 → 교보처럼 브라우저로 열면 됨
+#    ③ 주소(IP) 대역  → 🚨 코드로는 못 뚫음
+#
+#  ※ 요청 5건 · 2초 간격 · 목록 페이지와 robots.txt 만. 상세 페이지 진입 없음.
+#  ※ DB 를 건드리지 않습니다. 아무것도 저장하지 않습니다.
+#
+#  실행: https://github.com/choimog/apple/actions/workflows/probe-aladin-block.yml
+# =============================================================================
+
+name: 알라딘 차단 탐침
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: 무엇이 막고 있는지 가리기
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요한 도구 설치
+        run: pip install --no-cache-dir -r crawler/requirements.txt
+
+      - name: 브라우저(크로미움) 설치
+        uses: ./.github/actions/browser
+
+      - name: 탐침 실행
+        run: python crawler/probe_aladin_block.py

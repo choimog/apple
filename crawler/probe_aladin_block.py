@@ -72,18 +72,29 @@ def books_in(html: str) -> int:
         return 0
 
 
-def show(label: str, status: int | None, body: str, note: str = "") -> bool:
+def show(label: str, status: int | None, body: str,
+         *, expect_books: bool = True) -> bool:
     """
     한 번의 시도 결과를 사람이 읽을 수 있게 적습니다.
-    돌려주는 값: 도서를 실제로 받았는가 (200 인 것만으로는 성공이 아닙니다)
+    돌려주는 값: 이 시도가 성공인가
+
+    expect_books: 도서 칸이 있어야 하는 응답인가.
+      ⚠️ robots.txt 는 글 파일이라 도서 칸이 있을 수 없습니다. False 로 줍니다.
+         (2026-10-20 첫 실행에서 robots.txt 에 '도서 0개 🚨' 가 떴습니다.
+          멀쩡한데 뜨는 경고는 안 뜨는 경고와 같습니다 — 다음에 진짜
+          경고가 떠도 그냥 넘기게 됩니다)
     """
+    if not expect_books:
+        ok = status == 200 and len(body) > 0
+        print(f"  {'✅' if ok else '❌'} {label}")
+        print(f"       HTTP {status}  ·  받은 글자 {len(body):,}")
+        return ok
+
     n = books_in(body)
     ok = status == 200 and n > 0
     mark = "✅" if ok else ("⚠️" if status == 200 else "❌")
     print(f"  {mark} {label}")
     print(f"       HTTP {status}  ·  받은 글자 {len(body):,}  ·  도서 칸 {n}개")
-    if note:
-        print(f"       {note}")
     # 🚨 200 인데 도서가 0개면 '통과한 척' 입니다. 가장 위험한 결과라 따로 적습니다.
     if status == 200 and n == 0:
         print("       🚨 열리기는 했지만 도서가 0개입니다 "
@@ -91,7 +102,8 @@ def show(label: str, status: int | None, body: str, note: str = "") -> bool:
     return ok
 
 
-def try_httpx(label: str, ua: str, url: str, *, browser_headers: bool) -> bool:
+def try_httpx(label: str, ua: str, url: str, *,
+              browser_headers: bool, expect_books: bool = True) -> bool:
     """
     보통 방식(httpx)으로 한 번 받아 봅니다.
 
@@ -109,7 +121,7 @@ def try_httpx(label: str, ua: str, url: str, *, browser_headers: bool) -> bool:
     try:
         with httpx.Client(timeout=20.0, follow_redirects=True) as c:
             r = c.get(url, headers=headers)
-        return show(label, r.status_code, r.text)
+        return show(label, r.status_code, r.text, expect_books=expect_books)
     except Exception as exc:  # noqa: BLE001
         print(f"  ❌ {label}")
         print(f"       접속 자체가 안 됐습니다: {type(exc).__name__}: {exc}")
@@ -144,11 +156,9 @@ def try_browser() -> tuple[bool, bool]:
         page = ctx.new_page()
 
         resp = page.goto(ROBOTS, wait_until="domcontentloaded", timeout=30_000)
-        rob_status = resp.status if resp else None
-        body = page.content()
-        print(f"  {'✅' if rob_status == 200 else '❌'} 브라우저로 robots.txt")
-        print(f"       HTTP {rob_status}  ·  받은 글자 {len(body):,}")
-        robots_ok = rob_status == 200
+        robots_ok = show("브라우저로 robots.txt",
+                         resp.status if resp else None,
+                         page.content(), expect_books=False)
 
         time.sleep(GAP_SEC)
 
@@ -171,7 +181,8 @@ def main() -> int:
 
     print("[1] 지금 수집기가 쓰는 방식 (httpx + 우리 이름표만)")
     print("    여기서 403 이 나와야 '로그에서 본 그 증상' 과 같은 것입니다.")
-    a_robots = try_httpx("robots.txt", OURS_ONLY, ROBOTS, browser_headers=False)
+    a_robots = try_httpx("robots.txt", OURS_ONLY, ROBOTS,
+                         browser_headers=False, expect_books=False)
     time.sleep(GAP_SEC)
     a_list = try_httpx("목록 페이지", OURS_ONLY, LIST_URL, browser_headers=False)
     print()
@@ -197,9 +208,20 @@ def main() -> int:
     print("  판정")
     line()
     if a_list:
-        print("  🤔 지금 방식이 지금은 됩니다 — 차단이 이미 풀렸을 수 있습니다.")
-        print("     코드를 고치기 전에 [매일 수집] 을 한 번 돌려 보는 것이 먼저입니다.")
-        verdict = "unblocked"
+        print("  🤔 지금 이 순간에는 **안 막혀 있습니다.** 지금 쓰는 방식 그대로 통과했습니다.")
+        print()
+        print("     즉 '이름표가 잘못됐다' 거나 '브라우저가 아니라서' 가 아닙니다.")
+        print("     수집이 403 이던 시각과 이 탐침이 200 인 시각이 다를 뿐입니다.")
+        print("     = 간헐적 차단입니다. 작업마다 받는 서버 주소(IP)에 따라 갈립니다.")
+        print()
+        print("     🚨 그래서 '우회' 가 할 일이 아닙니다. 같은 작업 안에서는 이미")
+        print("        4번 재시도하지만 주소가 그대로라 안 뚫립니다. 필요한 것은")
+        print("        **새 작업(=새 주소)에서 다시 받기** 입니다.")
+        print()
+        print("     지금 할 일: [매일 수집] 을 store=aladin 으로 수동 실행해서")
+        print("     오늘 자료를 건지세요. 서점은 '오늘' 순위만 보여주므로")
+        print("     지나가면 영영 못 받습니다.")
+        verdict = "intermittent"
     elif b_list:
         print("  ✅ ① 이름표 때문이었습니다.")
         print("     브라우저가 필요 없습니다. 알라딘에만 크롬 표기를 쓰면 됩니다.")
